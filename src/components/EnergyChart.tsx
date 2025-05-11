@@ -112,7 +112,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       mode: 'index' as const,
       intersect: false,
     },
-    stacked: false,
     plugins: {
       title: {
         display: true,
