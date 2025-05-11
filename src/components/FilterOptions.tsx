@@ -1,0 +1,227 @@
+
+import React, { useState } from 'react';
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { FilterOptions } from '@/types/energy-data';
+import { FilterIcon } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+
+interface FilterOptionsProps {
+  filters: FilterOptions;
+  onChange: (filters: FilterOptions) => void;
+}
+
+const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChange }) => {
+  const [isMonthsOpen, setIsMonthsOpen] = useState(false);
+  const [isWeekdaysOpen, setIsWeekdaysOpen] = useState(false);
+  const [isHoursOpen, setIsHoursOpen] = useState(false);
+  
+  const monthNames = [
+    'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+    'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
+  ];
+  
+  const weekdayNames = [
+    'Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'
+  ];
+  
+  const toggleMonth = (month: number) => {
+    const updatedMonths = filters.months.includes(month)
+      ? filters.months.filter(m => m !== month)
+      : [...filters.months, month];
+    
+    onChange({
+      ...filters,
+      months: updatedMonths
+    });
+  };
+  
+  const toggleWeekday = (weekday: number) => {
+    const updatedWeekdays = filters.weekdays.includes(weekday)
+      ? filters.weekdays.filter(w => w !== weekday)
+      : [...filters.weekdays, weekday];
+    
+    onChange({
+      ...filters,
+      weekdays: updatedWeekdays
+    });
+  };
+  
+  const toggleHour = (hour: number) => {
+    const updatedHours = filters.hours.includes(hour)
+      ? filters.hours.filter(h => h !== hour)
+      : [...filters.hours, hour];
+    
+    onChange({
+      ...filters,
+      hours: updatedHours
+    });
+  };
+  
+  const selectAllMonths = () => {
+    onChange({
+      ...filters,
+      months: Array.from({ length: 12 }, (_, i) => i)
+    });
+  };
+  
+  const selectAllWeekdays = () => {
+    onChange({
+      ...filters,
+      weekdays: Array.from({ length: 7 }, (_, i) => i)
+    });
+  };
+  
+  const selectAllHours = () => {
+    onChange({
+      ...filters,
+      hours: Array.from({ length: 24 }, (_, i) => i)
+    });
+  };
+  
+  const getFilterCounts = () => {
+    return {
+      months: 12 - filters.months.length,
+      weekdays: 7 - filters.weekdays.length,
+      hours: 24 - filters.hours.length,
+    };
+  };
+  
+  const filterCounts = getFilterCounts();
+  const hasActiveFilters = filterCounts.months > 0 || filterCounts.weekdays > 0 || filterCounts.hours > 0;
+  
+  return (
+    <div className="mb-6">
+      <h3 className="text-sm font-medium mb-2">Datenfilter:</h3>
+      <div className="flex flex-wrap gap-2">
+        <Popover open={isMonthsOpen} onOpenChange={setIsMonthsOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="flex items-center gap-2">
+              Monate
+              {filterCounts.months > 0 && (
+                <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
+                  {12 - filterCounts.months}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium">Monate</h4>
+                <Button variant="ghost" size="sm" onClick={selectAllMonths}>
+                  Alle
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {monthNames.map((month, i) => (
+                  <div key={i} className="flex items-center space-x-2">
+                    <Checkbox 
+                      id={`month-${i}`} 
+                      checked={filters.months.includes(i)} 
+                      onCheckedChange={() => toggleMonth(i)} 
+                    />
+                    <Label htmlFor={`month-${i}`} className="text-sm">{month}</Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+        
+        <Popover open={isWeekdaysOpen} onOpenChange={setIsWeekdaysOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="flex items-center gap-2">
+              Wochentage
+              {filterCounts.weekdays > 0 && (
+                <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
+                  {7 - filterCounts.weekdays}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-48">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium">Wochentage</h4>
+                <Button variant="ghost" size="sm" onClick={selectAllWeekdays}>
+                  Alle
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {weekdayNames.map((day, i) => (
+                  <div key={i} className="flex items-center space-x-2">
+                    <Checkbox 
+                      id={`day-${i}`} 
+                      checked={filters.weekdays.includes(i)}
+                      onCheckedChange={() => toggleWeekday(i)}
+                    />
+                    <Label htmlFor={`day-${i}`} className="text-sm">{day}</Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+        
+        <Popover open={isHoursOpen} onOpenChange={setIsHoursOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="flex items-center gap-2">
+              Stunden
+              {filterCounts.hours > 0 && (
+                <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
+                  {24 - filterCounts.hours}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium">Stunden</h4>
+                <Button variant="ghost" size="sm" onClick={selectAllHours}>
+                  Alle
+                </Button>
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {Array.from({ length: 24 }, (_, i) => (
+                  <div key={i} className="flex items-center space-x-2">
+                    <Checkbox 
+                      id={`hour-${i}`}
+                      checked={filters.hours.includes(i)}
+                      onCheckedChange={() => toggleHour(i)}
+                    />
+                    <Label htmlFor={`hour-${i}`} className="text-xs">{`${i}:00`}</Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+        
+        {hasActiveFilters && (
+          <Button 
+            variant="ghost" 
+            size="sm"
+            onClick={() => onChange({
+              months: Array.from({ length: 12 }, (_, i) => i),
+              weekdays: Array.from({ length: 7 }, (_, i) => i),
+              hours: Array.from({ length: 24 }, (_, i) => i),
+            })}
+            className="text-destructive"
+          >
+            Filter zurücksetzen
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default FilterOptionsComponent;
