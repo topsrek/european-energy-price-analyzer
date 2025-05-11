@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ChartData, EnergyPrice, SmartMeterData, ContractOption } from '@/types/energy-data';
 import {
   ResponsiveContainer,
@@ -10,12 +10,12 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ReferenceLine,
-  BarChart,
-  Bar
+  ReferenceLine
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 interface EnergyChartProps {
   energyPrices: EnergyPrice[];
@@ -34,6 +34,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   selectedContract,
   averaging
 }) => {
+  // State for toggling visibility of various lines
+  const [showBasePrice, setShowBasePrice] = useState(true);
+  const [showTotalPrice, setShowTotalPrice] = useState(true);
+  const [showWithTaxes, setShowWithTaxes] = useState(true);
+  const [showConsumption, setShowConsumption] = useState(true);
+  const [showCost, setShowCost] = useState(true);
+
   // Prepare chart data
   const prepareChartData = () => {
     // Create a map of timestamps to prices for quick lookup
@@ -75,15 +82,44 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       });
     }
     
-    // Add contract reference price if selected
+    // Add contract reference prices if selected
     if (selectedContract) {
       const energyPriceInCents = selectedContract.energyPrice;
+      
       chartData.forEach(item => {
         // Energy price in the same unit as the chart
         if (item.unit === 'EUR_MWh') {
           (item as any).contractEnergyPrice = energyPriceInCents * 10; // Convert from cent/kWh to EUR/MWh
         } else {
           (item as any).contractEnergyPrice = energyPriceInCents;
+        }
+        
+        // Calculate the base + fixed costs and with taxes
+        const consumption = (item as any).consumption;
+        if (consumption !== undefined) {
+          const annualConsumption = showSmartMeterData && smartMeterData ? 
+            smartMeterData.reduce((sum, data) => sum + data.consumption, 0) : 3500;
+            
+          // Daily base price in cents
+          const dailyBasePrice = selectedContract.basePrice / 365;
+          
+          // Network costs approximated per kWh
+          const networkCostPerDay = selectedContract.networkCosts(annualConsumption) / 365;
+          
+          // Convert to correct unit
+          const fixedCostPerDay = dailyBasePrice + networkCostPerDay;
+          const fixedCostPerHour = fixedCostPerDay / 24;
+          
+          // Convert to chart units
+          if (item.unit === 'EUR_MWh') {
+            // For MWh, we show price per MWh so we need to multiply the fixed costs
+            (item as any).contractTotalPrice = (energyPriceInCents * 10) + (fixedCostPerHour * 1000 / consumption);
+          } else {
+            (item as any).contractTotalPrice = energyPriceInCents + (fixedCostPerHour * 100 / consumption);
+          }
+          
+          // Add taxes (20% VAT in Austria)
+          (item as any).contractTotalPriceTaxed = (item as any).contractTotalPrice * 1.2;
         }
       });
     }
@@ -162,7 +198,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           formattedDate = format(date, 'dd.MM.yyyy', { locale: de });
           break;
         case 'hourly':
-          formattedDate = format(date, 'dd.MM.yyyy HH:00', { locale: de });
+          formattedDate = format(date, 'dd.MM.yyyy HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
           break;
         default:
           formattedDate = format(date, 'dd.MM.yyyy HH:mm', { locale: de });
@@ -172,7 +208,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         <div className="bg-white p-3 border border-gray-200 rounded-md shadow-md">
           <p className="font-medium text-sm mb-2">{formattedDate}</p>
           {payload.map((entry: any, index: number) => {
-            if (entry.dataKey === 'contractEnergyPrice' && !selectedContract) return null;
+            if (!entry.value) return null;
             
             let value = entry.value;
             let unit = '';
@@ -189,7 +225,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               name = 'Kosten';
             } else if (entry.dataKey === 'contractEnergyPrice') {
               unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
-              name = `${selectedContract?.name} - Arbeitspreis`;
+              name = `${selectedContract?.name}: Arbeitspreis`;
+            } else if (entry.dataKey === 'contractTotalPrice') {
+              unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
+              name = `${selectedContract?.name}: inkl. Fixkosten`;
+            } else if (entry.dataKey === 'contractTotalPriceTaxed') {
+              unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
+              name = `${selectedContract?.name}: inkl. Steuern`;
             }
             
             return (
@@ -204,93 +246,173 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     }
     return null;
   };
-  
+
   return (
-    <div className="w-full h-[500px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart
-          data={chartData}
-          margin={{ top: 10, right: 30, left: 20, bottom: 30 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
-          <XAxis 
-            dataKey="timestamp" 
-            tickFormatter={formatXAxis}
-            label={{ value: getXAxisLabel(), position: 'bottom', offset: 5 }}
-            minTickGap={30}
-          />
-          <YAxis
-            yAxisId="price"
-            domain={['auto', 'auto']}
-            label={{ 
-              value: energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh', 
-              angle: -90, 
-              position: 'left',
-              offset: -5
-            }}
-          />
-          {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
+    <div className="space-y-4">
+      {selectedContract && (
+        <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-gray-50">
+          <div className="text-sm font-medium">Tariflinien anzeigen:</div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="show-base-price" 
+              checked={showBasePrice} 
+              onCheckedChange={setShowBasePrice} 
+            />
+            <Label htmlFor="show-base-price" className="text-sm">Arbeitspreis</Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="show-total-price" 
+              checked={showTotalPrice} 
+              onCheckedChange={setShowTotalPrice} 
+            />
+            <Label htmlFor="show-total-price" className="text-sm">Inkl. Fixkosten</Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="show-with-taxes" 
+              checked={showWithTaxes} 
+              onCheckedChange={setShowWithTaxes} 
+            />
+            <Label htmlFor="show-with-taxes" className="text-sm">Inkl. Steuern</Label>
+          </div>
+        </div>
+      )}
+      
+      {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
+        <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-gray-50">
+          <div className="text-sm font-medium">Verbrauchsdaten anzeigen:</div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="show-consumption" 
+              checked={showConsumption} 
+              onCheckedChange={setShowConsumption} 
+            />
+            <Label htmlFor="show-consumption" className="text-sm">Verbrauch</Label>
+          </div>
+          {showTotalCost && (
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="show-cost" 
+                checked={showCost} 
+                onCheckedChange={setShowCost} 
+              />
+              <Label htmlFor="show-cost" className="text-sm">Kosten</Label>
+            </div>
+          )}
+        </div>
+      )}
+      
+      <div className="w-full h-[500px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart
+            data={chartData}
+            margin={{ top: 10, right: 30, left: 20, bottom: 30 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
+            <XAxis 
+              dataKey="timestamp" 
+              tickFormatter={formatXAxis}
+              label={{ value: getXAxisLabel(), position: 'bottom', offset: 5 }}
+              minTickGap={30}
+            />
             <YAxis
-              yAxisId="consumption"
-              orientation="right"
-              label={{ value: 'kWh', angle: 90, position: 'right' }}
-            />
-          )}
-          {showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && (
-            <YAxis
-              yAxisId="cost"
-              orientation="right"
-              label={{ value: '€', angle: 90, position: 'right', offset: 40 }}
-            />
-          )}
-          <Tooltip content={<CustomTooltip />} />
-          <Legend />
-          <Line
-            type="monotone"
-            dataKey="price"
-            name="Strompreis"
-            yAxisId="price"
-            stroke="#e53935"
-            strokeWidth={2}
-            dot={energyPrices.length > 100 ? false : {}}
-            activeDot={{ r: 5 }}
-          />
-          {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
-            <Line
-              type="monotone"
-              dataKey="consumption"
-              name="Verbrauch"
-              yAxisId="consumption"
-              stroke="#4285f4"
-              strokeWidth={2}
-              dot={smartMeterData.length > 100 ? false : {}}
-            />
-          )}
-          {showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && (
-            <Line
-              type="monotone"
-              dataKey="cost"
-              name="Kosten"
-              yAxisId="cost"
-              stroke="#34a853"
-              strokeWidth={2}
-              dot={smartMeterData.length > 100 ? false : {}}
-            />
-          )}
-          {selectedContract && (
-            <Line
-              type="monotone"
-              dataKey="contractEnergyPrice"
-              name={`${selectedContract.name} - Arbeitspreis`}
               yAxisId="price"
-              stroke="#9c27b0"
-              strokeWidth={2}
-              strokeDasharray="5 5"
-              dot={false}
+              domain={['auto', 'auto']}
+              label={{ 
+                value: energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh', 
+                angle: -90, 
+                position: 'left',
+                offset: -5
+              }}
             />
-          )}
-        </LineChart>
-      </ResponsiveContainer>
+            {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
+              <YAxis
+                yAxisId="consumption"
+                orientation="right"
+                label={{ value: 'kWh', angle: 90, position: 'right' }}
+              />
+            )}
+            {showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && (
+              <YAxis
+                yAxisId="cost"
+                orientation="right"
+                label={{ value: '€', angle: 90, position: 'right', offset: 40 }}
+              />
+            )}
+            <Tooltip content={<CustomTooltip />} />
+            <Legend />
+            <Line
+              type="monotone"
+              dataKey="price"
+              name="Strompreis"
+              yAxisId="price"
+              stroke="#e53935"
+              strokeWidth={2}
+              dot={energyPrices.length > 100 ? false : {}}
+              activeDot={{ r: 5 }}
+            />
+            {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && showConsumption && (
+              <Line
+                type="monotone"
+                dataKey="consumption"
+                name="Verbrauch"
+                yAxisId="consumption"
+                stroke="#4285f4"
+                strokeWidth={2}
+                dot={smartMeterData.length > 100 ? false : {}}
+              />
+            )}
+            {showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && showCost && (
+              <Line
+                type="monotone"
+                dataKey="cost"
+                name="Kosten"
+                yAxisId="cost"
+                stroke="#34a853"
+                strokeWidth={2}
+                dot={smartMeterData.length > 100 ? false : {}}
+              />
+            )}
+            {selectedContract && showBasePrice && (
+              <Line
+                type="monotone"
+                dataKey="contractEnergyPrice"
+                name={`${selectedContract.name} - Arbeitspreis`}
+                yAxisId="price"
+                stroke="#9c27b0"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                dot={false}
+              />
+            )}
+            {selectedContract && showTotalPrice && (
+              <Line
+                type="monotone"
+                dataKey="contractTotalPrice"
+                name={`${selectedContract.name} - inkl. Fixkosten`}
+                yAxisId="price"
+                stroke="#ff9800"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                dot={false}
+              />
+            )}
+            {selectedContract && showWithTaxes && (
+              <Line
+                type="monotone"
+                dataKey="contractTotalPriceTaxed"
+                name={`${selectedContract.name} - inkl. Steuern`}
+                yAxisId="price"
+                stroke="#795548"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                dot={false}
+              />
+            )}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 };

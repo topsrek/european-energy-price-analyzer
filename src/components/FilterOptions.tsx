@@ -15,9 +15,10 @@ import { Badge } from '@/components/ui/badge';
 interface FilterOptionsProps {
   filters: FilterOptions;
   onChange: (filters: FilterOptions) => void;
+  disabled?: boolean;
 }
 
-const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChange }) => {
+const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChange, disabled = false }) => {
   const [isMonthsOpen, setIsMonthsOpen] = useState(false);
   const [isWeekdaysOpen, setIsWeekdaysOpen] = useState(false);
   const [isHoursOpen, setIsHoursOpen] = useState(false);
@@ -108,9 +109,9 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
     <div className="mb-6">
       <h3 className="text-sm font-medium mb-2">Datenfilter:</h3>
       <div className="flex flex-wrap gap-2">
-        <Popover open={isMonthsOpen} onOpenChange={setIsMonthsOpen}>
+        <Popover open={isMonthsOpen && !disabled} onOpenChange={(open) => !disabled && setIsMonthsOpen(open)}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={disabled}>
               Monate
               {filterCounts.months > 0 && (
                 <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
@@ -143,9 +144,9 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
           </PopoverContent>
         </Popover>
         
-        <Popover open={isWeekdaysOpen} onOpenChange={setIsWeekdaysOpen}>
+        <Popover open={isWeekdaysOpen && !disabled} onOpenChange={(open) => !disabled && setIsWeekdaysOpen(open)}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={disabled}>
               Wochentage
               {filterCounts.weekdays > 0 && (
                 <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
@@ -181,9 +182,9 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
           </PopoverContent>
         </Popover>
         
-        <Popover open={isHoursOpen} onOpenChange={setIsHoursOpen}>
+        <Popover open={isHoursOpen && !disabled} onOpenChange={(open) => !disabled && setIsHoursOpen(open)}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={disabled}>
               Stunden
               {filterCounts.hours > 0 && (
                 <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
@@ -208,7 +209,7 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
                       checked={filters.hours.includes(i)}
                       onCheckedChange={() => toggleHour(i)}
                     />
-                    <Label htmlFor={`hour-${i}`} className="text-xs">{`${i}:00`}</Label>
+                    <Label htmlFor={`hour-${i}`} className="text-xs">{`${i}:00~${(i+1) % 24}:00`}</Label>
                   </div>
                 ))}
               </div>
@@ -216,7 +217,7 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
           </PopoverContent>
         </Popover>
         
-        {hasActiveFilters && (
+        {hasActiveFilters && !disabled && (
           <Button 
             variant="ghost" 
             size="sm"

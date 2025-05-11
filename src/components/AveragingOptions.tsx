@@ -5,17 +5,30 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Switch } from '@/components/ui/switch';
 
 interface AveragingOptionsProps {
   selectedOption: AveragingOption;
   onChange: (option: AveragingOption) => void;
+  isAveragingEnabled: boolean;
+  onAveragingToggle: (enabled: boolean) => void;
 }
 
-const AveragingOptions: React.FC<AveragingOptionsProps> = ({ selectedOption, onChange }) => {
+const AveragingOptions: React.FC<AveragingOptionsProps> = ({ 
+  selectedOption, 
+  onChange, 
+  isAveragingEnabled, 
+  onAveragingToggle 
+}) => {
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <Label htmlFor="averaging" className="text-sm font-medium">Durchschnittswerte berechnen</Label>
+        <Switch 
+          id="enable-averaging"
+          checked={isAveragingEnabled}
+          onCheckedChange={onAveragingToggle}
+        />
+        <Label htmlFor="enable-averaging" className="text-sm font-medium">Durchschnitt berechnen</Label>
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -27,12 +40,16 @@ const AveragingOptions: React.FC<AveragingOptionsProps> = ({ selectedOption, onC
           </Tooltip>
         </TooltipProvider>
       </div>
-      <Select value={selectedOption} onValueChange={(value) => onChange(value as AveragingOption)}>
+
+      <Select 
+        value={selectedOption} 
+        onValueChange={(value) => onChange(value as AveragingOption)}
+        disabled={!isAveragingEnabled}
+      >
         <SelectTrigger id="averaging">
           <SelectValue placeholder="Durchschnitt auswählen" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="none">Keine Durchschnittsberechnung</SelectItem>
           <SelectItem value="hourly">Stündlicher Durchschnitt</SelectItem>
           <SelectItem value="daily">Täglicher Durchschnitt</SelectItem>
           <SelectItem value="monthly">Monatlicher Durchschnitt</SelectItem>

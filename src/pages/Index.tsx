@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useCallback } from 'react';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
@@ -23,7 +22,8 @@ const Index = () => {
   const { toast } = useToast();
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(new Date());
-  const [averaging, setAveraging] = useState<AveragingOption>('none');
+  const [isAveragingEnabled, setIsAveragingEnabled] = useState<boolean>(false);
+  const [averaging, setAveraging] = useState<AveragingOption>('hourly');
   const [filters, setFilters] = useState<FilterOptionsType>({
     months: Array.from({ length: 12 }, (_, i) => i), // All months
     weekdays: Array.from({ length: 7 }, (_, i) => i), // All days
@@ -88,14 +88,24 @@ const Index = () => {
     // Apply date range filter
     let filteredData = filterByDateRange(rawEnergyPrices, startDate, endDate);
     
-    // Apply other filters
-    filteredData = applyFilters(filteredData, filters);
+    // Apply other filters if averaging is enabled
+    if (isAveragingEnabled) {
+      filteredData = applyFilters(filteredData, filters);
+    }
     
-    // Apply averaging
-    const averagedData = calculateAverage(filteredData, averaging);
+    // Apply averaging if enabled
+    const processedData = isAveragingEnabled ? 
+      calculateAverage(filteredData, averaging) : 
+      filteredData;
     
-    setDisplayedEnergyPrices(averagedData);
-  }, [rawEnergyPrices, startDate, endDate, filters, averaging]);
+    setDisplayedEnergyPrices(processedData);
+  }, [rawEnergyPrices, startDate, endDate, filters, averaging, isAveragingEnabled]);
+  
+  // Handler for averaging toggle
+  const handleAveragingToggle = (enabled: boolean) => {
+    setIsAveragingEnabled(enabled);
+    // If averaging is disabled, we keep the option selected but don't apply it
+  };
   
   // Handle smart meter file upload
   const handleSmartMeterDataUpload = useCallback((data: SmartMeterData[]) => {
@@ -145,12 +155,15 @@ const Index = () => {
                     <AveragingOptions
                       selectedOption={averaging}
                       onChange={setAveraging}
+                      isAveragingEnabled={isAveragingEnabled}
+                      onAveragingToggle={handleAveragingToggle}
                     />
                   </div>
                   <div>
                     <FilterOptions
                       filters={filters}
                       onChange={setFilters}
+                      disabled={!isAveragingEnabled}
                     />
                   </div>
                 </div>
@@ -164,7 +177,7 @@ const Index = () => {
                       showSmartMeterData={showSmartMeterData}
                       showTotalCost={showTotalCost}
                       selectedContract={selectedContract}
-                      averaging={averaging}
+                      averaging={isAveragingEnabled ? averaging : 'none'}
                     />
                   ) : (
                     <div className="h-[400px] flex items-center justify-center bg-gray-100 rounded-lg">
