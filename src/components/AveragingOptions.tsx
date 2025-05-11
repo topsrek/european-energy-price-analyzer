@@ -3,7 +3,7 @@ import React from 'react';
 import { AveragingOption } from '@/types/energy-data';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { InfoCircle } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface AveragingOptionsProps {
@@ -19,7 +19,7 @@ const AveragingOptions: React.FC<AveragingOptionsProps> = ({ selectedOption, onC
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <InfoCircle className="h-4 w-4 text-gray-400" />
+              <Info className="h-4 w-4 text-gray-400" />
             </TooltipTrigger>
             <TooltipContent className="max-w-[300px]">
               <p>Berechnet Durchschnittswerte für den ausgewählten Zeitraum pro Stunde, Tag oder Monat</p>

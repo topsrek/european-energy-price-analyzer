@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useCallback } from 'react';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
@@ -16,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { InfoCircle } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const Index = () => {
@@ -120,7 +119,7 @@ const Index = () => {
                 <HelpModal />
                 <InfoModal trigger={
                   <Button variant="outline" size="sm" className="flex gap-1 items-center">
-                    <InfoCircle className="h-4 w-4" />
+                    <Info className="h-4 w-4" />
                     <span>Strommarkt</span>
                   </Button>
                 } />
