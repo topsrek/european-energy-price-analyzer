@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useCallback } from 'react';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
@@ -34,6 +35,7 @@ const Index = () => {
   const [showSmartMeterData, setShowSmartMeterData] = useState<boolean>(true);
   const [showTotalCost, setShowTotalCost] = useState<boolean>(false);
   const [annualConsumption, setAnnualConsumption] = useState<number>(3500); // Default annual consumption
+  const [selectedContract, setSelectedContract] = useState<ContractOption | undefined>(undefined);
   
   // Mock contract options
   const contractOptions: ContractOption[] = [
@@ -161,6 +163,8 @@ const Index = () => {
                       smartMeterData={smartMeterData}
                       showSmartMeterData={showSmartMeterData}
                       showTotalCost={showTotalCost}
+                      selectedContract={selectedContract}
+                      averaging={averaging}
                     />
                   ) : (
                     <div className="h-[400px] flex items-center justify-center bg-gray-100 rounded-lg">
@@ -210,6 +214,8 @@ const Index = () => {
                     annualConsumption={annualConsumption}
                     onAnnualConsumptionChange={setAnnualConsumption}
                     contractOptions={contractOptions}
+                    onSelectContract={setSelectedContract}
+                    selectedContract={selectedContract}
                   />
                 </TabsContent>
                 <TabsContent value="upload">

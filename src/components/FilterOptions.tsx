@@ -27,9 +27,14 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
     'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
   ];
   
+  // Rearranged to have Monday as the first day (index 1) of the week
   const weekdayNames = [
-    'Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'
+    'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'
   ];
+  
+  // Convert between our display order (Mon-Sun) and JavaScript's day indices (Sun-Sat)
+  const displayToJsDay = (displayIndex) => (displayIndex + 1) % 7;
+  const jsDayToDisplay = (jsDay) => (jsDay + 6) % 7;
   
   const toggleMonth = (month: number) => {
     const updatedMonths = filters.months.includes(month)
@@ -42,10 +47,13 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
     });
   };
   
-  const toggleWeekday = (weekday: number) => {
-    const updatedWeekdays = filters.weekdays.includes(weekday)
-      ? filters.weekdays.filter(w => w !== weekday)
-      : [...filters.weekdays, weekday];
+  const toggleWeekday = (displayDayIndex: number) => {
+    // Convert to JavaScript day index
+    const jsDay = displayToJsDay(displayDayIndex);
+    
+    const updatedWeekdays = filters.weekdays.includes(jsDay)
+      ? filters.weekdays.filter(w => w !== jsDay)
+      : [...filters.weekdays, jsDay];
     
     onChange({
       ...filters,
@@ -155,16 +163,19 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
                 </Button>
               </div>
               <div className="space-y-2">
-                {weekdayNames.map((day, i) => (
-                  <div key={i} className="flex items-center space-x-2">
-                    <Checkbox 
-                      id={`day-${i}`} 
-                      checked={filters.weekdays.includes(i)}
-                      onCheckedChange={() => toggleWeekday(i)}
-                    />
-                    <Label htmlFor={`day-${i}`} className="text-sm">{day}</Label>
-                  </div>
-                ))}
+                {weekdayNames.map((day, displayIndex) => {
+                  const jsDay = displayToJsDay(displayIndex);
+                  return (
+                    <div key={displayIndex} className="flex items-center space-x-2">
+                      <Checkbox 
+                        id={`day-${displayIndex}`} 
+                        checked={filters.weekdays.includes(jsDay)}
+                        onCheckedChange={() => toggleWeekday(displayIndex)}
+                      />
+                      <Label htmlFor={`day-${displayIndex}`} className="text-sm">{day}</Label>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </PopoverContent>

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ChartData, EnergyPrice, SmartMeterData } from '@/types/energy-data';
+import { ChartData, EnergyPrice, SmartMeterData, ContractOption } from '@/types/energy-data';
 import {
   ResponsiveContainer,
   LineChart,
@@ -9,7 +9,10 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend
+  Legend,
+  ReferenceLine,
+  BarChart,
+  Bar
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -19,13 +22,17 @@ interface EnergyChartProps {
   smartMeterData?: SmartMeterData[];
   showSmartMeterData: boolean;
   showTotalCost: boolean;
+  selectedContract?: ContractOption;
+  averaging: string;
 }
 
 const EnergyChart: React.FC<EnergyChartProps> = ({ 
   energyPrices, 
   smartMeterData, 
   showSmartMeterData,
-  showTotalCost 
+  showTotalCost,
+  selectedContract,
+  averaging
 }) => {
   // Prepare chart data
   const prepareChartData = () => {
@@ -68,13 +75,31 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       });
     }
     
+    // Add contract reference price if selected
+    if (selectedContract) {
+      const energyPriceInCents = selectedContract.energyPrice;
+      chartData.forEach(item => {
+        // Energy price in the same unit as the chart
+        if (item.unit === 'EUR_MWh') {
+          (item as any).contractEnergyPrice = energyPriceInCents * 10; // Convert from cent/kWh to EUR/MWh
+        } else {
+          (item as any).contractEnergyPrice = energyPriceInCents;
+        }
+      });
+    }
+    
     return chartData;
   };
   
   const chartData = prepareChartData();
   
-  // Calculate time unit based on data length
+  // Calculate time unit based on data length and averaging option
   const getTimeUnit = () => {
+    if (averaging === 'monthly') return 'month';
+    if (averaging === 'daily') return 'day';
+    if (averaging === 'hourly') return 'hour';
+    
+    // Default based on data length
     if (energyPrices.length > 720) return 'month';
     if (energyPrices.length > 168) return 'week';
     if (energyPrices.length > 24) return 'day';
@@ -83,17 +108,42 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   
   const timeUnit = getTimeUnit();
   
-  // Format date tick based on selected time unit
+  // Format date tick based on selected time unit and averaging
   const formatXAxis = (timestamp: string) => {
     const date = parseISO(timestamp);
-    switch (timeUnit) {
-      case 'month':
-        return format(date, 'MMM yy', { locale: de });
-      case 'week':
-      case 'day':
-        return format(date, 'dd.MM', { locale: de });
+    
+    switch (averaging) {
+      case 'monthly':
+        return format(date, 'MMM yyyy', { locale: de });
+      case 'daily':
+        return format(date, 'dd.MM.yyyy', { locale: de });
+      case 'hourly':
+        return format(date, 'dd.MM HH:mm', { locale: de });
       default:
-        return format(date, 'HH:mm', { locale: de });
+        // Default based on time unit
+        switch (timeUnit) {
+          case 'month':
+            return format(date, 'MMM yy', { locale: de });
+          case 'week':
+          case 'day':
+            return format(date, 'dd.MM', { locale: de });
+          default:
+            return format(date, 'HH:mm', { locale: de });
+        }
+    }
+  };
+  
+  // Get axis label based on averaging
+  const getXAxisLabel = () => {
+    switch (averaging) {
+      case 'monthly':
+        return 'Monatsdurchschnitt';
+      case 'daily':
+        return 'Tagesdurchschnitt';
+      case 'hourly':
+        return 'Stundendurchschnitt';
+      default:
+        return 'Datum';
     }
   };
   
@@ -101,26 +151,50 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const date = parseISO(label);
-      const formattedDate = format(date, 'dd.MM.yyyy HH:mm', { locale: de });
+      
+      // Format date based on averaging
+      let formattedDate;
+      switch (averaging) {
+        case 'monthly':
+          formattedDate = format(date, 'MMMM yyyy', { locale: de });
+          break;
+        case 'daily':
+          formattedDate = format(date, 'dd.MM.yyyy', { locale: de });
+          break;
+        case 'hourly':
+          formattedDate = format(date, 'dd.MM.yyyy HH:00', { locale: de });
+          break;
+        default:
+          formattedDate = format(date, 'dd.MM.yyyy HH:mm', { locale: de });
+      }
       
       return (
         <div className="bg-white p-3 border border-gray-200 rounded-md shadow-md">
           <p className="font-medium text-sm mb-2">{formattedDate}</p>
           {payload.map((entry: any, index: number) => {
+            if (entry.dataKey === 'contractEnergyPrice' && !selectedContract) return null;
+            
             let value = entry.value;
             let unit = '';
+            let name = entry.name;
             
             if (entry.dataKey === 'price') {
               unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
+              name = 'Strompreis';
             } else if (entry.dataKey === 'consumption') {
               unit = 'kWh';
+              name = 'Verbrauch';
             } else if (entry.dataKey === 'cost') {
               unit = '€';
+              name = 'Kosten';
+            } else if (entry.dataKey === 'contractEnergyPrice') {
+              unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
+              name = `${selectedContract?.name} - Arbeitspreis`;
             }
             
             return (
               <p key={`tooltip-${index}`} className="text-sm" style={{ color: entry.color }}>
-                <span className="font-medium">{entry.name}: </span>
+                <span className="font-medium">{name}: </span>
                 {value.toFixed(2)} {unit}
               </p>
             );
@@ -142,7 +216,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           <XAxis 
             dataKey="timestamp" 
             tickFormatter={formatXAxis}
-            label={{ value: 'Datum', position: 'bottom', offset: 5 }}
+            label={{ value: getXAxisLabel(), position: 'bottom', offset: 5 }}
             minTickGap={30}
           />
           <YAxis
@@ -201,6 +275,18 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               stroke="#34a853"
               strokeWidth={2}
               dot={smartMeterData.length > 100 ? false : {}}
+            />
+          )}
+          {selectedContract && (
+            <Line
+              type="monotone"
+              dataKey="contractEnergyPrice"
+              name={`${selectedContract.name} - Arbeitspreis`}
+              yAxisId="price"
+              stroke="#9c27b0"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={false}
             />
           )}
         </LineChart>

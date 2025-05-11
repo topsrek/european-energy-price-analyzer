@@ -9,22 +9,26 @@ import { ContractOption } from '@/types/energy-data';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Info } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface ContractOptionsProps {
   annualConsumption: number;
   onAnnualConsumptionChange: (value: number) => void;
   contractOptions: ContractOption[];
+  onSelectContract: (contract: ContractOption | undefined) => void;
+  selectedContract?: ContractOption;
 }
 
 const ContractOptions: React.FC<ContractOptionsProps> = ({
   annualConsumption,
   onAnnualConsumptionChange,
-  contractOptions
+  contractOptions,
+  onSelectContract,
+  selectedContract
 }) => {
   const [consumption, setConsumption] = useState<string>(annualConsumption.toString());
   const [showFixedCosts, setShowFixedCosts] = useState<boolean>(true);
-  const [showFixedCostsBreakdown, setShowFixedCostsBreakdown] = useState<boolean>(false);
-
+  
   const handleUpdate = () => {
     const parsedValue = parseFloat(consumption);
     if (!isNaN(parsedValue) && parsedValue > 0) {
@@ -108,6 +112,14 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
       </Dialog>
     );
   };
+
+  const handleSelectContract = (contract: ContractOption) => {
+    if (selectedContract?.name === contract.name) {
+      onSelectContract(undefined); // Deselect if already selected
+    } else {
+      onSelectContract(contract); // Select new contract
+    }
+  };
   
   return (
     <div className="space-y-6">
@@ -148,64 +160,94 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
             <YAxis label={{ value: 'Euro pro Jahr', angle: -90, position: 'insideLeft' }} />
             <Tooltip content={<CustomTooltip />} />
             <Legend />
-            <Bar dataKey="energyCosts" name="Stromkosten" stackId="a" fill="#4285f4" />
-            {showFixedCosts && (
-              <Bar dataKey="fixedCosts" name="Fixkosten" stackId="a" fill="#fbbc05" />
-            )}
-            <Bar dataKey="tax" name="Umsatzsteuer" stackId="a" fill="#34a853" />
+            <Bar 
+              dataKey="energyCosts" 
+              name="Stromkosten" 
+              stackId="a" 
+              fill="#4285f4" 
+              animationDuration={500}
+            />
+            <AnimatePresence>
+              {showFixedCosts && (
+                <Bar 
+                  dataKey="fixedCosts" 
+                  name="Fixkosten" 
+                  stackId="a" 
+                  fill="#fbbc05" 
+                  animationDuration={500}
+                />
+              )}
+            </AnimatePresence>
+            <Bar 
+              dataKey="tax" 
+              name="Umsatzsteuer" 
+              stackId="a" 
+              fill="#34a853" 
+              animationDuration={500}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {chartData.map((contract, index) => (
-          <Card key={index} className={index === 0 ? "border-energy-secondary" : ""}>
-            {index === 0 && (
-              <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-energy-secondary text-white px-3 py-1 rounded-full text-xs font-medium">
-                Günstigste Option
-              </div>
-            )}
-            
-            <CardHeader>
-              <CardTitle>{contract.name}</CardTitle>
-              <CardDescription>Anbieter: {contract.provider}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>Grundpreis:</span>
-                  <span className="font-medium">{contract.basePrice.toFixed(2)} € / Jahr</span>
+        {chartData.map((contract, index) => {
+          const isSelected = selectedContract?.name === contractOptions[index].name;
+          return (
+            <Card 
+              key={index} 
+              className={`${index === 0 ? "border-energy-secondary" : ""} ${isSelected ? "ring-2 ring-primary" : ""}`}
+            >
+              {index === 0 && (
+                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-energy-secondary text-white px-3 py-1 rounded-full text-xs font-medium">
+                  Günstigste Option
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span>Arbeitspreis:</span>
-                  <span className="font-medium">{contractOptions[index].energyPrice.toFixed(2)} Cent / kWh</span>
+              )}
+              
+              <CardHeader>
+                <CardTitle>{contract.name}</CardTitle>
+                <CardDescription>Anbieter: {contract.provider}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Grundpreis:</span>
+                    <span className="font-medium">{contract.basePrice.toFixed(2)} € / Jahr</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Arbeitspreis:</span>
+                    <span className="font-medium">{contractOptions[index].energyPrice.toFixed(2)} Cent / kWh</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Netzkosten:</span>
+                    <span className="font-medium">{contract.networkCosts.toFixed(2)} € / Jahr</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Stromkosten:</span>
+                    <span className="font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Umsatzsteuer (20%):</span>
+                    <span className="font-medium">{contract.tax.toFixed(2)} € / Jahr</span>
+                  </div>
+                  <div className="border-t pt-2 mt-2 flex justify-between font-medium">
+                    <span>Jahreskosten:</span>
+                    <span>{contract.total.toFixed(2)} €</span>
+                  </div>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span>Netzkosten:</span>
-                  <span className="font-medium">{contract.networkCosts.toFixed(2)} € / Jahr</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Stromkosten:</span>
-                  <span className="font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Umsatzsteuer (20%):</span>
-                  <span className="font-medium">{contract.tax.toFixed(2)} € / Jahr</span>
-                </div>
-                <div className="border-t pt-2 mt-2 flex justify-between font-medium">
-                  <span>Jahreskosten:</span>
-                  <span>{contract.total.toFixed(2)} €</span>
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <FixedCostsBreakdownDialog contract={contract} />
-              <Button variant="outline" size="sm">
-                Tarif auswählen
-              </Button>
-            </CardFooter>
-          </Card>
-        ))}
+              </CardContent>
+              <CardFooter className="flex justify-between">
+                <FixedCostsBreakdownDialog contract={contract} />
+                <Button 
+                  variant={isSelected ? "default" : "outline"} 
+                  size="sm"
+                  onClick={() => handleSelectContract(contractOptions[index])}
+                >
+                  {isSelected ? "Ausgewählt" : "Tarif auswählen"}
+                </Button>
+              </CardFooter>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
