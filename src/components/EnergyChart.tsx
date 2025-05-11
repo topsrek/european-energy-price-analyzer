@@ -55,14 +55,14 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       chartData.forEach(item => {
         const consumption = consumptionMap.get(item.timestamp);
         if (consumption !== undefined) {
-          item.consumption = consumption;
+          (item as any).consumption = consumption;
           
           // Add cost calculation if enabled
           if (showTotalCost) {
             const price = item.price;
             // Convert price from €/MWh to €/kWh if needed
             const pricePerKWh = item.unit === 'EUR_MWh' ? price / 1000 : price / 100;
-            item.cost = consumption * pricePerKWh;
+            (item as any).cost = consumption * pricePerKWh;
           }
         }
       });

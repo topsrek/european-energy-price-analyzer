@@ -7,6 +7,8 @@ import FilterOptions from '@/components/FilterOptions';
 import EnergyChart from '@/components/EnergyChart';
 import FileUpload from '@/components/FileUpload';
 import ContractOptions from '@/components/ContractOptions';
+import InfoModal from '@/components/InfoModal';
+import HelpModal from '@/components/HelpModal';
 import { AveragingOption, ContractOption, EnergyPrice, FilterOptions as FilterOptionsType, SmartMeterData } from '@/types/energy-data';
 import { applyFilters, calculateAverage, filterByDateRange, generateMockEnergyPrices } from '@/utils/data-utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +16,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { InfoCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 const Index = () => {
   const { toast } = useToast();
@@ -105,8 +109,22 @@ const Index = () => {
       <main className="flex-grow container mx-auto py-8 px-4">
         <div className="space-y-8">
           <Card className="animate-fade-in">
-            <CardHeader>
-              <CardTitle>Energiepreis Österreich</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Energiepreise und Tarifvergleich für Wien</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Netzkosten basieren auf den Tarifen der Wiener Netze
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <HelpModal />
+                <InfoModal trigger={
+                  <Button variant="outline" size="sm" className="flex gap-1 items-center">
+                    <InfoCircle className="h-4 w-4" />
+                    <span>Strommarkt</span>
+                  </Button>
+                } />
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
@@ -178,36 +196,36 @@ const Index = () => {
             </CardContent>
           </Card>
           
-          <Tabs defaultValue="upload" className="animate-fade-in">
-            <TabsList>
-              <TabsTrigger value="upload">Smart Meter Daten</TabsTrigger>
-              <TabsTrigger value="contracts">Tarifoptionen</TabsTrigger>
-            </TabsList>
-            <TabsContent value="upload">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Smart Meter Daten hochladen</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <FileUpload onFileLoaded={handleSmartMeterDataUpload} />
-                </CardContent>
-              </Card>
-            </TabsContent>
-            <TabsContent value="contracts">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Tarifoptionen</CardTitle>
-                </CardHeader>
-                <CardContent>
+          <Card className="animate-fade-in">
+            <CardHeader>
+              <CardTitle>Wie viel kosten die günstigsten Tarife?</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="contracts">
+                <TabsList>
+                  <TabsTrigger value="contracts">Tarifoptionen</TabsTrigger>
+                  <TabsTrigger value="upload">Smart Meter Daten</TabsTrigger>
+                </TabsList>
+                <TabsContent value="contracts">
                   <ContractOptions
                     annualConsumption={annualConsumption}
                     onAnnualConsumptionChange={setAnnualConsumption}
                     contractOptions={contractOptions}
                   />
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+                </TabsContent>
+                <TabsContent value="upload">
+                  <div className="p-4">
+                    <h3 className="text-lg font-medium mb-4">Smart Meter Daten hochladen</h3>
+                    <p className="text-sm text-muted-foreground mb-6">
+                      Laden Sie Ihre Smart Meter Daten hoch, um Ihren tatsächlichen Verbrauch zu 
+                      analysieren und optimale Tarife zu finden.
+                    </p>
+                    <FileUpload onFileLoaded={handleSmartMeterDataUpload} />
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
         </div>
       </main>
       
