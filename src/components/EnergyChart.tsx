@@ -256,7 +256,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <Checkbox 
               id="show-base-price" 
               checked={showBasePrice} 
-              onCheckedChange={setShowBasePrice} 
+              onCheckedChange={(checked) => setShowBasePrice(checked === true)}
             />
             <Label htmlFor="show-base-price" className="text-sm">Arbeitspreis</Label>
           </div>
@@ -264,7 +264,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <Checkbox 
               id="show-total-price" 
               checked={showTotalPrice} 
-              onCheckedChange={setShowTotalPrice} 
+              onCheckedChange={(checked) => setShowTotalPrice(checked === true)}
             />
             <Label htmlFor="show-total-price" className="text-sm">Inkl. Fixkosten</Label>
           </div>
@@ -272,7 +272,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <Checkbox 
               id="show-with-taxes" 
               checked={showWithTaxes} 
-              onCheckedChange={setShowWithTaxes} 
+              onCheckedChange={(checked) => setShowWithTaxes(checked === true)}
             />
             <Label htmlFor="show-with-taxes" className="text-sm">Inkl. Steuern</Label>
           </div>
@@ -286,7 +286,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <Checkbox 
               id="show-consumption" 
               checked={showConsumption} 
-              onCheckedChange={setShowConsumption} 
+              onCheckedChange={(checked) => setShowConsumption(checked === true)}
             />
             <Label htmlFor="show-consumption" className="text-sm">Verbrauch</Label>
           </div>
@@ -295,7 +295,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               <Checkbox 
                 id="show-cost" 
                 checked={showCost} 
-                onCheckedChange={setShowCost} 
+                onCheckedChange={(checked) => setShowCost(checked === true)}
               />
               <Label htmlFor="show-cost" className="text-sm">Kosten</Label>
             </div>
