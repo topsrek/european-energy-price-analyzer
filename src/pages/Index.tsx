@@ -20,6 +20,7 @@ import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
+import datesConfig from '@/config/dates.json';
 
 const Index = () => {
   const { toast } = useToast();
@@ -50,17 +51,17 @@ const Index = () => {
       networkCosts: (totalConsumption) => 0.027 * totalConsumption + 45,
     },
     {
-      name: 'Öko Strom Basic',
-      provider: 'Grüne Energie GmbH',
-      basePrice: 84,
-      energyPrice: 7.10,
-      networkCosts: (totalConsumption) => 0.027 * totalConsumption + 45,
-    },
-    {
       name: 'Standard Tarif',
       provider: 'Wien Energie',
       basePrice: 102,
       energyPrice: 5.95,
+      networkCosts: (totalConsumption) => 0.027 * totalConsumption + 45,
+    },
+    {
+      name: 'Öko Strom Basic',
+      provider: 'Grüne Energie GmbH',
+      basePrice: 84,
+      energyPrice: 7.10,
       networkCosts: (totalConsumption) => 0.027 * totalConsumption + 45,
     },
   ];
@@ -118,7 +119,7 @@ const Index = () => {
   
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      <Header />
+      <Header version={datesConfig.version} lastUpdated={datesConfig.lastDataUpdate} />
       
       <main className="flex-grow container mx-auto py-8 px-4">
         <div className="space-y-8">
@@ -174,6 +175,9 @@ const Index = () => {
                 
                 {/* Visualization */}
                 <div>
+                  <div className="flex justify-end mb-1">
+                    <span className="text-xs text-gray-500">Daten zuletzt aktualisiert: {datesConfig.lastDataUpdate}</span>
+                  </div>
                   {displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 
                       energyPrices={displayedEnergyPrices}

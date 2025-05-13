@@ -1,10 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ContractOption } from '@/types/energy-data';
+import datesConfig from '@/config/dates.json';
 
 interface ContractOptionsProps {
   annualConsumption: number;
@@ -22,6 +23,11 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
   selectedContract
 }) => {
   const [consumption, setConsumption] = useState<string>(annualConsumption.toString());
+  const [editableEcoTariff, setEditableEcoTariff] = useState({
+    provider: contractOptions[1]?.provider || "Grüne Energie GmbH",
+    basePrice: contractOptions[1]?.basePrice || 84,
+    energyPrice: contractOptions[1]?.energyPrice || 7.10
+  });
   
   const handleUpdate = () => {
     const parsedValue = parseFloat(consumption);
@@ -30,9 +36,42 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
     }
   };
 
+  useEffect(() => {
+    const updatedOptions = [...contractOptions];
+    // Update eco tariff with editable values
+    if (updatedOptions[1]) {
+      updatedOptions[1].provider = editableEcoTariff.provider;
+      updatedOptions[1].basePrice = editableEcoTariff.basePrice;
+      updatedOptions[1].energyPrice = editableEcoTariff.energyPrice;
+    }
+    // Swap 1 and 2
+    const temp = updatedOptions[1];
+    updatedOptions[1] = updatedOptions[2];
+    updatedOptions[2] = temp;
+  }, [editableEcoTariff]);
+
   // Calculate costs for each contract option
   const prepareContractData = () => {
-    return contractOptions.map((option) => {
+    // Make a copy of contract options and swap positions 1 and 2
+    const reorderedOptions = [...contractOptions];
+    if (reorderedOptions.length >= 3) {
+      const temp = reorderedOptions[1];
+      reorderedOptions[1] = reorderedOptions[2];
+      reorderedOptions[2] = temp;
+    }
+    
+    // Update eco tariff with editable values
+    if (reorderedOptions.length >= 3) {
+      reorderedOptions[2] = {
+        ...reorderedOptions[2],
+        name: "Öko Strom Basic",
+        provider: editableEcoTariff.provider,
+        basePrice: editableEcoTariff.basePrice,
+        energyPrice: editableEcoTariff.energyPrice
+      };
+    }
+
+    return reorderedOptions.map((option) => {
       const networkCosts = option.networkCosts(annualConsumption);
       const energyCosts = (option.energyPrice * annualConsumption) / 100;
       const basePrice = option.basePrice;
@@ -54,11 +93,50 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
 
   const contractData = prepareContractData();
 
-  const handleSelectContract = (contract: ContractOption) => {
-    if (selectedContract?.name === contract.name) {
-      onSelectContract(undefined); // Deselect if already selected
+  const handleSelectContract = (contract: ContractOption, index: number) => {
+    // Make a copy of contract options and swap positions 1 and 2
+    const reorderedOptions = [...contractOptions];
+    if (reorderedOptions.length >= 3) {
+      const temp = reorderedOptions[1];
+      reorderedOptions[1] = reorderedOptions[2];
+      reorderedOptions[2] = temp;
+    }
+    
+    // Update eco tariff with editable values
+    if (index === 2) {
+      const updatedContract = {
+        ...reorderedOptions[index],
+        provider: editableEcoTariff.provider,
+        basePrice: editableEcoTariff.basePrice,
+        energyPrice: editableEcoTariff.energyPrice
+      };
+      
+      if (selectedContract?.name === updatedContract.name) {
+        onSelectContract(undefined); // Deselect if already selected
+      } else {
+        onSelectContract(updatedContract); // Select new contract
+      }
     } else {
-      onSelectContract(contract); // Select new contract
+      if (selectedContract?.name === reorderedOptions[index].name) {
+        onSelectContract(undefined); // Deselect if already selected
+      } else {
+        onSelectContract(reorderedOptions[index]); // Select new contract
+      }
+    }
+  };
+
+  const handleEcoTariffChange = (field: keyof typeof editableEcoTariff, value: string) => {
+    const numValue = parseFloat(value);
+    if (!isNaN(numValue)) {
+      setEditableEcoTariff(prev => ({
+        ...prev,
+        [field]: numValue
+      }));
+    } else if (field === 'provider') {
+      setEditableEcoTariff(prev => ({
+        ...prev,
+        [field]: value
+      }));
     }
   };
   
@@ -83,7 +161,15 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {contractData.map((contract, index) => {
-          const isSelected = selectedContract?.name === contractOptions[index].name;
+          const isSelected = selectedContract?.name === (index === 2 ? "Öko Strom Basic" : contractOptions[index === 1 ? 2 : index].name);
+          const isEditableTariff = index === 2;
+          
+          const tarifDate = index === 0 
+            ? datesConfig.lastTariffsUpdate.flex 
+            : (index === 1 
+                ? datesConfig.lastTariffsUpdate.standard 
+                : datesConfig.lastTariffsUpdate.eco);
+
           return (
             <Card 
               key={index} 
@@ -91,20 +177,49 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
             >
               <CardHeader>
                 <CardTitle>{contract.name}</CardTitle>
-                <CardDescription>Anbieter: {contract.provider}</CardDescription>
+                <CardDescription>
+                  <span>
+                    {isEditableTariff ? (
+                      <Input 
+                        value={editableEcoTariff.provider}
+                        onChange={(e) => handleEcoTariffChange('provider', e.target.value)}
+                        className="mt-1 py-1"
+                      />
+                    ) : (
+                      <>Anbieter: {contract.provider}</>
+                    )}
+                  </span>
+                  <div className="text-xs text-gray-500 mt-2">Stand: {tarifDate}</div>
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {/* Arbeitspreis */}
                   <div className="space-y-1">
-                    <div className="font-medium text-sm">Arbeitspreis:</div>
+                    <div className="font-medium text-sm text-purple-700">Arbeitspreis:</div>
                     <div className="pl-4 flex justify-between text-sm">
                       <span>Energiekosten</span>
-                      <span>{contractOptions[index].energyPrice.toFixed(2)} Cent / kWh</span>
+                      <span className="text-purple-700 font-medium">
+                        {isEditableTariff ? (
+                          <Input 
+                            type="number"
+                            value={editableEcoTariff.energyPrice}
+                            onChange={(e) => handleEcoTariffChange('energyPrice', e.target.value)}
+                            className="w-24 py-1 inline-block"
+                          />
+                        ) : (
+                          <>
+                            {index === 1 
+                              ? contractOptions[2].energyPrice.toFixed(2)
+                              : contractOptions[index].energyPrice.toFixed(2)
+                            } Cent / kWh
+                          </>
+                        )}
+                      </span>
                     </div>
                     <div className="pl-4 flex justify-between text-sm">
                       <span>Jahreskosten Energie</span>
-                      <span>{contract.energyCosts.toFixed(2)} € / Jahr</span>
+                      <span className="text-purple-700 font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
                     </div>
                   </div>
                   
@@ -113,15 +228,32 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                     <div className="font-medium text-sm">Fixkosten:</div>
                     <div className="pl-4 flex justify-between text-sm">
                       <span>Grundpreis</span>
-                      <span>{contract.basePrice.toFixed(2)} € / Jahr</span>
+                      <span>
+                        {isEditableTariff ? (
+                          <Input 
+                            type="number"
+                            value={editableEcoTariff.basePrice}
+                            onChange={(e) => handleEcoTariffChange('basePrice', e.target.value)}
+                            className="w-24 py-1 inline-block"
+                          />
+                        ) : (
+                          <>
+                            {contract.basePrice.toFixed(2)} € / Jahr
+                          </>
+                        )}
+                      </span>
                     </div>
                     <div className="pl-4 flex justify-between text-sm">
                       <span>Netzkosten</span>
                       <span>{contract.networkCosts.toFixed(2)} € / Jahr</span>
                     </div>
+                    <div className="pl-4 flex justify-between text-sm">
+                      <span>Energiekosten</span>
+                      <span className="text-purple-700 font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
+                    </div>
                     <div className="pl-4 flex justify-between text-sm font-medium">
                       <span>Fixkosten gesamt</span>
-                      <span>{contract.fixedCosts.toFixed(2)} € / Jahr</span>
+                      <span>{(contract.fixedCosts + contract.energyCosts).toFixed(2)} € / Jahr</span>
                     </div>
                   </div>
 
@@ -147,7 +279,16 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 <Button 
                   variant={isSelected ? "default" : "outline"} 
                   size="sm"
-                  onClick={() => handleSelectContract(contractOptions[index])}
+                  onClick={() => handleSelectContract(
+                    index === 2 ? 
+                      {...contractOptions[index], 
+                        provider: editableEcoTariff.provider, 
+                        basePrice: editableEcoTariff.basePrice, 
+                        energyPrice: editableEcoTariff.energyPrice
+                      } : 
+                      contractOptions[index === 1 ? 2 : index],
+                    index
+                  )}
                 >
                   {isSelected ? "Ausgewählt" : "In Grafik anzeigen"}
                 </Button>

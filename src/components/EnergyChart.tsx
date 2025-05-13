@@ -87,6 +87,25 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     if (selectedContract) {
       const energyPriceInCents = selectedContract.energyPrice;
       
+      // Calculate divisors based on averaging mode for proper distribution of fixed costs
+      let divisor = 1;
+      switch(averaging) {
+        case 'monthly':
+          divisor = 30 * 24; // ~30 days * 24 hours
+          break;
+        case 'daily':
+          divisor = 24; // 24 hours
+          break;
+        case 'daily-cycle':
+          divisor = 1; // Already per hour
+          break;
+        case 'hourly':
+          divisor = 1; // Already per hour
+          break;
+        default:
+          divisor = 1;
+      }
+      
       chartData.forEach(item => {
         // Energy price in the same unit as the chart
         if (item.unit === 'EUR_MWh') {
@@ -95,33 +114,63 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           (item as any).contractEnergyPrice = energyPriceInCents;
         }
         
-        // Calculate the base + fixed costs and with taxes
-        const consumption = (item as any).consumption;
-        if (consumption !== undefined) {
-          const annualConsumption = showSmartMeterData && smartMeterData ? 
-            smartMeterData.reduce((sum, data) => sum + data.consumption, 0) : 3500;
-            
-          // Daily base price in cents
-          const dailyBasePrice = selectedContract.basePrice / 365;
+        // Calculate annualized consumption for proper distribution of fixed costs
+        const annualConsumption = showSmartMeterData && smartMeterData 
+          ? smartMeterData.reduce((sum, data) => sum + data.consumption, 0) * (365 / (smartMeterData.length / 24)) // Extrapolate to annual
+          : 3500;
+        
+        // Base price distributed per time unit
+        const basePricePerUnit = selectedContract.basePrice / (365 * 24) * divisor;
+        
+        // Network costs approximated per time unit
+        const networkCostsPerUnit = selectedContract.networkCosts(annualConsumption) / (365 * 24) * divisor;
+        
+        // Total fixed costs distributed per unit
+        const fixedCostPerUnit = basePricePerUnit + networkCostsPerUnit;
+        
+        // Calculate cost per kWh assuming 1 kWh consumption per unit for display
+        // We add this fixed component to the energy price to show the effective price
+        let effectiveCostPerKwh;
+        
+        // For daily cycle, distribute the daily fixed costs across the 24-hour profile based on typical consumption
+        if (averaging === 'daily-cycle') {
+          const hour = parseISO(item.timestamp).getHours();
+          let hourlyWeight = 1;
           
-          // Network costs approximated per kWh
-          const networkCostPerDay = selectedContract.networkCosts(annualConsumption) / 365;
+          // Assign weights based on typical consumption patterns
+          if (hour >= 7 && hour <= 9) hourlyWeight = 1.5; // Morning peak
+          else if (hour >= 17 && hour <= 22) hourlyWeight = 2.0; // Evening peak
+          else if (hour >= 23 || hour <= 6) hourlyWeight = 0.5; // Night low
           
-          // Convert to correct unit
-          const fixedCostPerDay = dailyBasePrice + networkCostPerDay;
-          const fixedCostPerHour = fixedCostPerDay / 24;
+          // Adjust fixed costs based on hourly weight
+          const adjustedFixedCostPerUnit = fixedCostPerUnit * hourlyWeight;
           
-          // Convert to chart units
+          // Convert to chart units - we use a reference consumption of 0.5 kWh per hour
+          // This gives us a reasonable visualization where the fixed costs component is visible
+          const referenceCons = 0.5; // kWh
+          
           if (item.unit === 'EUR_MWh') {
-            // For MWh, we show price per MWh so we need to multiply the fixed costs
-            (item as any).contractTotalPrice = (energyPriceInCents * 10) + (fixedCostPerHour * 1000 / consumption);
+            // For MWh, we need to convert kWh to MWh (multiply by 1000)
+            effectiveCostPerKwh = energyPriceInCents * 10 + (adjustedFixedCostPerUnit * 1000 / referenceCons);
           } else {
-            (item as any).contractTotalPrice = energyPriceInCents + (fixedCostPerHour * 100 / consumption);
+            effectiveCostPerKwh = energyPriceInCents + (adjustedFixedCostPerUnit * 100 / referenceCons);
           }
+        } else {
+          // For other averaging modes, use a similar approach
+          // But with a constant reference consumption
+          const referenceCons = averaging === 'monthly' ? 250 : // kWh per month
+                              (averaging === 'daily' ? 8 : 0.5); // kWh per day or per hour
           
-          // Add taxes (20% VAT in Austria)
-          (item as any).contractTotalPriceTaxed = (item as any).contractTotalPrice * 1.2;
+          if (item.unit === 'EUR_MWh') {
+            effectiveCostPerKwh = energyPriceInCents * 10 + (fixedCostPerUnit * 1000 / referenceCons);
+          } else {
+            effectiveCostPerKwh = energyPriceInCents + (fixedCostPerUnit * 100 / referenceCons);
+          }
         }
+        
+        // Set the values
+        (item as any).contractTotalPrice = effectiveCostPerKwh;
+        (item as any).contractTotalPriceTaxed = effectiveCostPerKwh * 1.2; // Add 20% VAT
       });
     }
     
@@ -156,9 +205,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       case 'daily':
         return format(date, 'dd.MM.yyyy', { locale: de });
       case 'daily-cycle':
-        return format(date, 'HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
+        return format(date, 'HH:00', { locale: de });
       case 'hourly':
-        return format(date, 'dd.MM HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
+        return format(date, 'dd.MM HH:00', { locale: de });
       default:
         // Default based on time unit
         switch (timeUnit) {
@@ -168,7 +217,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           case 'day':
             return format(date, 'dd.MM', { locale: de });
           default:
-            return format(date, 'HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
+            return format(date, 'HH:00', { locale: de });
         }
     }
   };
@@ -204,10 +253,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           formattedDate = format(date, 'dd.MM.yyyy', { locale: de });
           break;
         case 'daily-cycle':
-          formattedDate = format(date, 'HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
+          formattedDate = format(date, 'HH:00 Uhr', { locale: de });
           break;
         case 'hourly':
-          formattedDate = format(date, 'dd.MM.yyyy HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
+          formattedDate = format(date, 'dd.MM.yyyy HH:00 Uhr', { locale: de });
           break;
         default:
           formattedDate = format(date, 'dd.MM.yyyy HH:mm', { locale: de });
@@ -329,8 +378,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <XAxis 
               dataKey="timestamp" 
               tickFormatter={formatXAxis}
-              label={{ value: getXAxisLabel(), position: 'bottom', offset: 60 }}
+              label={{ value: getXAxisLabel(), position: 'bottom', offset: 20 }}
               minTickGap={30}
+              height={50}
             />
             <YAxis
               yAxisId="price"
@@ -357,7 +407,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               />
             )}
             <Tooltip content={<CustomTooltip />} />
-            <Legend wrapperStyle={{ paddingTop: 10, bottom: 0 }} />
+            <Legend verticalAlign="bottom" height={36} />
             <Line
               type="monotone"
               dataKey="price"
