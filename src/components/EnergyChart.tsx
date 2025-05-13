@@ -16,6 +16,7 @@ import { format, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { CheckedState } from "@radix-ui/react-checkbox";
 
 interface EnergyChartProps {
   energyPrices: EnergyPrice[];
@@ -133,6 +134,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const getTimeUnit = () => {
     if (averaging === 'monthly') return 'month';
     if (averaging === 'daily') return 'day';
+    if (averaging === 'daily-cycle') return 'hour';
     if (averaging === 'hourly') return 'hour';
     
     // Default based on data length
@@ -153,8 +155,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         return format(date, 'MMM yyyy', { locale: de });
       case 'daily':
         return format(date, 'dd.MM.yyyy', { locale: de });
+      case 'daily-cycle':
+        return format(date, 'HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
       case 'hourly':
-        return format(date, 'dd.MM HH:mm', { locale: de });
+        return format(date, 'dd.MM HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
       default:
         // Default based on time unit
         switch (timeUnit) {
@@ -164,7 +168,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           case 'day':
             return format(date, 'dd.MM', { locale: de });
           default:
-            return format(date, 'HH:mm', { locale: de });
+            return format(date, 'HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
         }
     }
   };
@@ -176,6 +180,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         return 'Monatsdurchschnitt';
       case 'daily':
         return 'Tagesdurchschnitt';
+      case 'daily-cycle':
+        return 'Stunde des Tages';
       case 'hourly':
         return 'Stundendurchschnitt';
       default:
@@ -196,6 +202,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           break;
         case 'daily':
           formattedDate = format(date, 'dd.MM.yyyy', { locale: de });
+          break;
+        case 'daily-cycle':
+          formattedDate = format(date, 'HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
           break;
         case 'hourly':
           formattedDate = format(date, 'dd.MM.yyyy HH:00~' + format(new Date(date.getTime() + 3600000), 'HH:00'), { locale: de });
@@ -247,6 +256,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     return null;
   };
 
+  // Handler for checkbox changes
+  const handleCheckedChange = (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
+    return (checked: CheckedState) => {
+      setter(checked === true);
+    };
+  };
+
   return (
     <div className="space-y-4">
       {selectedContract && (
@@ -256,7 +272,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <Checkbox 
               id="show-base-price" 
               checked={showBasePrice} 
-              onCheckedChange={(checked) => setShowBasePrice(checked === true)}
+              onCheckedChange={handleCheckedChange(setShowBasePrice)}
             />
             <Label htmlFor="show-base-price" className="text-sm">Arbeitspreis</Label>
           </div>
@@ -264,7 +280,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <Checkbox 
               id="show-total-price" 
               checked={showTotalPrice} 
-              onCheckedChange={(checked) => setShowTotalPrice(checked === true)}
+              onCheckedChange={handleCheckedChange(setShowTotalPrice)}
             />
             <Label htmlFor="show-total-price" className="text-sm">Inkl. Fixkosten</Label>
           </div>
@@ -272,7 +288,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <Checkbox 
               id="show-with-taxes" 
               checked={showWithTaxes} 
-              onCheckedChange={(checked) => setShowWithTaxes(checked === true)}
+              onCheckedChange={handleCheckedChange(setShowWithTaxes)}
             />
             <Label htmlFor="show-with-taxes" className="text-sm">Inkl. Steuern</Label>
           </div>
@@ -286,7 +302,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <Checkbox 
               id="show-consumption" 
               checked={showConsumption} 
-              onCheckedChange={(checked) => setShowConsumption(checked === true)}
+              onCheckedChange={handleCheckedChange(setShowConsumption)}
             />
             <Label htmlFor="show-consumption" className="text-sm">Verbrauch</Label>
           </div>
@@ -295,7 +311,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               <Checkbox 
                 id="show-cost" 
                 checked={showCost} 
-                onCheckedChange={(checked) => setShowCost(checked === true)}
+                onCheckedChange={handleCheckedChange(setShowCost)}
               />
               <Label htmlFor="show-cost" className="text-sm">Kosten</Label>
             </div>
@@ -307,13 +323,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={chartData}
-            margin={{ top: 10, right: 30, left: 20, bottom: 40 }}
+            margin={{ top: 10, right: 30, left: 20, bottom: 80 }}
           >
             <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
             <XAxis 
               dataKey="timestamp" 
               tickFormatter={formatXAxis}
-              label={{ value: getXAxisLabel(), position: 'bottom', offset: 20 }}
+              label={{ value: getXAxisLabel(), position: 'bottom', offset: 60 }}
               minTickGap={30}
             />
             <YAxis
@@ -341,7 +357,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               />
             )}
             <Tooltip content={<CustomTooltip />} />
-            <Legend wrapperStyle={{ paddingTop: 10 }} />
+            <Legend wrapperStyle={{ paddingTop: 10, bottom: 0 }} />
             <Line
               type="monotone"
               dataKey="price"

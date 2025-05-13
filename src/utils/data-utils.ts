@@ -58,6 +58,41 @@ export const calculateAverage = (
 ): EnergyPrice[] => {
   if (averaging === 'none') return data;
   
+  // For daily cycle, we average by hour of day across all days
+  if (averaging === 'daily-cycle') {
+    const hourlyAverages = new Map<number, { sum: number; count: number }>();
+    
+    // Calculate the sum and count for each hour of the day
+    data.forEach(item => {
+      const date = new Date(item.timestamp);
+      const hour = date.getHours();
+      
+      if (!hourlyAverages.has(hour)) {
+        hourlyAverages.set(hour, { sum: 0, count: 0 });
+      }
+      
+      const current = hourlyAverages.get(hour)!;
+      current.sum += item.price;
+      current.count += 1;
+    });
+    
+    // Convert the Map to an array of EnergyPrice objects
+    const baseDate = new Date();
+    baseDate.setHours(0, 0, 0, 0); // Set to start of day
+    
+    return Array.from(hourlyAverages.entries())
+      .sort(([hourA], [hourB]) => hourA - hourB)
+      .map(([hour, { sum, count }]) => {
+        const timestamp = new Date(baseDate);
+        timestamp.setHours(hour);
+        return {
+          timestamp: timestamp.toISOString(),
+          price: sum / count,
+          unit: data[0].unit,
+        };
+      });
+  }
+  
   const averages = new Map<string, { sum: number; count: number; timestamp: string }>();
   
   data.forEach(item => {

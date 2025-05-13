@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useCallback } from 'react';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
@@ -17,13 +18,15 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import ImpressumModal from '@/components/ImpressumModal';
+import ContactModal from '@/components/ContactModal';
 
 const Index = () => {
   const { toast } = useToast();
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(new Date());
   const [isAveragingEnabled, setIsAveragingEnabled] = useState<boolean>(false);
-  const [averaging, setAveraging] = useState<AveragingOption>('hourly');
+  const [averaging, setAveraging] = useState<AveragingOption>('daily-cycle');
   const [filters, setFilters] = useState<FilterOptionsType>({
     months: Array.from({ length: 12 }, (_, i) => i), // All months
     weekdays: Array.from({ length: 7 }, (_, i) => i), // All days
@@ -122,7 +125,7 @@ const Index = () => {
           <Card className="animate-fade-in">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle>Energiepreise und Tarifvergleich für Wien</CardTitle>
+                <CardTitle>Wiener Strompreis-Rechner</CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
                   Netzkosten basieren auf den Tarifen der Wiener Netze
                 </p>
@@ -164,6 +167,7 @@ const Index = () => {
                       filters={filters}
                       onChange={setFilters}
                       disabled={!isAveragingEnabled}
+                      averagingOption={isAveragingEnabled ? averaging : 'none'}
                     />
                   </div>
                 </div>
@@ -233,12 +237,20 @@ const Index = () => {
                 </TabsContent>
                 <TabsContent value="upload">
                   <div className="p-4">
-                    <h3 className="text-lg font-medium mb-4">Smart Meter Daten hochladen</h3>
-                    <p className="text-sm text-muted-foreground mb-6">
-                      Laden Sie Ihre Smart Meter Daten hoch, um Ihren tatsächlichen Verbrauch zu 
-                      analysieren und optimale Tarife zu finden.
-                    </p>
-                    <FileUpload onFileLoaded={handleSmartMeterDataUpload} />
+                    <div className="bg-gray-100 rounded-lg p-4 mb-6 text-center">
+                      <h3 className="text-lg font-medium mb-2">Smart Meter Daten Upload</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Diese Funktion wird auf Anfrage implementiert
+                      </p>
+                    </div>
+                    <div className="opacity-50 pointer-events-none">
+                      <h3 className="text-lg font-medium mb-4">Smart Meter Daten hochladen</h3>
+                      <p className="text-sm text-muted-foreground mb-6">
+                        Laden Sie Ihre Smart Meter Daten hoch, um Ihren tatsächlichen Verbrauch zu 
+                        analysieren und optimale Tarife zu finden.
+                      </p>
+                      <FileUpload onFileLoaded={handleSmartMeterDataUpload} />
+                    </div>
                   </div>
                 </TabsContent>
               </Tabs>
@@ -248,8 +260,14 @@ const Index = () => {
       </main>
       
       <footer className="bg-white border-t py-6">
-        <div className="container mx-auto px-4 text-center text-gray-500 text-sm">
-          <p>© {new Date().getFullYear()} Strompreismonitor Österreich | Alle Daten sind reine Beispieldaten</p>
+        <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
+          <p className="text-gray-500 text-sm">
+            © {new Date().getFullYear()} Wiener Strompreis-Rechner | Alle Daten sind Beispieldaten
+          </p>
+          <div className="flex gap-4">
+            <ImpressumModal />
+            <ContactModal />
+          </div>
         </div>
       </footer>
     </div>

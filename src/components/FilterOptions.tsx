@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { FilterOptions } from '@/types/energy-data';
+import { FilterOptions, AveragingOption } from '@/types/energy-data';
 import { FilterIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -16,9 +16,15 @@ interface FilterOptionsProps {
   filters: FilterOptions;
   onChange: (filters: FilterOptions) => void;
   disabled?: boolean;
+  averagingOption?: AveragingOption;
 }
 
-const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChange, disabled = false }) => {
+const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ 
+  filters, 
+  onChange, 
+  disabled = false, 
+  averagingOption 
+}) => {
   const [isMonthsOpen, setIsMonthsOpen] = useState(false);
   const [isWeekdaysOpen, setIsWeekdaysOpen] = useState(false);
   const [isHoursOpen, setIsHoursOpen] = useState(false);
@@ -101,6 +107,11 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
       hours: 24 - filters.hours.length,
     };
   };
+
+  // Determine which filters should be disabled based on the averaging option
+  const isMonthsDisabled = disabled || (averagingOption === 'monthly');
+  const isWeekdaysDisabled = disabled || (averagingOption === 'daily');
+  const isHoursDisabled = disabled || (averagingOption === 'daily-cycle');
   
   const filterCounts = getFilterCounts();
   const hasActiveFilters = filterCounts.months > 0 || filterCounts.weekdays > 0 || filterCounts.hours > 0;
@@ -109,11 +120,11 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
     <div className="mb-6">
       <h3 className="text-sm font-medium mb-2">Datenfilter:</h3>
       <div className="flex flex-wrap gap-2">
-        <Popover open={isMonthsOpen && !disabled} onOpenChange={(open) => !disabled && setIsMonthsOpen(open)}>
+        <Popover open={isMonthsOpen && !isMonthsDisabled} onOpenChange={(open) => !isMonthsDisabled && setIsMonthsOpen(open)}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={disabled}>
+            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isMonthsDisabled}>
               Monate
-              {filterCounts.months > 0 && (
+              {!isMonthsDisabled && filterCounts.months > 0 && (
                 <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
                   {12 - filterCounts.months}
                 </Badge>
@@ -144,11 +155,11 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
           </PopoverContent>
         </Popover>
         
-        <Popover open={isWeekdaysOpen && !disabled} onOpenChange={(open) => !disabled && setIsWeekdaysOpen(open)}>
+        <Popover open={isWeekdaysOpen && !isWeekdaysDisabled} onOpenChange={(open) => !isWeekdaysDisabled && setIsWeekdaysOpen(open)}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={disabled}>
+            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isWeekdaysDisabled}>
               Wochentage
-              {filterCounts.weekdays > 0 && (
+              {!isWeekdaysDisabled && filterCounts.weekdays > 0 && (
                 <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
                   {7 - filterCounts.weekdays}
                 </Badge>
@@ -182,11 +193,11 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({ filters, onChang
           </PopoverContent>
         </Popover>
         
-        <Popover open={isHoursOpen && !disabled} onOpenChange={(open) => !disabled && setIsHoursOpen(open)}>
+        <Popover open={isHoursOpen && !isHoursDisabled} onOpenChange={(open) => !isHoursDisabled && setIsHoursOpen(open)}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={disabled}>
+            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isHoursDisabled}>
               Stunden
-              {filterCounts.hours > 0 && (
+              {!isHoursDisabled && filterCounts.hours > 0 && (
                 <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
                   {24 - filterCounts.hours}
                 </Badge>

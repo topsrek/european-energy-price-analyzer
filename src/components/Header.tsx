@@ -6,12 +6,12 @@ const Header: React.FC = () => {
     <header className="bg-white shadow-sm py-4">
       <div className="container mx-auto px-4 flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-energy-primary">Österreich Strompreismonitor</h1>
-          <p className="text-sm text-muted-foreground">Historische Energiepreise und persönlicher Verbrauch</p>
+          <h1 className="text-2xl font-bold text-energy-primary">Wiener Strompreis-Rechner</h1>
+          <p className="text-sm text-muted-foreground">Historische Energiepreise und Tarifrechnungen</p>
         </div>
         <div>
           <a 
-            href="https://github.com/yourusername/strompreismonitor" 
+            href="https://github.com/yourusername/strompreisrechner" 
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-energy-primary hover:underline"

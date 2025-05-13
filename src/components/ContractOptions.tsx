@@ -94,30 +94,52 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 <CardDescription>Anbieter: {contract.provider}</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Grundpreis:</span>
-                    <span className="font-medium">{contract.basePrice.toFixed(2)} € / Jahr</span>
+                <div className="space-y-4">
+                  {/* Arbeitspreis */}
+                  <div className="space-y-1">
+                    <div className="font-medium text-sm">Arbeitspreis:</div>
+                    <div className="pl-4 flex justify-between text-sm">
+                      <span>Energiekosten</span>
+                      <span>{contractOptions[index].energyPrice.toFixed(2)} Cent / kWh</span>
+                    </div>
+                    <div className="pl-4 flex justify-between text-sm">
+                      <span>Jahreskosten Energie</span>
+                      <span>{contract.energyCosts.toFixed(2)} € / Jahr</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Arbeitspreis:</span>
-                    <span className="font-medium">{contractOptions[index].energyPrice.toFixed(2)} Cent / kWh</span>
+                  
+                  {/* Fixkosten */}
+                  <div className="space-y-1">
+                    <div className="font-medium text-sm">Fixkosten:</div>
+                    <div className="pl-4 flex justify-between text-sm">
+                      <span>Grundpreis</span>
+                      <span>{contract.basePrice.toFixed(2)} € / Jahr</span>
+                    </div>
+                    <div className="pl-4 flex justify-between text-sm">
+                      <span>Netzkosten</span>
+                      <span>{contract.networkCosts.toFixed(2)} € / Jahr</span>
+                    </div>
+                    <div className="pl-4 flex justify-between text-sm font-medium">
+                      <span>Fixkosten gesamt</span>
+                      <span>{contract.fixedCosts.toFixed(2)} € / Jahr</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Netzkosten:</span>
-                    <span className="font-medium">{contract.networkCosts.toFixed(2)} € / Jahr</span>
+
+                  {/* Steuern */}
+                  <div className="space-y-1">
+                    <div className="font-medium text-sm">Steuern:</div>
+                    <div className="pl-4 flex justify-between text-sm">
+                      <span>Umsatzsteuer (20%)</span>
+                      <span>{contract.tax.toFixed(2)} € / Jahr</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Stromkosten:</span>
-                    <span className="font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Umsatzsteuer (20%):</span>
-                    <span className="font-medium">{contract.tax.toFixed(2)} € / Jahr</span>
-                  </div>
+
                   <div className="border-t pt-2 mt-2 flex justify-between font-medium">
                     <span>Jahreskosten:</span>
                     <span>{contract.total.toFixed(2)} €</span>
+                  </div>
+                  <div className="text-xs text-gray-500 text-center">
+                    Jahresverbrauch: {annualConsumption} kWh
                   </div>
                 </div>
               </CardContent>

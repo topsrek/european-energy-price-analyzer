@@ -35,7 +35,7 @@ const AveragingOptions: React.FC<AveragingOptionsProps> = ({
               <Info className="h-4 w-4 text-gray-400" />
             </TooltipTrigger>
             <TooltipContent className="max-w-[300px]">
-              <p>Berechnet Durchschnittswerte für den ausgewählten Zeitraum pro Stunde, Tag oder Monat</p>
+              <p>Berechnet Durchschnittswerte für den ausgewählten Zeitraum</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -50,7 +50,7 @@ const AveragingOptions: React.FC<AveragingOptionsProps> = ({
           <SelectValue placeholder="Durchschnitt auswählen" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="hourly">Stündlicher Durchschnitt</SelectItem>
+          <SelectItem value="daily-cycle">Durchschnitt über Tag</SelectItem>
           <SelectItem value="daily">Täglicher Durchschnitt</SelectItem>
           <SelectItem value="monthly">Monatlicher Durchschnitt</SelectItem>
         </SelectContent>

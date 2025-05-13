@@ -18,7 +18,7 @@ export interface ContractOption {
   networkCosts: (totalConsumption: number) => number; // Function to calculate network costs
 }
 
-export type AveragingOption = 'hourly' | 'daily' | 'monthly' | 'none';
+export type AveragingOption = 'hourly' | 'daily' | 'monthly' | 'daily-cycle' | 'none';
 
 export type FilterOptions = {
   months: number[]; // 0-11 (January to December)
