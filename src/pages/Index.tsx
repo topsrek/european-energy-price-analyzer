@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import AppHeader from '@/components/AppHeader';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
@@ -175,7 +175,7 @@ const Index = () => {
                 {/* Visualization */}
                 <div>
                   <div className="flex justify-end mb-1">
-                    <span className="text-xs text-gray-500">Daten zuletzt aktualisiert: {datesConfig.lastDataUpdate}</span>
+                    <span className="text-xs text-gray-500">Daten zuletzt aktualisiert: {datesConfig.dataLastUpdated}</span>
                   </div>
                   {displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 

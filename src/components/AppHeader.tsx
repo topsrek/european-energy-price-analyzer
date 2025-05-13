@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Header } from './Header';
+import Header from './Header';
 import { ThemeToggle } from './ThemeToggle';
 import VersionInfo from './VersionInfo';
 
