@@ -307,13 +307,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={chartData}
-            margin={{ top: 10, right: 30, left: 20, bottom: 30 }}
+            margin={{ top: 10, right: 30, left: 20, bottom: 40 }}
           >
             <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
             <XAxis 
               dataKey="timestamp" 
               tickFormatter={formatXAxis}
-              label={{ value: getXAxisLabel(), position: 'bottom', offset: 5 }}
+              label={{ value: getXAxisLabel(), position: 'bottom', offset: 20 }}
               minTickGap={30}
             />
             <YAxis
@@ -341,7 +341,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               />
             )}
             <Tooltip content={<CustomTooltip />} />
-            <Legend />
+            <Legend wrapperStyle={{ paddingTop: 10 }} />
             <Line
               type="monotone"
               dataKey="price"

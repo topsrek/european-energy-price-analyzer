@@ -4,12 +4,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { ContractOption } from '@/types/energy-data';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Info } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { motion, AnimatePresence } from 'framer-motion';
 
 interface ContractOptionsProps {
   annualConsumption: number;
@@ -27,7 +22,6 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
   selectedContract
 }) => {
   const [consumption, setConsumption] = useState<string>(annualConsumption.toString());
-  const [showFixedCosts, setShowFixedCosts] = useState<boolean>(true);
   
   const handleUpdate = () => {
     const parsedValue = parseFloat(consumption);
@@ -36,8 +30,8 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
     }
   };
 
-  // Calculate costs for each contract option for the chart
-  const prepareChartData = () => {
+  // Calculate costs for each contract option
+  const prepareContractData = () => {
     return contractOptions.map((option) => {
       const networkCosts = option.networkCosts(annualConsumption);
       const energyCosts = (option.energyPrice * annualConsumption) / 100;
@@ -58,60 +52,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
     });
   };
 
-  const chartData = prepareChartData();
-
-  // Custom tooltip for the bar chart
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className="bg-white p-3 border border-gray-200 rounded-md shadow-md">
-          <p className="font-medium">{data.name} - {data.provider}</p>
-          <p className="text-sm">Stromkosten: {data.energyCosts.toFixed(2)} €</p>
-          {showFixedCosts && (
-            <p className="text-sm">Fixkosten: {data.fixedCosts.toFixed(2)} €</p>
-          )}
-          <p className="text-sm">Umsatzsteuer: {data.tax.toFixed(2)} €</p>
-          <p className="text-sm font-medium">Gesamt: {data.total.toFixed(2)} €</p>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  // Dialog for fixed cost breakdown
-  const FixedCostsBreakdownDialog = ({ contract }: { contract: any }) => {
-    return (
-      <Dialog>
-        <DialogTrigger asChild>
-          <Button variant="outline" size="sm" className="w-full">
-            Fixkosten anzeigen
-          </Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Fixkosten für {contract.name}</DialogTitle>
-            <DialogDescription>
-              Aufschlüsselung der fixen Kosten für {contract.provider}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="text-sm">Grundpreis:</div>
-              <div className="text-sm text-right font-medium">{contract.basePrice.toFixed(2)} €</div>
-              <div className="text-sm">Netzkosten:</div>
-              <div className="text-sm text-right font-medium">{contract.networkCosts.toFixed(2)} €</div>
-              <div className="text-sm font-medium">Gesamte Fixkosten:</div>
-              <div className="text-sm text-right font-medium">{contract.fixedCosts.toFixed(2)} €</div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Die Netzkosten werden basierend auf dem Jahresverbrauch und dem Tarif der Wiener Netze berechnet.
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  };
+  const contractData = prepareContractData();
 
   const handleSelectContract = (contract: ContractOption) => {
     if (selectedContract?.name === contract.name) {
@@ -140,69 +81,14 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
         <Button onClick={handleUpdate}>Aktualisieren</Button>
       </div>
 
-      <div className="flex items-center space-x-2">
-        <Switch
-          id="show-fixed-costs"
-          checked={showFixedCosts}
-          onCheckedChange={setShowFixedCosts}
-        />
-        <Label htmlFor="show-fixed-costs">Fixkosten anzeigen (Netzkosten + Grundgebühr)</Label>
-      </div>
-
-      <div className="h-[400px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chartData}
-            margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis label={{ value: 'Euro pro Jahr', angle: -90, position: 'insideLeft' }} />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend />
-            <Bar 
-              dataKey="energyCosts" 
-              name="Stromkosten" 
-              stackId="a" 
-              fill="#4285f4" 
-              animationDuration={500}
-            />
-            <AnimatePresence>
-              {showFixedCosts && (
-                <Bar 
-                  dataKey="fixedCosts" 
-                  name="Fixkosten" 
-                  stackId="a" 
-                  fill="#fbbc05" 
-                  animationDuration={500}
-                />
-              )}
-            </AnimatePresence>
-            <Bar 
-              dataKey="tax" 
-              name="Umsatzsteuer" 
-              stackId="a" 
-              fill="#34a853" 
-              animationDuration={500}
-            />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {chartData.map((contract, index) => {
+        {contractData.map((contract, index) => {
           const isSelected = selectedContract?.name === contractOptions[index].name;
           return (
             <Card 
               key={index} 
-              className={`${index === 0 ? "border-energy-secondary" : ""} ${isSelected ? "ring-2 ring-primary" : ""}`}
+              className={isSelected ? "ring-2 ring-primary" : ""}
             >
-              {index === 0 && (
-                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-energy-secondary text-white px-3 py-1 rounded-full text-xs font-medium">
-                  Günstigste Option
-                </div>
-              )}
-              
               <CardHeader>
                 <CardTitle>{contract.name}</CardTitle>
                 <CardDescription>Anbieter: {contract.provider}</CardDescription>
@@ -235,14 +121,13 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="flex justify-between">
-                <FixedCostsBreakdownDialog contract={contract} />
+              <CardFooter className="flex justify-end">
                 <Button 
                   variant={isSelected ? "default" : "outline"} 
                   size="sm"
                   onClick={() => handleSelectContract(contractOptions[index])}
                 >
-                  {isSelected ? "Ausgewählt" : "Tarif auswählen"}
+                  {isSelected ? "Ausgewählt" : "In Grafik anzeigen"}
                 </Button>
               </CardFooter>
             </Card>
