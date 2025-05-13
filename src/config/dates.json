@@ -1,10 +1,11 @@
 
 {
-  "lastDataUpdate": "2024-05-13",
+  "version": "1.0.0",
+  "lastUpdated": "2023-05-13",
+  "dataLastUpdated": "2023-05-10",
   "lastTariffsUpdate": {
-    "standard": "2024-05-01",
-    "flex": "2024-04-15",
-    "eco": "2024-05-10"
-  },
-  "version": "1.0.3"
+    "flex": "2023-04-01",
+    "standard": "2023-03-15", 
+    "eco": "2023-03-01"
+  }
 }

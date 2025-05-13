@@ -12,11 +12,13 @@ import {
   Legend,
   ReferenceLine
 } from 'recharts';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, getMonth, getWeek, isMonday, getDay, startOfMonth, endOfMonth } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { CheckedState } from "@radix-ui/react-checkbox";
+import { cn } from '@/lib/utils';
+import datesConfig from '@/config/dates.json';
 
 interface EnergyChartProps {
   energyPrices: EnergyPrice[];
@@ -41,6 +43,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [showWithTaxes, setShowWithTaxes] = useState(true);
   const [showConsumption, setShowConsumption] = useState(true);
   const [showCost, setShowCost] = useState(true);
+  const [showWeekSeparators, setShowWeekSeparators] = useState(true);
 
   // Prepare chart data
   const prepareChartData = () => {
@@ -55,7 +58,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       timestamp: item.timestamp,
       date: parseISO(item.timestamp),
       price: item.price,
-      unit: item.unit
+      unit: item.unit,
+      isMonthStart: isPotentiallyMonthStart(item.timestamp),
+      isWeekStart: isPotentiallyWeekStart(item.timestamp)
     }));
     
     // Add consumption and cost data if available
@@ -178,6 +183,27 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   };
   
   const chartData = prepareChartData();
+
+  // Helper function to check if a timestamp is potentially a month start for visualization
+  function isPotentiallyMonthStart(timestamp: string): boolean {
+    const date = parseISO(timestamp);
+    // Check if this is the first day of the month or the first data point for this month
+    if (date.getDate() === 1) {
+      return true;
+    }
+    
+    // Check if this is the first data point in dataset
+    const prevDate = new Date(date);
+    prevDate.setDate(prevDate.getDate() - 1);
+    
+    return getMonth(date) !== getMonth(prevDate);
+  }
+  
+  // Helper function to check if a timestamp is potentially a week start
+  function isPotentiallyWeekStart(timestamp: string): boolean {
+    const date = parseISO(timestamp);
+    return isMonday(date);
+  }
   
   // Calculate time unit based on data length and averaging option
   const getTimeUnit = () => {
@@ -201,21 +227,21 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     
     switch (averaging) {
       case 'monthly':
-        return format(date, 'MMM yyyy', { locale: de });
+        return format(date, 'MMM.', { locale: de });
       case 'daily':
         return format(date, 'dd.MM.yyyy', { locale: de });
       case 'daily-cycle':
         return format(date, 'HH:00', { locale: de });
       case 'hourly':
-        return format(date, 'dd.MM HH:00', { locale: de });
+        return format(date, 'dd.MM. HH:00', { locale: de });
       default:
         // Default based on time unit
         switch (timeUnit) {
           case 'month':
-            return format(date, 'MMM yy', { locale: de });
+            return format(date, 'MMM.', { locale: de });
           case 'week':
           case 'day':
-            return format(date, 'dd.MM', { locale: de });
+            return format(date, 'dd.MM.', { locale: de });
           default:
             return format(date, 'HH:00', { locale: de });
         }
@@ -263,7 +289,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       }
       
       return (
-        <div className="bg-white p-3 border border-gray-200 rounded-md shadow-md">
+        <div className="bg-card p-3 border border-border rounded-md shadow-md">
           <p className="font-medium text-sm mb-2">{formattedDate}</p>
           {payload.map((entry: any, index: number) => {
             if (!entry.value) return null;
@@ -312,11 +338,111 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     };
   };
 
+  // Create alternating background sections for months
+  const renderMonthBands = () => {
+    if (timeUnit !== 'month' && timeUnit !== 'week' && timeUnit !== 'day') {
+      return null;
+    }
+
+    const bands: JSX.Element[] = [];
+    
+    if (chartData.length > 0) {
+      let currentMonth = -1;
+      let bandStart = 0;
+      let isGray = false;
+      
+      chartData.forEach((item, index) => {
+        const date = parseISO(item.timestamp);
+        const month = date.getMonth();
+        
+        if (month !== currentMonth) {
+          if (currentMonth !== -1) {
+            bands.push(
+              <rect
+                key={`month-band-${bandStart}`}
+                x={bandStart}
+                y={0}
+                width={index - bandStart}
+                height="100%"
+                fill={isGray ? "var(--chart-band-color)" : "transparent"}
+                fillOpacity={0.3}
+              />
+            );
+            isGray = !isGray;
+          }
+          currentMonth = month;
+          bandStart = index;
+        }
+        
+        // Handle the last band
+        if (index === chartData.length - 1) {
+          bands.push(
+            <rect
+              key={`month-band-${bandStart}`}
+              x={bandStart}
+              y={0}
+              width={index - bandStart + 1}
+              height="100%"
+              fill={isGray ? "var(--chart-band-color)" : "transparent"}
+              fillOpacity={0.3}
+            />
+          );
+        }
+      });
+    }
+    
+    return (
+      <g className="month-bands">
+        {bands}
+      </g>
+    );
+  };
+
+  // Create week start markers
+  const renderWeekMarkers = () => {
+    if (!showWeekSeparators || timeUnit === 'month') {
+      return null;
+    }
+
+    const markers: JSX.Element[] = [];
+    
+    chartData.forEach((item, index) => {
+      if (item.isWeekStart) {
+        markers.push(
+          <line
+            key={`week-marker-${index}`}
+            x1={index}
+            y1={0}
+            x2={index}
+            y2="100%"
+            stroke="var(--week-marker-color)"
+            strokeWidth={1}
+            strokeDasharray="3,3"
+            strokeOpacity={0.5}
+          />
+        );
+      }
+    });
+    
+    return (
+      <g className="week-markers">
+        {markers}
+      </g>
+    );
+  };
+
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-medium">Energiepreisverlauf</h3>
+        <div className="text-sm text-muted-foreground">
+          Daten zuletzt aktualisiert: {datesConfig.dataLastUpdated}
+        </div>
+      </div>
+      
       {selectedContract && (
-        <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-gray-50">
-          <div className="text-sm font-medium">Tariflinien anzeigen:</div>
+        <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
+          <div className="text-sm font-medium">Tariflinien für {selectedContract.name} anzeigen:</div>
           <div className="flex items-center space-x-2">
             <Checkbox 
               id="show-base-price" 
@@ -345,7 +471,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       )}
       
       {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
-        <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-gray-50">
+        <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
           <div className="text-sm font-medium">Verbrauchsdaten anzeigen:</div>
           <div className="flex items-center space-x-2">
             <Checkbox 
@@ -368,19 +494,60 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         </div>
       )}
       
+      {timeUnit === 'week' || timeUnit === 'day' || timeUnit === 'hour' ? (
+        <div className="flex items-center space-x-2">
+          <Checkbox 
+            id="show-week-separators" 
+            checked={showWeekSeparators} 
+            onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
+          />
+          <Label htmlFor="show-week-separators" className="text-sm">Wochenbegrenzungen anzeigen</Label>
+        </div>
+      ) : null}
+      
       <div className="w-full h-[500px]">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={chartData}
-            margin={{ top: 10, right: 30, left: 20, bottom: 80 }}
+            margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
+            className="bg-card rounded-lg p-2 border"
           >
+            <defs>
+              <style type="text/css">
+                {`
+                  :root {
+                    --chart-band-color: ${theme === 'dark' ? '#2a2a2a' : '#f3f3f3'};
+                    --week-marker-color: ${theme === 'dark' ? '#555' : '#ccc'};
+                  }
+                  .recharts-cartesian-grid-horizontal line,
+                  .recharts-cartesian-grid-vertical line {
+                    stroke: var(--border);
+                    opacity: 0.3;
+                  }
+                  .recharts-legend-wrapper {
+                    bottom: 5px !important;
+                  }
+                  .recharts-xaxis .recharts-label {
+                    transform: translateY(10px);
+                  }
+                `}
+              </style>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
+            
+            {/* Background bands for months */}
+            {renderMonthBands()}
+            
+            {/* Week start markers */}
+            {renderWeekMarkers()}
+            
             <XAxis 
               dataKey="timestamp" 
               tickFormatter={formatXAxis}
-              label={{ value: getXAxisLabel(), position: 'bottom', offset: 20 }}
+              label={{ value: getXAxisLabel(), position: 'bottom', offset: 50 }}
               minTickGap={30}
-              height={50}
+              height={60}
+              tick={{ fontSize: 12 }}
             />
             <YAxis
               yAxisId="price"
@@ -407,7 +574,11 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               />
             )}
             <Tooltip content={<CustomTooltip />} />
-            <Legend verticalAlign="bottom" height={36} />
+            <Legend 
+              verticalAlign="bottom" 
+              height={36} 
+              wrapperStyle={{ paddingTop: '20px', bottom: '0px !important' }}
+            />
             <Line
               type="monotone"
               dataKey="price"
@@ -482,5 +653,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     </div>
   );
 };
+
+// Get the current theme for styling - this will be used inside the component
+const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 
 export default EnergyChart;

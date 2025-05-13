@@ -1,5 +1,5 @@
-
-import React, { useEffect, useState, useCallback } from 'react';
+import React from 'react';
+import AppHeader from '@/components/AppHeader';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
 import AveragingOptions from '@/components/AveragingOptions';
@@ -118,9 +118,8 @@ const Index = () => {
   }, []);
   
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Header version={datesConfig.version} lastUpdated={datesConfig.lastDataUpdate} />
-      
+    <div className="min-h-screen bg-background">
+      <AppHeader />
       <main className="flex-grow container mx-auto py-8 px-4">
         <div className="space-y-8">
           <Card className="animate-fade-in">

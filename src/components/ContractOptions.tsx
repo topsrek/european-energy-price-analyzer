@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ContractOption } from '@/types/energy-data';
 import datesConfig from '@/config/dates.json';
+import { cn } from '@/lib/utils';
 
 interface ContractOptionsProps {
   annualConsumption: number;
@@ -173,9 +174,12 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
           return (
             <Card 
               key={index} 
-              className={isSelected ? "ring-2 ring-primary" : ""}
+              className={cn(
+                "transition-all duration-200",
+                isSelected ? "ring-2 ring-primary shadow-lg" : "hover:shadow-md"
+              )}
             >
-              <CardHeader>
+              <CardHeader className={isEditableTariff ? "pb-2" : ""}>
                 <CardTitle>{contract.name}</CardTitle>
                 <CardDescription>
                   <span>
@@ -189,17 +193,17 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                       <>Anbieter: {contract.provider}</>
                     )}
                   </span>
-                  <div className="text-xs text-gray-500 mt-2">Stand: {tarifDate}</div>
+                  <div className="text-xs text-muted-foreground mt-2">Stand: {tarifDate}</div>
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {/* Arbeitspreis */}
                   <div className="space-y-1">
-                    <div className="font-medium text-sm text-purple-700">Arbeitspreis:</div>
+                    <div className="font-medium text-sm text-energy-primary">Arbeitspreis:</div>
                     <div className="pl-4 flex justify-between text-sm">
                       <span>Energiekosten</span>
-                      <span className="text-purple-700 font-medium">
+                      <span className="text-energy-primary font-medium">
                         {isEditableTariff ? (
                           <Input 
                             type="number"
@@ -216,10 +220,6 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                           </>
                         )}
                       </span>
-                    </div>
-                    <div className="pl-4 flex justify-between text-sm">
-                      <span>Jahreskosten Energie</span>
-                      <span className="text-purple-700 font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
                     </div>
                   </div>
                   
@@ -249,7 +249,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                     </div>
                     <div className="pl-4 flex justify-between text-sm">
                       <span>Energiekosten</span>
-                      <span className="text-purple-700 font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
+                      <span className="text-energy-primary font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
                     </div>
                     <div className="pl-4 flex justify-between text-sm font-medium">
                       <span>Fixkosten gesamt</span>
@@ -270,7 +270,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                     <span>Jahreskosten:</span>
                     <span>{contract.total.toFixed(2)} €</span>
                   </div>
-                  <div className="text-xs text-gray-500 text-center">
+                  <div className="text-xs text-muted-foreground text-center mt-2">
                     Jahresverbrauch: {annualConsumption} kWh
                   </div>
                 </div>
@@ -289,6 +289,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                       contractOptions[index === 1 ? 2 : index],
                     index
                   )}
+                  className={isSelected ? "bg-primary hover:bg-primary/90" : ""}
                 >
                   {isSelected ? "Ausgewählt" : "In Grafik anzeigen"}
                 </Button>
