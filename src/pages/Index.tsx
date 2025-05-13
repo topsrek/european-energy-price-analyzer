@@ -41,7 +41,7 @@ const Index = () => {
   const [annualConsumption, setAnnualConsumption] = useState<number>(3500); // Default annual consumption
   const [selectedContract, setSelectedContract] = useState<ContractOption | undefined>(undefined);
   
-  // Mock contract options
+  // Mock contract options with clearer naming that includes provider
   const contractOptions: ContractOption[] = [
     {
       name: 'Flexibler Stromtarif',
@@ -174,8 +174,9 @@ const Index = () => {
                 
                 {/* Visualization */}
                 <div>
-                  <div className="flex justify-end mb-1">
-                    <span className="text-xs text-gray-500">Daten zuletzt aktualisiert: {datesConfig.dataLastUpdated}</span>
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-lg font-medium">Preisverlauf</h3>
+                    <span className="text-xs text-muted-foreground">Daten zuletzt aktualisiert: {datesConfig.dataLastUpdated}</span>
                   </div>
                   {displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 
@@ -187,8 +188,8 @@ const Index = () => {
                       averaging={isAveragingEnabled ? averaging : 'none'}
                     />
                   ) : (
-                    <div className="h-[400px] flex items-center justify-center bg-gray-100 rounded-lg">
-                      <p className="text-gray-500">Keine Daten für den ausgewählten Zeitraum verfügbar</p>
+                    <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg">
+                      <p className="text-muted-foreground">Keine Daten für den ausgewählten Zeitraum verfügbar</p>
                     </div>
                   )}
                 </div>
@@ -226,7 +227,7 @@ const Index = () => {
             <CardContent>
               <Tabs defaultValue="contracts">
                 <TabsList>
-                  <TabsTrigger value="contracts">Tarifoptionen</TabsTrigger>
+                  <TabsTrigger value="contracts">Preisoptionen</TabsTrigger>
                   <TabsTrigger value="upload">Smart Meter Daten</TabsTrigger>
                 </TabsList>
                 <TabsContent value="contracts">
@@ -240,7 +241,7 @@ const Index = () => {
                 </TabsContent>
                 <TabsContent value="upload">
                   <div className="p-4">
-                    <div className="bg-gray-100 rounded-lg p-4 mb-6 text-center">
+                    <div className="bg-muted rounded-lg p-4 mb-6 text-center">
                       <h3 className="text-lg font-medium mb-2">Smart Meter Daten Upload</h3>
                       <p className="text-sm text-muted-foreground">
                         Diese Funktion wird auf Anfrage implementiert
@@ -262,9 +263,9 @@ const Index = () => {
         </div>
       </main>
       
-      <footer className="bg-white border-t py-6">
+      <footer className="bg-background border-t py-6">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-gray-500 text-sm">
+          <p className="text-muted-foreground text-sm">
             © {new Date().getFullYear()} Wiener Strompreis-Rechner | Alle Daten sind Beispieldaten
           </p>
           <div className="flex gap-4">

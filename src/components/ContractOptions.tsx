@@ -200,10 +200,10 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 <div className="space-y-4">
                   {/* Arbeitspreis */}
                   <div className="space-y-1">
-                    <div className="font-medium text-sm text-energy-primary">Arbeitspreis:</div>
+                    <div className="font-medium text-sm text-primary">Arbeitspreis:</div>
                     <div className="pl-4 flex justify-between text-sm">
                       <span>Energiekosten</span>
-                      <span className="text-energy-primary font-medium">
+                      <span className="text-primary font-medium">
                         {isEditableTariff ? (
                           <Input 
                             type="number"
@@ -249,7 +249,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                     </div>
                     <div className="pl-4 flex justify-between text-sm">
                       <span>Energiekosten</span>
-                      <span className="text-energy-primary font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
+                      <span className="text-primary font-medium">{contract.energyCosts.toFixed(2)} € / Jahr</span>
                     </div>
                     <div className="pl-4 flex justify-between text-sm font-medium">
                       <span>Fixkosten gesamt</span>
@@ -291,7 +291,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                   )}
                   className={isSelected ? "bg-primary hover:bg-primary/90" : ""}
                 >
-                  {isSelected ? "Ausgewählt" : "In Grafik anzeigen"}
+                  {isSelected ? "Ausgewählt" : "In Preisvergleich anzeigen"}
                 </Button>
               </CardFooter>
             </Card>
