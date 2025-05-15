@@ -228,7 +228,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     
     switch (averaging) {
       case 'monthly':
-        return format(date, 'MMM.', { locale: de });
+        return format(date, 'MMM', { locale: de });
       case 'daily':
         return format(date, 'dd.MM.yyyy', { locale: de });
       case 'daily-cycle':
@@ -239,7 +239,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         // Default based on time unit
         switch (timeUnit) {
           case 'month':
-            return format(date, 'MMM.', { locale: de });
+            return format(date, 'MMM', { locale: de });
           case 'week':
           case 'day':
             return format(date, 'dd.MM.', { locale: de });
@@ -310,13 +310,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               name = 'Kosten';
             } else if (entry.dataKey === 'contractEnergyPrice') {
               unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
-              name = `${selectedContract?.name}: Arbeitspreis`;
+              name = `${selectedContract?.provider} ${selectedContract?.name}: Arbeitspreis`;
             } else if (entry.dataKey === 'contractTotalPrice') {
               unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
-              name = `${selectedContract?.name}: inkl. Fixkosten`;
+              name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Fixkosten`;
             } else if (entry.dataKey === 'contractTotalPriceTaxed') {
               unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
-              name = `${selectedContract?.name}: inkl. Steuern`;
+              name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Steuern`;
             }
             
             return (
@@ -445,8 +445,24 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium">Energiepreisverlauf</h3>
+      <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
+        <div className="text-sm font-medium">Abschnitt-Visualisierung:</div>
+        <div className="flex items-center space-x-2">
+          <Checkbox 
+            id="show-month-separators" 
+            checked={showMonthSeparators} 
+            onCheckedChange={handleCheckedChange(setShowMonthSeparators)}
+          />
+          <Label htmlFor="show-month-separators" className="text-sm">Monatsabschnitte</Label>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Checkbox 
+            id="show-week-separators" 
+            checked={showWeekSeparators} 
+            onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
+          />
+          <Label htmlFor="show-week-separators" className="text-sm">Wochenbegrenzungen</Label>
+        </div>
       </div>
       
       {selectedContract && (
@@ -502,26 +518,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           )}
         </div>
       )}
-      
-      <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
-        <div className="text-sm font-medium">Abschnitt-Visualisierung:</div>
-        <div className="flex items-center space-x-2">
-          <Checkbox 
-            id="show-month-separators" 
-            checked={showMonthSeparators} 
-            onCheckedChange={handleCheckedChange(setShowMonthSeparators)}
-          />
-          <Label htmlFor="show-month-separators" className="text-sm">Monatsabschnitte</Label>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Checkbox 
-            id="show-week-separators" 
-            checked={showWeekSeparators} 
-            onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
-          />
-          <Label htmlFor="show-week-separators" className="text-sm">Wochenbegrenzungen</Label>
-        </div>
-      </div>
       
       <div className="w-full h-[500px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -667,9 +663,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             )}
           </LineChart>
         </ResponsiveContainer>
-      </div>
-      <div className="text-sm text-muted-foreground text-right">
-        Daten zuletzt aktualisiert: {datesConfig.dataLastUpdated}
       </div>
     </div>
   );
