@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChartData, EnergyPrice, SmartMeterData, ContractOption } from '@/types/energy-data';
 import {
   ResponsiveContainer,
@@ -12,13 +11,13 @@ import {
   Legend,
   ReferenceLine
 } from 'recharts';
-import { format, parseISO, getMonth, getWeek, isMonday, getDay, startOfMonth, endOfMonth } from 'date-fns';
+import { format, parseISO, getMonth, isMonday, getDate, getDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { CheckedState } from "@radix-ui/react-checkbox";
 import { cn } from '@/lib/utils';
-import datesConfig from '@/config/dates.json';
+import { useTheme } from '@/hooks/useTheme';
 
 interface EnergyChartProps {
   energyPrices: EnergyPrice[];
@@ -37,6 +36,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   selectedContract,
   averaging
 }) => {
+  const { theme } = useTheme();
   // State for toggling visibility of various lines
   const [showBasePrice, setShowBasePrice] = useState(true);
   const [showTotalPrice, setShowTotalPrice] = useState(true);
@@ -55,14 +55,17 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     });
     
     // Start with price data
-    const chartData = energyPrices.map(item => ({
-      timestamp: item.timestamp,
-      date: parseISO(item.timestamp),
-      price: item.price,
-      unit: item.unit,
-      isMonthStart: isPotentiallyMonthStart(item.timestamp),
-      isWeekStart: isPotentiallyWeekStart(item.timestamp)
-    }));
+    const chartData = energyPrices.map(item => {
+      const date = parseISO(item.timestamp);
+      return {
+        timestamp: item.timestamp,
+        date: date,
+        price: item.price,
+        unit: item.unit,
+        isMonthStart: date.getDate() === 1,
+        isWeekStart: getDay(date) === 1 // Monday is day 1
+      };
+    });
     
     // Add consumption and cost data if available
     if (showSmartMeterData && smartMeterData && smartMeterData.length > 0) {
@@ -280,10 +283,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           formattedDate = format(date, 'dd.MM.yyyy', { locale: de });
           break;
         case 'daily-cycle':
-          formattedDate = format(date, 'HH:00 Uhr', { locale: de });
+          formattedDate = format(date, 'HH:00 \'Uhr\'', { locale: de });
           break;
         case 'hourly':
-          formattedDate = format(date, 'dd.MM.yyyy HH:00 Uhr', { locale: de });
+          formattedDate = format(date, 'dd.MM.yyyy HH:00 \'Uhr\'', { locale: de });
           break;
         default:
           formattedDate = format(date, 'dd.MM.yyyy HH:mm', { locale: de });
@@ -339,66 +342,56 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     };
   };
 
-  // Create alternating background sections for months - fixed version
+  // Improved month background renderer
   const renderMonthBands = () => {
-    if (!showMonthSeparators) {
+    if (!showMonthSeparators || chartData.length === 0) {
       return null;
     }
-
-    const bands: JSX.Element[] = [];
     
-    if (chartData.length > 0) {
-      let currentMonth = -1;
-      let bandStart = 0;
-      let isGray = false;
+    const bands: JSX.Element[] = [];
+    let currentMonth = -1;
+    let bandStart = 0;
+    let isGray = false;
+    
+    chartData.forEach((item, index) => {
+      const date = item.date;
+      const month = date.getMonth();
       
-      chartData.forEach((item, index) => {
-        const date = parseISO(item.timestamp);
-        const month = date.getMonth();
-        
-        if (month !== currentMonth) {
-          if (currentMonth !== -1) {
-            // Calculate position as percentage of chart width
-            const startPercent = (bandStart / (chartData.length - 1)) * 100;
-            const widthPercent = ((index - bandStart) / (chartData.length - 1)) * 100;
-            
-            bands.push(
-              <rect
-                key={`month-band-${bandStart}`}
-                x={`${startPercent}%`}
-                y="0"
-                width={`${widthPercent}%`}
-                height="100%"
-                fill={isGray ? "var(--chart-band-color)" : "transparent"}
-                fillOpacity={0.3}
-              />
-            );
-            isGray = !isGray;
-          }
-          currentMonth = month;
-          bandStart = index;
-        }
-        
-        // Handle the last band
-        if (index === chartData.length - 1) {
-          // Calculate position as percentage of chart width
-          const startPercent = (bandStart / (chartData.length - 1)) * 100;
-          const widthPercent = ((index - bandStart + 1) / (chartData.length - 1)) * 100;
-          
+      if (month !== currentMonth) {
+        if (currentMonth !== -1) {
+          // Add a band for the previous month
           bands.push(
             <rect
               key={`month-band-${bandStart}`}
-              x={`${startPercent}%`}
+              x={`${(bandStart / (chartData.length - 1)) * 100}%`}
               y="0"
-              width={`${widthPercent}%`}
+              width={`${((index - bandStart) / (chartData.length - 1)) * 100}%`}
               height="100%"
               fill={isGray ? "var(--chart-band-color)" : "transparent"}
               fillOpacity={0.3}
             />
           );
+          isGray = !isGray;
         }
-      });
-    }
+        currentMonth = month;
+        bandStart = index;
+      }
+      
+      // Handle the last band
+      if (index === chartData.length - 1) {
+        bands.push(
+          <rect
+            key={`month-band-${bandStart}`}
+            x={`${(bandStart / (chartData.length - 1)) * 100}%`}
+            y="0"
+            width={`${((index - bandStart + 1) / (chartData.length - 1)) * 100}%`}
+            height="100%"
+            fill={isGray ? "var(--chart-band-color)" : "transparent"}
+            fillOpacity={0.3}
+          />
+        );
+      }
+    });
     
     return (
       <g className="month-bands">
@@ -407,25 +400,22 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     );
   };
 
-  // Create week start markers - fixed version
+  // Improved week separators renderer
   const renderWeekMarkers = () => {
-    if (!showWeekSeparators) {
+    if (!showWeekSeparators || chartData.length === 0) {
       return null;
     }
-
+    
     const markers: JSX.Element[] = [];
     
     chartData.forEach((item, index) => {
       if (item.isWeekStart) {
-        // Calculate position as percentage of chart width
-        const positionPercent = (index / (chartData.length - 1)) * 100;
-        
         markers.push(
           <line
             key={`week-marker-${index}`}
-            x1={`${positionPercent}%`}
+            x1={`${(index / (chartData.length - 1)) * 100}%`}
             y1="0"
-            x2={`${positionPercent}%`}
+            x2={`${(index / (chartData.length - 1)) * 100}%`}
             y2="100%"
             stroke="var(--week-marker-color)"
             strokeWidth={1}
@@ -453,7 +443,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             checked={showMonthSeparators} 
             onCheckedChange={handleCheckedChange(setShowMonthSeparators)}
           />
-          <Label htmlFor="show-month-separators" className="text-sm">Monatsabschnitte</Label>
+          <Label htmlFor="show-month-separators" className="text-sm">Monate</Label>
         </div>
         <div className="flex items-center space-x-2">
           <Checkbox 
@@ -461,7 +451,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             checked={showWeekSeparators} 
             onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
           />
-          <Label htmlFor="show-week-separators" className="text-sm">Wochenbegrenzungen</Label>
+          <Label htmlFor="show-week-separators" className="text-sm">Wochen</Label>
         </div>
       </div>
       
@@ -558,7 +548,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <XAxis 
               dataKey="timestamp" 
               tickFormatter={formatXAxis}
-              label={{ value: getXAxisLabel(), position: 'bottom', offset: 50 }}
+              label={{ value: averaging === 'daily-cycle' ? 'Stunde des Tages' : 'Datum', position: 'bottom', offset: 50 }}
               minTickGap={30}
               height={60}
               tick={{ fontSize: 12 }}
@@ -667,8 +657,5 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     </div>
   );
 };
-
-// Get the current theme for styling - this will be used inside the component
-const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 
 export default EnergyChart;

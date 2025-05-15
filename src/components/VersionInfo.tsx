@@ -5,9 +5,13 @@ import { Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const VersionInfo = () => {
+  // Placeholder for commit hash - in a CI setup, this would be replaced with actual commit hash
+  const commitHash = "dev"; 
+  
   return (
     <div className="flex items-center gap-1 text-sm text-muted-foreground">
-      <span>Version {datesConfig.version}</span>
+      <span>v{datesConfig.version}</span>
+      <span className="text-xs opacity-60">({commitHash})</span>
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>

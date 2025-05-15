@@ -1,7 +1,5 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import AppHeader from '@/components/AppHeader';
-import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
 import AveragingOptions from '@/components/AveragingOptions';
 import FilterOptions from '@/components/FilterOptions';
@@ -21,8 +19,6 @@ import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
-import VersionInfo from '@/components/VersionInfo';
-import datesConfig from '@/config/dates.json';
 
 const Index = () => {
   const { toast } = useToast();
@@ -176,10 +172,7 @@ const Index = () => {
                 
                 {/* Visualization */}
                 <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-lg font-medium">Preisverlauf</h3>
-                    <VersionInfo />
-                  </div>
+                  <h3 className="text-lg font-medium mb-2">Preisverlauf</h3>
                   {displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 
                       energyPrices={displayedEnergyPrices}
