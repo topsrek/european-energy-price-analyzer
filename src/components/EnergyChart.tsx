@@ -44,6 +44,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [showConsumption, setShowConsumption] = useState(true);
   const [showCost, setShowCost] = useState(true);
   const [showWeekSeparators, setShowWeekSeparators] = useState(true);
+  const [showMonthSeparators, setShowMonthSeparators] = useState(true);
 
   // Prepare chart data
   const prepareChartData = () => {
@@ -338,9 +339,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     };
   };
 
-  // Create alternating background sections for months
+  // Create alternating background sections for months - fixed version
   const renderMonthBands = () => {
-    if (timeUnit !== 'month' && timeUnit !== 'week' && timeUnit !== 'day') {
+    if (!showMonthSeparators) {
       return null;
     }
 
@@ -357,12 +358,16 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         
         if (month !== currentMonth) {
           if (currentMonth !== -1) {
+            // Calculate position as percentage of chart width
+            const startPercent = (bandStart / (chartData.length - 1)) * 100;
+            const widthPercent = ((index - bandStart) / (chartData.length - 1)) * 100;
+            
             bands.push(
               <rect
                 key={`month-band-${bandStart}`}
-                x={bandStart}
-                y={0}
-                width={index - bandStart}
+                x={`${startPercent}%`}
+                y="0"
+                width={`${widthPercent}%`}
                 height="100%"
                 fill={isGray ? "var(--chart-band-color)" : "transparent"}
                 fillOpacity={0.3}
@@ -376,12 +381,16 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         
         // Handle the last band
         if (index === chartData.length - 1) {
+          // Calculate position as percentage of chart width
+          const startPercent = (bandStart / (chartData.length - 1)) * 100;
+          const widthPercent = ((index - bandStart + 1) / (chartData.length - 1)) * 100;
+          
           bands.push(
             <rect
               key={`month-band-${bandStart}`}
-              x={bandStart}
-              y={0}
-              width={index - bandStart + 1}
+              x={`${startPercent}%`}
+              y="0"
+              width={`${widthPercent}%`}
               height="100%"
               fill={isGray ? "var(--chart-band-color)" : "transparent"}
               fillOpacity={0.3}
@@ -398,9 +407,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     );
   };
 
-  // Create week start markers
+  // Create week start markers - fixed version
   const renderWeekMarkers = () => {
-    if (!showWeekSeparators || timeUnit === 'month') {
+    if (!showWeekSeparators) {
       return null;
     }
 
@@ -408,12 +417,15 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     
     chartData.forEach((item, index) => {
       if (item.isWeekStart) {
+        // Calculate position as percentage of chart width
+        const positionPercent = (index / (chartData.length - 1)) * 100;
+        
         markers.push(
           <line
             key={`week-marker-${index}`}
-            x1={index}
-            y1={0}
-            x2={index}
+            x1={`${positionPercent}%`}
+            y1="0"
+            x2={`${positionPercent}%`}
             y2="100%"
             stroke="var(--week-marker-color)"
             strokeWidth={1}
@@ -435,14 +447,11 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium">Energiepreisverlauf</h3>
-        <div className="text-sm text-muted-foreground">
-          Daten zuletzt aktualisiert: {datesConfig.dataLastUpdated}
-        </div>
       </div>
       
       {selectedContract && (
         <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
-          <div className="text-sm font-medium">Tariflinien für {selectedContract.name} anzeigen:</div>
+          <div className="text-sm font-medium">Tarifoptionen für {selectedContract.provider} {selectedContract.name} anzeigen:</div>
           <div className="flex items-center space-x-2">
             <Checkbox 
               id="show-base-price" 
@@ -494,16 +503,25 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         </div>
       )}
       
-      {timeUnit === 'week' || timeUnit === 'day' || timeUnit === 'hour' ? (
+      <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
+        <div className="text-sm font-medium">Abschnitt-Visualisierung:</div>
+        <div className="flex items-center space-x-2">
+          <Checkbox 
+            id="show-month-separators" 
+            checked={showMonthSeparators} 
+            onCheckedChange={handleCheckedChange(setShowMonthSeparators)}
+          />
+          <Label htmlFor="show-month-separators" className="text-sm">Monatsabschnitte</Label>
+        </div>
         <div className="flex items-center space-x-2">
           <Checkbox 
             id="show-week-separators" 
             checked={showWeekSeparators} 
             onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
           />
-          <Label htmlFor="show-week-separators" className="text-sm">Wochenbegrenzungen anzeigen</Label>
+          <Label htmlFor="show-week-separators" className="text-sm">Wochenbegrenzungen</Label>
         </div>
-      ) : null}
+      </div>
       
       <div className="w-full h-[500px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -615,7 +633,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               <Line
                 type="monotone"
                 dataKey="contractEnergyPrice"
-                name={`${selectedContract.name} - Arbeitspreis`}
+                name={`${selectedContract.provider} ${selectedContract.name} - Arbeitspreis`}
                 yAxisId="price"
                 stroke="#9c27b0"
                 strokeWidth={2}
@@ -627,7 +645,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               <Line
                 type="monotone"
                 dataKey="contractTotalPrice"
-                name={`${selectedContract.name} - inkl. Fixkosten`}
+                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Fixkosten`}
                 yAxisId="price"
                 stroke="#ff9800"
                 strokeWidth={2}
@@ -639,7 +657,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               <Line
                 type="monotone"
                 dataKey="contractTotalPriceTaxed"
-                name={`${selectedContract.name} - inkl. Steuern`}
+                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Steuern`}
                 yAxisId="price"
                 stroke="#795548"
                 strokeWidth={2}
@@ -649,6 +667,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             )}
           </LineChart>
         </ResponsiveContainer>
+      </div>
+      <div className="text-sm text-muted-foreground text-right">
+        Daten zuletzt aktualisiert: {datesConfig.dataLastUpdated}
       </div>
     </div>
   );

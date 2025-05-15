@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import AppHeader from '@/components/AppHeader';
 import Header from '@/components/Header';
@@ -20,6 +21,7 @@ import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
+import VersionInfo from '@/components/VersionInfo';
 import datesConfig from '@/config/dates.json';
 
 const Index = () => {
@@ -176,7 +178,7 @@ const Index = () => {
                 <div>
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="text-lg font-medium">Preisverlauf</h3>
-                    <span className="text-xs text-muted-foreground">Daten zuletzt aktualisiert: {datesConfig.dataLastUpdated}</span>
+                    <VersionInfo />
                   </div>
                   {displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 
