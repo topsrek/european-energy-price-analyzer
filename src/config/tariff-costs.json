@@ -1,0 +1,91 @@
+
+{
+  "lastUpdated": "2024-01-15",
+  "networkCosts": {
+    "name": "Netzkosten (Normalstrom)",
+    "netztarif": 754.56,
+    "breakdown": {
+      "netznutzungsentgelt": {
+        "arbeitspreis": 621.60,
+        "grundpauschale": 48.00
+      },
+      "netzverlustentgelt": 58.80,
+      "messleistungen": 26.16,
+      "abgaben": {
+        "elektrizitaetsabgabe": 126.00,
+        "erneuerbaren_foerderbeitrag": 71.56,
+        "erneuerbaren_foerderpauschale": 19.02,
+        "total": 216.58
+      }
+    },
+    "total_excl_tax": 971.14,
+    "tax_rate": 0.20,
+    "tax_amount": 194.23,
+    "total_incl_tax": 1165.37
+  },
+  "tariffs": [
+    {
+      "id": "flex",
+      "name": "Flexibler Stromtarif",
+      "provider": "Energie AG",
+      "energiepreis": 1457.00,
+      "arbeitspreis_gesamt": 1407.00,
+      "grundpauschale": 50.00,
+      "rabatte": {
+        "total": -703.50,
+        "details": [
+          {
+            "name": "Neukundenrabatt: 6 Monate gratis Energie",
+            "amount": -703.50
+          }
+        ]
+      },
+      "energiekosten_excl_tax": 753.50,
+      "tax_rate": 0.20,
+      "tax_amount": 150.70,
+      "energiekosten_incl_tax": 904.20
+    },
+    {
+      "id": "standard",
+      "name": "Standard Tarif",
+      "provider": "Wien Energie",
+      "energiepreis": 1200.00,
+      "arbeitspreis_gesamt": 1150.00,
+      "grundpauschale": 50.00,
+      "rabatte": {
+        "total": 0,
+        "details": []
+      },
+      "energiekosten_excl_tax": 1150.00,
+      "tax_rate": 0.20,
+      "tax_amount": 230.00,
+      "energiekosten_incl_tax": 1380.00
+    },
+    {
+      "id": "custom",
+      "name": "Individueller Tarif",
+      "provider": "Eigene Eingabe",
+      "editable": true,
+      "energiepreis": 1000.00,
+      "arbeitspreis_gesamt": 950.00,
+      "grundpauschale": 50.00,
+      "rabatte": {
+        "total": 0,
+        "details": []
+      },
+      "energiekosten_excl_tax": 950.00,
+      "tax_rate": 0.20,
+      "tax_amount": 190.00,
+      "energiekosten_incl_tax": 1140.00
+    },
+    {
+      "id": "spot",
+      "name": "Spot Tarif",
+      "provider": "Spotmarkt",
+      "type": "spot",
+      "grundgebuehr": 120.00,
+      "verwaltungsgebuehr": 50.00,
+      "tax_rate": 0.20
+    }
+  ]
+}

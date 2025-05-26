@@ -34,6 +34,7 @@ interface ExtendedChartDataPoint {
   contractEnergyPrice?: number;
   contractTotalPrice?: number;
   contractTotalPriceTaxed?: number;
+  fixedCosts?: number; // New property for fixed costs
   // Allow other dynamic properties if necessary, though specific props are preferred
   [key: string]: any;
 }
@@ -65,6 +66,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [showWeekSeparators, setShowWeekSeparators] = useState(true);
   const [showMonthSeparators, setShowMonthSeparators] = useState(true);
   const [showDaySeparators, setShowDaySeparators] = useState(false);
+  const [showSpotPriceWithTax, setShowSpotPriceWithTax] = useState(false);
+  const [showFixedCosts, setShowFixedCosts] = useState(false);
 
   // Prepare chart data, memoized
   const chartData = useMemo(() => {
@@ -75,10 +78,18 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     
     const internalChartData: ExtendedChartDataPoint[] = energyPrices.map(item => {
       const date = parseISO(item.timestamp);
+      let processedPrice = item.price;
+      
+      // Add tax to spot price if enabled
+      if (showSpotPriceWithTax) {
+        processedPrice = item.price * 1.2; // Add 20% VAT
+      }
+      
       return {
         timestamp: item.timestamp,
         date: date,
-        price: item.price,
+        price: processedPrice,
+        originalPrice: item.price, // Keep original for reference
         unit: item.unit,
       };
     });
@@ -191,7 +202,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       });
     }
     return internalChartData;
-  }, [energyPrices, smartMeterData, showSmartMeterData, showTotalCost, selectedContract, averaging]);
+  }, [energyPrices, smartMeterData, showSmartMeterData, showTotalCost, selectedContract, averaging, showSpotPriceWithTax, showFixedCosts]);
 
   // Calculate data timespan in days
   const dataTimeSpanDays = chartData.length > 0 
@@ -571,8 +582,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                         position: 'insideTop',
                         fill: 'var(--week-label-color)',
                         fontSize: 10,
-                        textAnchor: 'middle',
-                        dy: 10, 
+                        textAnchor: 'middle', /* Ensure centering if not default for ReferenceLine label */
                     }}
                 />
             );
@@ -714,7 +724,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               key="price-line"
               type="monotone"
               dataKey="price"
-              name="Strompreis"
+              name={showSpotPriceWithTax ? "Strompreis (inkl. USt.)" : "Strompreis"}
               yAxisId="price"
               stroke="#e53935"
               strokeWidth={2}
@@ -882,6 +892,27 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           )}
         </div>
       )}
+      
+      {/* Add new tax toggle section */}
+      <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
+        <div className="text-sm font-medium">Preisdarstellung:</div>
+        <div className="flex items-center space-x-2">
+          <Checkbox 
+            id="show-spot-price-with-tax" 
+            checked={showSpotPriceWithTax} 
+            onCheckedChange={handleCheckedChange(setShowSpotPriceWithTax)}
+          />
+          <Label htmlFor="show-spot-price-with-tax" className="text-sm">Strompreis inkl. USt.</Label>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Checkbox 
+            id="show-fixed-costs" 
+            checked={showFixedCosts} 
+            onCheckedChange={handleCheckedChange(setShowFixedCosts)}
+          />
+          <Label htmlFor="show-fixed-costs" className="text-sm">Fixkosten anzeigen</Label>
+        </div>
+      </div>
     </div>
   );
 };
