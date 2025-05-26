@@ -32,6 +32,7 @@ interface ExtendedChartDataPoint {
   consumption?: number; 
   cost?: number;
   contractEnergyPrice?: number;
+  contractNetworkCosts?: number;
   contractTotalPrice?: number;
   contractTotalPriceTaxed?: number;
   fixedCosts?: number; // New property for fixed costs
@@ -59,7 +60,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const { theme } = useTheme();
   // State for toggling visibility of various lines
   const [showBasePrice, setShowBasePrice] = useState(true);
-  const [showTotalPrice, setShowTotalPrice] = useState(true);
+  const [showNetworkCosts, setShowNetworkCosts] = useState(true);
   const [showWithTaxes, setShowWithTaxes] = useState(true);
   const [showConsumption, setShowConsumption] = useState(true);
   const [showCost, setShowCost] = useState(true);
@@ -67,7 +68,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [showMonthSeparators, setShowMonthSeparators] = useState(true);
   const [showDaySeparators, setShowDaySeparators] = useState(false);
   const [showSpotPriceWithTax, setShowSpotPriceWithTax] = useState(false);
-  const [showFixedCosts, setShowFixedCosts] = useState(false);
 
   // Prepare chart data, memoized
   const chartData = useMemo(() => {
@@ -150,59 +150,28 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     
     if (selectedContract) {
       const energyPriceInCents = selectedContract.energyPrice;
-      let divisor = 1;
-      switch(averaging) {
-        case 'monthly': divisor = 30 * 24; break;
-        case 'daily': divisor = 24; break;
-        case 'daily-cycle': divisor = 1; break;
-        case 'hourly': divisor = 1; break;
-        default: divisor = 1;
-      }
+      const annualConsumption = showSmartMeterData && smartMeterData 
+        ? smartMeterData.reduce((sum, data) => sum + data.consumption, 0) * (365 / (smartMeterData.length / 24))
+        : 3500;
+      
+      const networkCostsPerYear = selectedContract.networkCosts(annualConsumption);
+      const networkCostsPerKwh = networkCostsPerYear / annualConsumption;
       
       internalChartData.forEach(item => {
+        // Contract energy price (Nettostromkosten)
         if (item.unit === 'EUR_MWh') {
           (item as any).contractEnergyPrice = energyPriceInCents * 10;
+          (item as any).contractNetworkCosts = (energyPriceInCents + networkCostsPerKwh * 100) * 10;
+          (item as any).contractTotalPriceTaxed = (energyPriceInCents + networkCostsPerKwh * 100) * 10 * 1.2;
         } else {
           (item as any).contractEnergyPrice = energyPriceInCents;
+          (item as any).contractNetworkCosts = energyPriceInCents + (networkCostsPerKwh * 100);
+          (item as any).contractTotalPriceTaxed = (energyPriceInCents + (networkCostsPerKwh * 100)) * 1.2;
         }
-        
-        const annualConsumption = showSmartMeterData && smartMeterData 
-          ? smartMeterData.reduce((sum, data) => sum + data.consumption, 0) * (365 / (smartMeterData.length / 24))
-          : 3500;
-        
-        const basePricePerUnit = selectedContract.basePrice / (365 * 24) * divisor;
-        const networkCostsPerUnit = selectedContract.networkCosts(annualConsumption) / (365 * 24) * divisor;
-        const fixedCostPerUnit = basePricePerUnit + networkCostsPerUnit;
-        let effectiveCostPerKwh;
-        
-        if (averaging === 'daily-cycle') {
-          const hour = parseISO(item.timestamp).getHours();
-          let hourlyWeight = 1;
-          if (hour >= 7 && hour <= 9) hourlyWeight = 1.5;
-          else if (hour >= 17 && hour <= 22) hourlyWeight = 2.0;
-          else if (hour >= 23 || hour <= 6) hourlyWeight = 0.5;
-          const adjustedFixedCostPerUnit = fixedCostPerUnit * hourlyWeight;
-          const referenceCons = 0.5;
-          if (item.unit === 'EUR_MWh') {
-            effectiveCostPerKwh = energyPriceInCents * 10 + (adjustedFixedCostPerUnit * 1000 / referenceCons);
-          } else {
-            effectiveCostPerKwh = energyPriceInCents + (adjustedFixedCostPerUnit * 100 / referenceCons);
-          }
-        } else {
-          const referenceCons = averaging === 'monthly' ? 250 :
-                              (averaging === 'daily' ? 8 : 0.5);
-          if (item.unit === 'EUR_MWh') {
-            effectiveCostPerKwh = energyPriceInCents * 10 + (fixedCostPerUnit * 1000 / referenceCons);
-          } else {
-            effectiveCostPerKwh = energyPriceInCents + (fixedCostPerUnit * 100 / referenceCons);
-          }
-        }
-        (item as any).contractTotalPrice = effectiveCostPerKwh;
-        (item as any).contractTotalPriceTaxed = effectiveCostPerKwh * 1.2;
       });
     }
     return internalChartData;
-  }, [energyPrices, smartMeterData, showSmartMeterData, showTotalCost, selectedContract, averaging, showSpotPriceWithTax, showFixedCosts]);
+  }, [energyPrices, smartMeterData, showSmartMeterData, showTotalCost, selectedContract, averaging, showSpotPriceWithTax]);
 
   // Calculate data timespan in days
   const dataTimeSpanDays = chartData.length > 0 
@@ -462,7 +431,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             
             if (entry.dataKey === 'price') {
               unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
-              name = 'Strompreis';
+              name = showSpotPriceWithTax ? 'Strompreis (inkl. USt.)' : 'Strompreis';
             } else if (entry.dataKey === 'consumption') {
               unit = 'kWh';
               name = 'Verbrauch';
@@ -471,10 +440,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               name = 'Kosten';
             } else if (entry.dataKey === 'contractEnergyPrice') {
               unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
-              name = `${selectedContract?.provider} ${selectedContract?.name}: Arbeitspreis`;
-            } else if (entry.dataKey === 'contractTotalPrice') {
+              name = `${selectedContract?.provider} ${selectedContract?.name}: Nettostromkosten`;
+            } else if (entry.dataKey === 'contractNetworkCosts') {
               unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
-              name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Fixkosten`;
+              name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Netzkosten`;
             } else if (entry.dataKey === 'contractTotalPriceTaxed') {
               unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
               name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Steuern`;
@@ -765,10 +734,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 key="contractEnergyPrice-line"
                 type="monotone"
                 dataKey="contractEnergyPrice"
-                name={`${selectedContract.provider} ${selectedContract.name} - Arbeitspreis`}
+                name={`${selectedContract.provider} ${selectedContract.name} - Nettostromkosten`}
                 yAxisId="price"
                 stroke="#9c27b0"
-                strokeWidth={4}
+                strokeWidth={3}
                 strokeDasharray="5 5"
                 dot={false}
                 animationDuration={200}
@@ -777,17 +746,17 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             )}
             {selectedContract && (
               <Line
-                key="contractTotalPrice-line"
+                key="contractNetworkCosts-line"
                 type="monotone"
-                dataKey="contractTotalPrice"
-                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Fixkosten`}
+                dataKey="contractNetworkCosts"
+                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Netzkosten`}
                 yAxisId="price"
                 stroke="#ff9800"
-                strokeWidth={4}
+                strokeWidth={3}
                 strokeDasharray="5 5"
                 dot={false}
                 animationDuration={200}
-                hide={!showTotalPrice}
+                hide={!showNetworkCosts}
               />
             )}
             {selectedContract && (
@@ -798,7 +767,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 name={`${selectedContract.provider} ${selectedContract.name} - inkl. Steuern`}
                 yAxisId="price"
                 stroke="#795548"
-                strokeWidth={4}
+                strokeWidth={3}
                 strokeDasharray="5 5"
                 dot={false}
                 animationDuration={200}
@@ -848,15 +817,15 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               checked={showBasePrice} 
               onCheckedChange={handleCheckedChange(setShowBasePrice)}
             />
-            <Label htmlFor="show-base-price" className="text-sm">Arbeitspreis</Label>
+            <Label htmlFor="show-base-price" className="text-sm">Nettostromkosten</Label>
           </div>
           <div className="flex items-center space-x-2">
             <Checkbox 
-              id="show-total-price" 
-              checked={showTotalPrice} 
-              onCheckedChange={handleCheckedChange(setShowTotalPrice)}
+              id="show-network-costs" 
+              checked={showNetworkCosts} 
+              onCheckedChange={handleCheckedChange(setShowNetworkCosts)}
             />
-            <Label htmlFor="show-total-price" className="text-sm">Inkl. Fixkosten</Label>
+            <Label htmlFor="show-network-costs" className="text-sm">Inkl. Netzkosten</Label>
           </div>
           <div className="flex items-center space-x-2">
             <Checkbox 
@@ -903,14 +872,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             onCheckedChange={handleCheckedChange(setShowSpotPriceWithTax)}
           />
           <Label htmlFor="show-spot-price-with-tax" className="text-sm">Strompreis inkl. USt.</Label>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Checkbox 
-            id="show-fixed-costs" 
-            checked={showFixedCosts} 
-            onCheckedChange={handleCheckedChange(setShowFixedCosts)}
-          />
-          <Label htmlFor="show-fixed-costs" className="text-sm">Fixkosten anzeigen</Label>
         </div>
       </div>
     </div>

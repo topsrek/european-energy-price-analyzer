@@ -49,21 +49,33 @@ export const useTariffData = () => {
 
   const calculateTariffCostsForConsumption = (tariff: any, consumption: number) => {
     if (tariff.type === 'spot') {
-      return tariff; // Spot tariffs are calculated differently
+      // For spot tariffs, calculate administrative fee
+      const verwaltungskosten = (tariff.verwaltungsgebuehr_cent_kwh / 100) * consumption;
+      const totalExclTax = tariff.grundgebuehr + verwaltungskosten;
+      const taxAmount = totalExclTax * tariff.tax_rate;
+      const totalInclTax = totalExclTax + taxAmount;
+
+      return {
+        ...tariff,
+        calculated: {
+          arbeitspreis_total: (tariff.verwaltungsgebuehr_cent_kwh / 100) * consumption,
+          energiekosten_excl_tax: totalExclTax,
+          tax_amount: taxAmount,
+          energiekosten_incl_tax: totalInclTax
+        }
+      };
     }
 
-    const energyPricePerKwh = tariff.arbeitspreis_gesamt / 3500; // Base calculation per kWh
-    const calculatedEnergyPrice = energyPricePerKwh * consumption;
-    
-    const totalExclTax = calculatedEnergyPrice + tariff.grundpauschale + (tariff.rabatte?.total || 0);
+    // For regular tariffs
+    const arbeitspreisTotal = (tariff.arbeitspreis_cent_kwh / 100) * consumption;
+    const totalExclTax = arbeitspreisTotal + tariff.grundpauschale + (tariff.rabatte?.total || 0);
     const taxAmount = totalExclTax * tariff.tax_rate;
     const totalInclTax = totalExclTax + taxAmount;
 
     return {
       ...tariff,
       calculated: {
-        energiepreis: calculatedEnergyPrice + tariff.grundpauschale,
-        arbeitspreis_gesamt: calculatedEnergyPrice,
+        arbeitspreis_total: arbeitspreisTotal,
         energiekosten_excl_tax: totalExclTax,
         tax_amount: taxAmount,
         energiekosten_incl_tax: totalInclTax

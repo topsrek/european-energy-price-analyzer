@@ -28,8 +28,7 @@
       "id": "flex",
       "name": "Flexibler Stromtarif",
       "provider": "Energie AG",
-      "energiepreis": 1457.00,
-      "arbeitspreis_gesamt": 1407.00,
+      "arbeitspreis_cent_kwh": 40.34,
       "grundpauschale": 50.00,
       "rabatte": {
         "total": -703.50,
@@ -40,43 +39,32 @@
           }
         ]
       },
-      "energiekosten_excl_tax": 753.50,
-      "tax_rate": 0.20,
-      "tax_amount": 150.70,
-      "energiekosten_incl_tax": 904.20
+      "tax_rate": 0.20
     },
     {
       "id": "standard",
       "name": "Standard Tarif",
       "provider": "Wien Energie",
-      "energiepreis": 1200.00,
-      "arbeitspreis_gesamt": 1150.00,
+      "arbeitspreis_cent_kwh": 32.86,
       "grundpauschale": 50.00,
       "rabatte": {
         "total": 0,
         "details": []
       },
-      "energiekosten_excl_tax": 1150.00,
-      "tax_rate": 0.20,
-      "tax_amount": 230.00,
-      "energiekosten_incl_tax": 1380.00
+      "tax_rate": 0.20
     },
     {
       "id": "custom",
       "name": "Individueller Tarif",
       "provider": "Eigene Eingabe",
       "editable": true,
-      "energiepreis": 1000.00,
-      "arbeitspreis_gesamt": 950.00,
+      "arbeitspreis_cent_kwh": 27.14,
       "grundpauschale": 50.00,
       "rabatte": {
         "total": 0,
         "details": []
       },
-      "energiekosten_excl_tax": 950.00,
-      "tax_rate": 0.20,
-      "tax_amount": 190.00,
-      "energiekosten_incl_tax": 1140.00
+      "tax_rate": 0.20
     },
     {
       "id": "spot",
@@ -84,7 +72,7 @@
       "provider": "Spotmarkt",
       "type": "spot",
       "grundgebuehr": 120.00,
-      "verwaltungsgebuehr": 50.00,
+      "verwaltungsgebuehr_cent_kwh": 2.5,
       "tax_rate": 0.20
     }
   ]
