@@ -47,7 +47,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
       provider: tariff.provider,
       basePrice: tariff.calculated?.energiekosten_incl_tax || tariff.grundgebuehr || 0,
       energyPrice: 0, // Will be calculated based on consumption
-      networkCosts: () => networkCosts.calculated.total_incl_tax
+      networkCosts: () => networkCosts.calculated?.total_incl_tax || 0
     };
 
     if (selectedContract?.name === tariff.name) {
@@ -57,25 +57,52 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
     }
   };
 
+  const safeToFixed = (value: number | undefined, decimals: number = 2): string => {
+    return (value || 0).toFixed(decimals);
+  };
+
   const renderTariffCard = (tariff: any, index: number) => {
     const isSelected = selectedContract?.name === tariff.name;
     const isCustom = tariff.id === 'custom';
     const isSpot = tariff.type === 'spot';
-    const calculatedTariff = calculateTariffCostsForConsumption(tariff, annualConsumption);
+    let calculatedTariff = calculateTariffCostsForConsumption(tariff, annualConsumption);
+    
+    // Ensure calculated object exists
+    if (!calculatedTariff.calculated) {
+      calculatedTariff.calculated = {
+        energiepreis: 0,
+        arbeitspreis_gesamt: 0,
+        energiekosten_excl_tax: 0,
+        tax_amount: 0,
+        energiekosten_incl_tax: 0
+      };
+    }
     
     if (isCustom) {
       // Use editable values for custom tariff
       calculatedTariff.provider = editableValues.provider;
+      const energiepreisExclTax = editableValues.energiepreis - editableValues.grundpauschale;
+      const taxAmount = energiepreisExclTax * 0.2;
+      
       calculatedTariff.calculated = {
         energiepreis: editableValues.energiepreis,
-        energiekosten_excl_tax: editableValues.energiepreis - editableValues.grundpauschale,
-        tax_amount: (editableValues.energiepreis - editableValues.grundpauschale) * 0.2,
-        energiekosten_incl_tax: editableValues.energiepreis * 1.2
+        arbeitspreis_gesamt: energiepreisExclTax,
+        energiekosten_excl_tax: energiepreisExclTax,
+        tax_amount: taxAmount,
+        energiekosten_incl_tax: energiepreisExclTax + taxAmount
       };
+      calculatedTariff.grundpauschale = editableValues.grundpauschale;
     }
 
-    const totalCostsExclTax = (calculatedTariff.calculated?.energiekosten_excl_tax || 0) + networkCosts.calculated.total_excl_tax;
-    const totalTaxAmount = (calculatedTariff.calculated?.tax_amount || 0) + networkCosts.calculated.tax_amount;
+    // Ensure network costs calculated object exists
+    const safeNetworkCosts = networkCosts.calculated || {
+      total_excl_tax: 0,
+      tax_amount: 0,
+      total_incl_tax: 0
+    };
+
+    const totalCostsExclTax = (calculatedTariff.calculated.energiekosten_excl_tax || 0) + (safeNetworkCosts.total_excl_tax || 0);
+    const totalTaxAmount = (calculatedTariff.calculated.tax_amount || 0) + (safeNetworkCosts.tax_amount || 0);
     const totalCostsInclTax = totalCostsExclTax + totalTaxAmount;
 
     return (
@@ -120,13 +147,13 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                             className="w-24 py-1 inline-block"
                           />
                         ) : (
-                          `${calculatedTariff.calculated.energiepreis.toFixed(2)} €`
+                          `${safeToFixed(calculatedTariff.calculated.energiepreis)} €`
                         )}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span>Arbeitspreis gesamt</span>
-                      <span>{calculatedTariff.calculated.arbeitspreis_gesamt.toFixed(2)} €</span>
+                      <span>{safeToFixed(calculatedTariff.calculated.arbeitspreis_gesamt)} €</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Grundpauschale</span>
@@ -139,14 +166,14 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                             className="w-24 py-1 inline-block"
                           />
                         ) : (
-                          `${tariff.grundpauschale.toFixed(2)} €`
+                          `${safeToFixed(calculatedTariff.grundpauschale)} €`
                         )}
                       </span>
                     </div>
                     {tariff.rabatte?.total !== 0 && (
                       <div className="flex justify-between text-green-600">
                         <span>Rabatte</span>
-                        <span>{tariff.rabatte.total.toFixed(2)} €</span>
+                        <span>{safeToFixed(tariff.rabatte?.total)} €</span>
                       </div>
                     )}
                   </div>
@@ -154,15 +181,15 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                   <div className="pl-4 border-t pt-2">
                     <div className="flex justify-between font-medium">
                       <span>Energiekosten exkl. USt.</span>
-                      <span>{calculatedTariff.calculated.energiekosten_excl_tax.toFixed(2)} €</span>
+                      <span>{safeToFixed(calculatedTariff.calculated.energiekosten_excl_tax)} €</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span>Umsatzsteuer +20%</span>
-                      <span>{calculatedTariff.calculated.tax_amount.toFixed(2)} €</span>
+                      <span>{safeToFixed(calculatedTariff.calculated.tax_amount)} €</span>
                     </div>
                     <div className="flex justify-between font-medium">
                       <span>Energiekosten inkl. USt.</span>
-                      <span>{calculatedTariff.calculated.energiekosten_incl_tax.toFixed(2)} €</span>
+                      <span>{safeToFixed(calculatedTariff.calculated.energiekosten_incl_tax)} €</span>
                     </div>
                   </div>
                 </div>
@@ -173,15 +200,15 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span>Gesamt exkl. USt.</span>
-                      <span>{totalCostsExclTax.toFixed(2)} €</span>
+                      <span>{safeToFixed(totalCostsExclTax)} €</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Umsatzsteuer +20%</span>
-                      <span>{totalTaxAmount.toFixed(2)} €</span>
+                      <span>{safeToFixed(totalTaxAmount)} €</span>
                     </div>
                     <div className="flex justify-between font-bold border-t pt-1">
                       <span>Gesamt inkl. USt.</span>
-                      <span>{totalCostsInclTax.toFixed(2)} €</span>
+                      <span>{safeToFixed(totalCostsInclTax)} €</span>
                     </div>
                   </div>
                 </div>
@@ -192,11 +219,11 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 <div className="pl-4 space-y-1 text-sm">
                   <div className="flex justify-between">
                     <span>Grundgebühr</span>
-                    <span>{tariff.grundgebuehr.toFixed(2)} € / Jahr</span>
+                    <span>{safeToFixed(tariff.grundgebuehr)} € / Jahr</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Verwaltungsgebühr</span>
-                    <span>{tariff.verwaltungsgebuehr.toFixed(2)} € / Jahr</span>
+                    <span>{safeToFixed(tariff.verwaltungsgebuehr)} € / Jahr</span>
                   </div>
                   <div className="text-xs text-muted-foreground mt-2">
                     + aktueller Spotpreis + Netzkosten + Steuern
