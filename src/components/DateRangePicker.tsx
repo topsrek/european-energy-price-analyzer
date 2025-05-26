@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -25,6 +24,9 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onStartDateChange,
   onEndDateChange,
 }) => {
+  const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
+  const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+
   const handleQuickSelect = (days: number) => {
     const end = new Date();
     const start = new Date();
@@ -33,16 +35,23 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     onStartDateChange(start);
     onEndDateChange(end);
   };
-  
+
+  useEffect(() => {
+    // Close start date picker if end date picker is opened via start date selection
+    if (isEndDatePickerOpen) {
+      setIsStartDatePickerOpen(false);
+    }
+  }, [isEndDatePickerOpen]);
+
   return (
     <div className="flex flex-col sm:flex-row gap-4 mb-6 items-start sm:items-center">
-      <div className="flex flex-col sm:flex-row gap-2">
-        <Popover>
+      <div className="flex flex-col flex-wrap sm:flex-row gap-2">
+        <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
               className={cn(
-                "w-[200px] justify-start text-left font-normal",
+                "w-[180px] justify-start text-left font-normal",
                 !startDate && "text-muted-foreground"
               )}
             >
@@ -54,20 +63,27 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             <Calendar
               mode="single"
               selected={startDate || undefined}
-              onSelect={onStartDateChange}
+              onSelect={(date) => {
+                onStartDateChange(date);
+                if (date) {
+                  setIsStartDatePickerOpen(false);
+                  setIsEndDatePickerOpen(true);
+                }
+              }}
               disabled={(date) => date > new Date() || (endDate ? date > endDate : false)}
               initialFocus
+              month={startDate || undefined}
               className={cn("p-3 pointer-events-auto")}
             />
           </PopoverContent>
         </Popover>
 
-        <Popover>
+        <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
               className={cn(
-                "w-[200px] justify-start text-left font-normal",
+                "w-[180px] justify-start text-left font-normal",
                 !endDate && "text-muted-foreground"
               )}
             >
@@ -79,16 +95,22 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             <Calendar
               mode="single"
               selected={endDate || undefined}
-              onSelect={onEndDateChange}
+              onSelect={(date) => {
+                onEndDateChange(date);
+                if (date) {
+                  setIsEndDatePickerOpen(false);
+                }
+              }}
               disabled={(date) => date > new Date() || (startDate ? date < startDate : false)}
               initialFocus
+              month={endDate || startDate || undefined}
               className={cn("p-3 pointer-events-auto")}
             />
           </PopoverContent>
         </Popover>
       </div>
       
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <Button variant="outline" size="sm" onClick={() => handleQuickSelect(7)}>1 Woche</Button>
         <Button variant="outline" size="sm" onClick={() => handleQuickSelect(30)}>1 Monat</Button>
         <Button variant="outline" size="sm" onClick={() => handleQuickSelect(90)}>3 Monate</Button>

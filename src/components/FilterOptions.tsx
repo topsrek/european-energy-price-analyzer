@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import {
@@ -118,130 +117,132 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
   
   return (
     <div className="mb-6">
-      <h3 className="text-sm font-medium mb-2">Datenfilter:</h3>
-      <div className="flex flex-wrap gap-2">
-        <Popover open={isMonthsOpen && !isMonthsDisabled} onOpenChange={(open) => !isMonthsDisabled && setIsMonthsOpen(open)}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isMonthsDisabled}>
-              Monate
-              {!isMonthsDisabled && filterCounts.months > 0 && (
-                <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
-                  {12 - filterCounts.months}
-                </Badge>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-56">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">Monate</h4>
-                <Button variant="ghost" size="sm" onClick={selectAllMonths}>
-                  Alle
-                </Button>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {monthNames.map((month, i) => (
-                  <div key={i} className="flex items-center space-x-2">
-                    <Checkbox 
-                      id={`month-${i}`} 
-                      checked={filters.months.includes(i)} 
-                      onCheckedChange={() => toggleMonth(i)} 
-                    />
-                    <Label htmlFor={`month-${i}`} className="text-sm">{month}</Label>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
-        
-        <Popover open={isWeekdaysOpen && !isWeekdaysDisabled} onOpenChange={(open) => !isWeekdaysDisabled && setIsWeekdaysOpen(open)}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isWeekdaysDisabled}>
-              Wochentage
-              {!isWeekdaysDisabled && filterCounts.weekdays > 0 && (
-                <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
-                  {7 - filterCounts.weekdays}
-                </Badge>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-48">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">Wochentage</h4>
-                <Button variant="ghost" size="sm" onClick={selectAllWeekdays}>
-                  Alle
-                </Button>
-              </div>
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-medium">Datenfilter:</h3>
+        <div className="flex flex-wrap gap-2">
+          <Popover open={isMonthsOpen && !isMonthsDisabled} onOpenChange={(open) => !isMonthsDisabled && setIsMonthsOpen(open)}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isMonthsDisabled}>
+                Monate
+                {!isMonthsDisabled && filterCounts.months > 0 && (
+                  <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
+                    {12 - filterCounts.months}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56">
               <div className="space-y-2">
-                {weekdayNames.map((day, displayIndex) => {
-                  const jsDay = displayToJsDay(displayIndex);
-                  return (
-                    <div key={displayIndex} className="flex items-center space-x-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium">Monate</h4>
+                  <Button variant="ghost" size="sm" onClick={selectAllMonths}>
+                    Alle
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {monthNames.map((month, i) => (
+                    <div key={i} className="flex items-center space-x-2">
                       <Checkbox 
-                        id={`day-${displayIndex}`} 
-                        checked={filters.weekdays.includes(jsDay)}
-                        onCheckedChange={() => toggleWeekday(displayIndex)}
+                        id={`month-${i}`} 
+                        checked={filters.months.includes(i)} 
+                        onCheckedChange={() => toggleMonth(i)} 
                       />
-                      <Label htmlFor={`day-${displayIndex}`} className="text-sm">{day}</Label>
+                      <Label htmlFor={`month-${i}`} className="text-sm">{month}</Label>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
-          </PopoverContent>
-        </Popover>
-        
-        <Popover open={isHoursOpen && !isHoursDisabled} onOpenChange={(open) => !isHoursDisabled && setIsHoursOpen(open)}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isHoursDisabled}>
-              Stunden
-              {!isHoursDisabled && filterCounts.hours > 0 && (
-                <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
-                  {24 - filterCounts.hours}
-                </Badge>
-              )}
+            </PopoverContent>
+          </Popover>
+          
+          <Popover open={isWeekdaysOpen && !isWeekdaysDisabled} onOpenChange={(open) => !isWeekdaysDisabled && setIsWeekdaysOpen(open)}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isWeekdaysDisabled}>
+                Wochentage
+                {!isWeekdaysDisabled && filterCounts.weekdays > 0 && (
+                  <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
+                    {7 - filterCounts.weekdays}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium">Wochentage</h4>
+                  <Button variant="ghost" size="sm" onClick={selectAllWeekdays}>
+                    Alle
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {weekdayNames.map((day, displayIndex) => {
+                    const jsDay = displayToJsDay(displayIndex);
+                    return (
+                      <div key={displayIndex} className="flex items-center space-x-2">
+                        <Checkbox 
+                          id={`day-${displayIndex}`} 
+                          checked={filters.weekdays.includes(jsDay)}
+                          onCheckedChange={() => toggleWeekday(displayIndex)}
+                        />
+                        <Label htmlFor={`day-${displayIndex}`} className="text-sm">{day}</Label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+          
+          <Popover open={isHoursOpen && !isHoursDisabled} onOpenChange={(open) => !isHoursDisabled && setIsHoursOpen(open)}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isHoursDisabled}>
+                Stunden
+                {!isHoursDisabled && filterCounts.hours > 0 && (
+                  <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
+                    {24 - filterCounts.hours}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium">Stunden</h4>
+                  <Button variant="ghost" size="sm" onClick={selectAllHours}>
+                    Alle
+                  </Button>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <div key={i} className="flex items-center space-x-2">
+                      <Checkbox 
+                        id={`hour-${i}`}
+                        checked={filters.hours.includes(i)}
+                        onCheckedChange={() => toggleHour(i)}
+                      />
+                      <Label htmlFor={`hour-${i}`} className="text-xs whitespace-nowrap">{`${i}:00~${(i+1) % 24}:00`}</Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+          
+          {hasActiveFilters && !disabled && (
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => onChange({
+                months: Array.from({ length: 12 }, (_, i) => i),
+                weekdays: Array.from({ length: 7 }, (_, i) => i),
+                hours: Array.from({ length: 24 }, (_, i) => i),
+              })}
+              className="text-destructive"
+            >
+              Filter zurücksetzen
             </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-64">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">Stunden</h4>
-                <Button variant="ghost" size="sm" onClick={selectAllHours}>
-                  Alle
-                </Button>
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                {Array.from({ length: 24 }, (_, i) => (
-                  <div key={i} className="flex items-center space-x-2">
-                    <Checkbox 
-                      id={`hour-${i}`}
-                      checked={filters.hours.includes(i)}
-                      onCheckedChange={() => toggleHour(i)}
-                    />
-                    <Label htmlFor={`hour-${i}`} className="text-xs">{`${i}:00~${(i+1) % 24}:00`}</Label>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
-        
-        {hasActiveFilters && !disabled && (
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onClick={() => onChange({
-              months: Array.from({ length: 12 }, (_, i) => i),
-              weekdays: Array.from({ length: 7 }, (_, i) => i),
-              hours: Array.from({ length: 24 }, (_, i) => i),
-            })}
-            className="text-destructive"
-          >
-            Filter zurücksetzen
-          </Button>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

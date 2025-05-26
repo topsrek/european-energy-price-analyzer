@@ -118,7 +118,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <AppHeader />
-      <main className="flex-grow container mx-auto py-8 px-4">
+      <main className="flex-grow container mx-auto py-6 px-4">
         <div className="space-y-8">
           <Card className="animate-fade-in">
             <CardHeader className="flex flex-row items-center justify-between">
@@ -128,18 +128,20 @@ const Index = () => {
                   Netzkosten basieren auf den Tarifen der Wiener Netze
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-4">
                 <HelpModal />
                 <InfoModal trigger={
-                  <Button variant="outline" size="sm" className="flex gap-1 items-center">
+                  <Button variant="outline" size="sm" className="flex gap-1 items-center md:h-9 h-fit">
                     <Info className="h-4 w-4" />
-                    <span>Strommarkt</span>
+                    <span className="whitespace-normal"> 
+                      Wie funktioniert der österr. Strommarkt?
+                    </span>
                   </Button>
                 } />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {/* Date Range Picker */}
                 <div>
                   <DateRangePicker
@@ -151,7 +153,7 @@ const Index = () => {
                 </div>
                 
                 {/* Filters & Options */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="flex flex-col md:flex-row gap-6">
                   <div>
                     <AveragingOptions
                       selectedOption={averaging}

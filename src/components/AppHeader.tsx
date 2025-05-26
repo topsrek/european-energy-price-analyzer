@@ -8,10 +8,6 @@ const AppHeader = () => {
   return (
     <div className="relative w-full bg-background">
       <Header />
-      <div className="absolute top-4 right-4 flex items-center gap-4">
-        <VersionInfo />
-        <ThemeToggle />
-      </div>
     </div>
   );
 };

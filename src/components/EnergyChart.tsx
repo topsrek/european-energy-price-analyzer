@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ChartData, EnergyPrice, SmartMeterData, ContractOption } from '@/types/energy-data';
 import {
   ResponsiveContainer,
@@ -9,15 +9,34 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ReferenceLine
+  ReferenceLine,
+  ReferenceArea
 } from 'recharts';
-import { format, parseISO, getMonth, isMonday, getDate, getDay } from 'date-fns';
+import { format, parseISO, getMonth, isMonday, getDate, getDay, differenceInDays, getHours, getMinutes, getISOWeek } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { CheckedState } from "@radix-ui/react-checkbox";
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/hooks/useTheme';
+
+// Define the structure for individual data points used in the chart
+interface ExtendedChartDataPoint {
+  timestamp: string;
+  date: Date; // Parsed date object for easier manipulation
+  price: number;
+  unit: 'EUR_MWh' | 'cent_kWh';
+  isFirstDataPointOfDay?: boolean;
+  isFirstDataPointOfWeek?: boolean;
+  isFirstDataPointOfMonth?: boolean;
+  consumption?: number; 
+  cost?: number;
+  contractEnergyPrice?: number;
+  contractTotalPrice?: number;
+  contractTotalPriceTaxed?: number;
+  // Allow other dynamic properties if necessary, though specific props are preferred
+  [key: string]: any;
+}
 
 interface EnergyChartProps {
   energyPrices: EnergyPrice[];
@@ -45,46 +64,72 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [showCost, setShowCost] = useState(true);
   const [showWeekSeparators, setShowWeekSeparators] = useState(true);
   const [showMonthSeparators, setShowMonthSeparators] = useState(true);
+  const [showDaySeparators, setShowDaySeparators] = useState(false);
 
-  // Prepare chart data
-  const prepareChartData = () => {
-    // Create a map of timestamps to prices for quick lookup
+  // Prepare chart data, memoized
+  const chartData = useMemo(() => {
     const priceMap = new Map<string, number>();
     energyPrices.forEach(price => {
       priceMap.set(price.timestamp, price.price);
     });
     
-    // Start with price data
-    const chartData = energyPrices.map(item => {
+    const internalChartData: ExtendedChartDataPoint[] = energyPrices.map(item => {
       const date = parseISO(item.timestamp);
       return {
         timestamp: item.timestamp,
         date: date,
         price: item.price,
         unit: item.unit,
-        isMonthStart: date.getDate() === 1,
-        isWeekStart: getDay(date) === 1 // Monday is day 1
       };
     });
     
-    // Add consumption and cost data if available
+    const dayProcessed = new Map<string, boolean>();
+    const weekProcessed = new Map<string, boolean>();
+    const monthProcessed = new Map<string, boolean>();
+
+    internalChartData.forEach(item => {
+      const date = item.date;
+      const dayKey = format(date, 'yyyy-MM-dd');
+      if (!dayProcessed.has(dayKey)) {
+        (item as any).isFirstDataPointOfDay = true;
+        dayProcessed.set(dayKey, true);
+      } else {
+        (item as any).isFirstDataPointOfDay = false;
+      }
+
+      const weekOfYearKey = format(date, 'yyyy-II');
+      if (getDay(date) === 1) {
+        if (!weekProcessed.has(weekOfYearKey)) {
+          (item as any).isFirstDataPointOfWeek = true;
+          weekProcessed.set(weekOfYearKey, true);
+        } else {
+          (item as any).isFirstDataPointOfWeek = false;
+        }
+      } else {
+        (item as any).isFirstDataPointOfWeek = false;
+      }
+
+      const monthKey = format(date, 'yyyy-MM');
+      if (!monthProcessed.has(monthKey)) {
+        (item as any).isFirstDataPointOfMonth = true;
+        monthProcessed.set(monthKey, true);
+      } else {
+        (item as any).isFirstDataPointOfMonth = false;
+      }
+    });
+
     if (showSmartMeterData && smartMeterData && smartMeterData.length > 0) {
-      // Create a map of timestamps to consumption
       const consumptionMap = new Map<string, number>();
       smartMeterData.forEach(item => {
         consumptionMap.set(item.timestamp, item.consumption);
       });
       
-      // Add consumption data to matching price entries
-      chartData.forEach(item => {
+      internalChartData.forEach(item => {
         const consumption = consumptionMap.get(item.timestamp);
         if (consumption !== undefined) {
           (item as any).consumption = consumption;
-          
-          // Add cost calculation if enabled
           if (showTotalCost) {
             const price = item.price;
-            // Convert price from €/MWh to €/kWh if needed
             const pricePerKWh = item.unit === 'EUR_MWh' ? price / 1000 : price / 100;
             (item as any).cost = consumption * pricePerKWh;
           }
@@ -92,122 +137,214 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       });
     }
     
-    // Add contract reference prices if selected
     if (selectedContract) {
       const energyPriceInCents = selectedContract.energyPrice;
-      
-      // Calculate divisors based on averaging mode for proper distribution of fixed costs
       let divisor = 1;
       switch(averaging) {
-        case 'monthly':
-          divisor = 30 * 24; // ~30 days * 24 hours
-          break;
-        case 'daily':
-          divisor = 24; // 24 hours
-          break;
-        case 'daily-cycle':
-          divisor = 1; // Already per hour
-          break;
-        case 'hourly':
-          divisor = 1; // Already per hour
-          break;
-        default:
-          divisor = 1;
+        case 'monthly': divisor = 30 * 24; break;
+        case 'daily': divisor = 24; break;
+        case 'daily-cycle': divisor = 1; break;
+        case 'hourly': divisor = 1; break;
+        default: divisor = 1;
       }
       
-      chartData.forEach(item => {
-        // Energy price in the same unit as the chart
+      internalChartData.forEach(item => {
         if (item.unit === 'EUR_MWh') {
-          (item as any).contractEnergyPrice = energyPriceInCents * 10; // Convert from cent/kWh to EUR/MWh
+          (item as any).contractEnergyPrice = energyPriceInCents * 10;
         } else {
           (item as any).contractEnergyPrice = energyPriceInCents;
         }
         
-        // Calculate annualized consumption for proper distribution of fixed costs
         const annualConsumption = showSmartMeterData && smartMeterData 
-          ? smartMeterData.reduce((sum, data) => sum + data.consumption, 0) * (365 / (smartMeterData.length / 24)) // Extrapolate to annual
+          ? smartMeterData.reduce((sum, data) => sum + data.consumption, 0) * (365 / (smartMeterData.length / 24))
           : 3500;
         
-        // Base price distributed per time unit
         const basePricePerUnit = selectedContract.basePrice / (365 * 24) * divisor;
-        
-        // Network costs approximated per time unit
         const networkCostsPerUnit = selectedContract.networkCosts(annualConsumption) / (365 * 24) * divisor;
-        
-        // Total fixed costs distributed per unit
         const fixedCostPerUnit = basePricePerUnit + networkCostsPerUnit;
-        
-        // Calculate cost per kWh assuming 1 kWh consumption per unit for display
-        // We add this fixed component to the energy price to show the effective price
         let effectiveCostPerKwh;
         
-        // For daily cycle, distribute the daily fixed costs across the 24-hour profile based on typical consumption
         if (averaging === 'daily-cycle') {
           const hour = parseISO(item.timestamp).getHours();
           let hourlyWeight = 1;
-          
-          // Assign weights based on typical consumption patterns
-          if (hour >= 7 && hour <= 9) hourlyWeight = 1.5; // Morning peak
-          else if (hour >= 17 && hour <= 22) hourlyWeight = 2.0; // Evening peak
-          else if (hour >= 23 || hour <= 6) hourlyWeight = 0.5; // Night low
-          
-          // Adjust fixed costs based on hourly weight
+          if (hour >= 7 && hour <= 9) hourlyWeight = 1.5;
+          else if (hour >= 17 && hour <= 22) hourlyWeight = 2.0;
+          else if (hour >= 23 || hour <= 6) hourlyWeight = 0.5;
           const adjustedFixedCostPerUnit = fixedCostPerUnit * hourlyWeight;
-          
-          // Convert to chart units - we use a reference consumption of 0.5 kWh per hour
-          // This gives us a reasonable visualization where the fixed costs component is visible
-          const referenceCons = 0.5; // kWh
-          
+          const referenceCons = 0.5;
           if (item.unit === 'EUR_MWh') {
-            // For MWh, we need to convert kWh to MWh (multiply by 1000)
             effectiveCostPerKwh = energyPriceInCents * 10 + (adjustedFixedCostPerUnit * 1000 / referenceCons);
           } else {
             effectiveCostPerKwh = energyPriceInCents + (adjustedFixedCostPerUnit * 100 / referenceCons);
           }
         } else {
-          // For other averaging modes, use a similar approach
-          // But with a constant reference consumption
-          const referenceCons = averaging === 'monthly' ? 250 : // kWh per month
-                              (averaging === 'daily' ? 8 : 0.5); // kWh per day or per hour
-          
+          const referenceCons = averaging === 'monthly' ? 250 :
+                              (averaging === 'daily' ? 8 : 0.5);
           if (item.unit === 'EUR_MWh') {
             effectiveCostPerKwh = energyPriceInCents * 10 + (fixedCostPerUnit * 1000 / referenceCons);
           } else {
             effectiveCostPerKwh = energyPriceInCents + (fixedCostPerUnit * 100 / referenceCons);
           }
         }
-        
-        // Set the values
         (item as any).contractTotalPrice = effectiveCostPerKwh;
-        (item as any).contractTotalPriceTaxed = effectiveCostPerKwh * 1.2; // Add 20% VAT
+        (item as any).contractTotalPriceTaxed = effectiveCostPerKwh * 1.2;
+      });
+    }
+    return internalChartData;
+  }, [energyPrices, smartMeterData, showSmartMeterData, showTotalCost, selectedContract, averaging]);
+
+  // Calculate data timespan in days
+  const dataTimeSpanDays = chartData.length > 0 
+    ? differenceInDays(chartData[chartData.length - 1].date, chartData[0].date)
+    : 0;
+
+  // Generate dynamic ticks for XAxis
+  const getXAxisTicks = () => {
+    if (!chartData || chartData.length === 0) {
+      return [];
+    }
+
+    const ticks: string[] = [];
+    const firstDate = chartData[0].date;
+    const lastDate = chartData[chartData.length - 1].date;
+    const daysDiff = differenceInDays(lastDate, firstDate);
+
+    // Handle cases based on 'averaging' prop first
+    if (averaging === 'daily-cycle') {
+      // For daily-cycle, show specific hours if data covers them
+      const uniqueHours = new Set(chartData.map(d => getHours(d.date)));
+      const tickHours = [0, 6, 12, 18]; // Default hours to show
+      tickHours.forEach(hour => {
+        if (uniqueHours.has(hour)) {
+           const firstMatch = chartData.find(d => getHours(d.date) === hour);
+           if (firstMatch) ticks.push(firstMatch.timestamp);
+        }
+      });
+      // Ensure at least first and last points are there if no specific hours match
+      if (ticks.length === 0) {
+        ticks.push(chartData[0].timestamp);
+        if (chartData.length > 1) ticks.push(chartData[chartData.length - 1].timestamp);
+      }
+      return ticks.filter((t, i, arr) => arr.indexOf(t) === i); // Unique ticks
+    }
+    
+    if (averaging === 'hourly') {
+        // For hourly, show a tick every 6 or 12 hours if the span is large enough
+        let step = 1; // Show every hour by default
+        if (chartData.length > 24 * 3) step = 6; // Every 6 hours if more than 3 days of hourly data
+        if (chartData.length > 24 * 7) step = 12; // Every 12 hours if more than 7 days
+        
+        chartData.forEach((item, index) => {
+            if (index % step === 0) {
+                ticks.push(item.timestamp);
+            }
+        });
+        if (ticks.length === 0 && chartData.length > 0) ticks.push(chartData[0].timestamp);
+        if (chartData.length > 1 && !ticks.includes(chartData[chartData.length - 1].timestamp)) {
+            ticks.push(chartData[chartData.length -1].timestamp);
+        }
+        return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
+    }
+
+
+    if (averaging === 'daily') {
+      // Show every Nth day
+      let step = 1;
+      if (daysDiff > 10) step = 2;
+      if (daysDiff > 30) step = 3;
+      if (daysDiff > 90) step = 7; // Every week
+      
+      let lastPushedDate: Date | null = null;
+      chartData.forEach(item => {
+        if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= step) {
+          ticks.push(item.timestamp);
+          lastPushedDate = item.date;
+        }
+      });
+       if (ticks.length === 0 && chartData.length > 0) ticks.push(chartData[0].timestamp);
+       if (chartData.length > 1 && !ticks.includes(chartData[chartData.length - 1].timestamp)) {
+            ticks.push(chartData[chartData.length -1].timestamp);
+        }
+      return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
+    }
+
+    if (averaging === 'monthly') {
+      // Show every month
+      const monthTicks = new Set<string>();
+      chartData.forEach(item => {
+        if (item.isFirstDataPointOfMonth) {
+          monthTicks.add(item.timestamp);
+        }
+      });
+      // Add first and last if not already present and set is small
+      if (monthTicks.size < 2 && chartData.length > 0) {
+        monthTicks.add(chartData[0].timestamp);
+        if (chartData.length > 1) monthTicks.add(chartData[chartData.length-1].timestamp);
+      }
+      return Array.from(monthTicks);
+    }
+
+
+    // Default dynamic ticks if no specific averaging mode dictates them
+    if (daysDiff < 3) { // Less than 3 days: potentially more ticks
+      chartData.forEach(item => {
+        const hour = getHours(item.date);
+        if (hour % 6 === 0) { // Ticks at 00:00, 06:00, 12:00, 18:00
+          ticks.push(item.timestamp);
+        }
+      });
+      // Ensure first and last points are ticks
+      if (chartData.length > 0 && !ticks.includes(chartData[0].timestamp)) {
+        ticks.unshift(chartData[0].timestamp);
+      }
+      if (chartData.length > 1 && !ticks.includes(chartData[chartData.length - 1].timestamp)) {
+        ticks.push(chartData[chartData.length - 1].timestamp);
+      }
+    } else if (daysDiff <= 10) { // 3-10 days: a tick per day (midnight or first data point of day)
+      const dailyTicks = new Map<string, string>();
+      chartData.forEach(item => {
+        const dayKey = format(item.date, 'yyyy-MM-dd');
+        if (!dailyTicks.has(dayKey) || getHours(item.date) === 0) {
+          dailyTicks.set(dayKey, item.timestamp);
+        }
+      });
+      ticks.push(...Array.from(dailyTicks.values()));
+    } else if (daysDiff <= 30) { // 10-30 days: every 2nd day
+      let lastPushedDate: Date | null = null;
+      chartData.forEach(item => {
+        if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= 2) {
+          ticks.push(item.timestamp);
+          lastPushedDate = item.date;
+        }
+      });
+    } else { // More than 30 days: every Nth day (e.g. 3rd, 7th)
+      let step = 3;
+      if (daysDiff > 90) step = 7; // weekly for very long ranges
+      let lastPushedDate: Date | null = null;
+      chartData.forEach(item => {
+        if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= step) {
+          ticks.push(item.timestamp);
+          lastPushedDate = item.date;
+        }
       });
     }
     
-    return chartData;
+    // Ensure there's at least one tick if chartData is not empty
+    if (ticks.length === 0 && chartData.length > 0) {
+        ticks.push(chartData[0].timestamp);
+    }
+    // Ensure the last data point is a tick if there's more than one point
+    if (chartData.length > 1 && ticks[ticks.length -1] !== chartData[chartData.length -1].timestamp) {
+        const lastTimestamp = chartData[chartData.length -1].timestamp;
+        if (!ticks.includes(lastTimestamp)) {
+             ticks.push(lastTimestamp);
+        }
+    }
+
+    return ticks.filter((t, i, arr) => arr.indexOf(t) === i); // Return unique ticks
   };
   
-  const chartData = prepareChartData();
-
-  // Helper function to check if a timestamp is potentially a month start for visualization
-  function isPotentiallyMonthStart(timestamp: string): boolean {
-    const date = parseISO(timestamp);
-    // Check if this is the first day of the month or the first data point for this month
-    if (date.getDate() === 1) {
-      return true;
-    }
-    
-    // Check if this is the first data point in dataset
-    const prevDate = new Date(date);
-    prevDate.setDate(prevDate.getDate() - 1);
-    
-    return getMonth(date) !== getMonth(prevDate);
-  }
-  
-  // Helper function to check if a timestamp is potentially a week start
-  function isPotentiallyWeekStart(timestamp: string): boolean {
-    const date = parseISO(timestamp);
-    return isMonday(date);
-  }
+  const xAxisTicks = getXAxisTicks();
   
   // Calculate time unit based on data length and averaging option
   const getTimeUnit = () => {
@@ -228,26 +365,36 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   // Format date tick based on selected time unit and averaging
   const formatXAxis = (timestamp: string) => {
     const date = parseISO(timestamp);
-    
+    const firstDate = chartData.length > 0 ? chartData[0].date : new Date();
+    const lastDate = chartData.length > 0 ? chartData[chartData.length - 1].date : new Date();
+    const daysDiff = chartData.length > 0 ? differenceInDays(lastDate, firstDate) : 0;
+
     switch (averaging) {
       case 'monthly':
-        return format(date, 'MMM', { locale: de });
+        return format(date, 'MMM yy', { locale: de });
       case 'daily':
-        return format(date, 'dd.MM.yyyy', { locale: de });
+        // If many days, only show month for first tick of a new month
+        if (daysDiff > 30 && date.getDate() === 1) return format(date, 'MMM', { locale: de });
+        return format(date, 'dd.MM.', { locale: de });
       case 'daily-cycle':
         return format(date, 'HH:00', { locale: de });
       case 'hourly':
-        return format(date, 'dd.MM. HH:00', { locale: de });
-      default:
-        // Default based on time unit
-        switch (timeUnit) {
-          case 'month':
-            return format(date, 'MMM', { locale: de });
-          case 'week':
-          case 'day':
+         if (daysDiff > 2) return format(date, 'dd.MM. HH:00', { locale: de });
+        return format(date, 'HH:00', { locale: de });
+      default: // Auto mode based on daysDiff (not specific averaging)
+        if (daysDiff < 1) { // Less than a day
+            return format(date, 'HH:mm', { locale: de });
+        } else if (daysDiff < 3) { // Less than 3 days
+            return format(date, 'dd.MM. HH:00', { locale: de });
+        } else if (daysDiff <= 10) {
             return format(date, 'dd.MM.', { locale: de });
-          default:
-            return format(date, 'HH:00', { locale: de });
+        } else if (daysDiff <= 90) { // Up to ~3 months
+            if (date.getDate() === 1 || xAxisTicks.find(t => parseISO(t).valueOf() === date.valueOf() && differenceInDays(date, chartData[0].date) < 7 )) { // First day of month or first tick
+                 return format(date, 'dd.MM.', { locale: de }); // Show day and month for first few/month starts
+            }
+            return format(date, 'dd.MM.', { locale: de }); // Otherwise just day for denser ticks
+        } else { // More than 3 months
+            return format(date, 'MMM yy', { locale: de });
         }
     }
   };
@@ -342,101 +489,335 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     };
   };
 
-  // Improved month background renderer
+  // Updated renderMonthBands function
   const renderMonthBands = () => {
     if (!showMonthSeparators || chartData.length === 0) {
       return null;
     }
-    
-    const bands: JSX.Element[] = [];
-    let currentMonth = -1;
-    let bandStart = 0;
-    let isGray = false;
-    
-    chartData.forEach((item, index) => {
-      const date = item.date;
-      const month = date.getMonth();
-      
-      if (month !== currentMonth) {
-        if (currentMonth !== -1) {
-          // Add a band for the previous month
-          bands.push(
-            <rect
-              key={`month-band-${bandStart}`}
-              x={`${(bandStart / (chartData.length - 1)) * 100}%`}
-              y="0"
-              width={`${((index - bandStart) / (chartData.length - 1)) * 100}%`}
-              height="100%"
-              fill={isGray ? "var(--chart-band-color)" : "transparent"}
-              fillOpacity={0.3}
-            />
-          );
-          isGray = !isGray;
+    const monthReferenceAreas: JSX.Element[] = [];
+    let isGray = true; // For alternating fill/label display
+    const processedMonths = new Set<string>(); // Tracks yyyy-MM to ensure each month gets one band
+
+    for (let i = 0; i < chartData.length; i++) {
+        const currentDataPointDate = chartData[i].date;
+        const monthKey = format(currentDataPointDate, 'yyyy-MM');
+
+        if (!processedMonths.has(monthKey)) {
+            // First time encountering this month in the loop
+            processedMonths.add(monthKey);
+
+            // Find all data points actually belonging to this specific month (yyyy-MM)
+            const pointsInThisExactMonth = chartData.filter(dp => format(dp.date, 'yyyy-MM') === monthKey);
+            
+            if (pointsInThisExactMonth.length > 0) {
+                const firstTimestampInMonth = pointsInThisExactMonth[0].timestamp;
+                const lastTimestamp = new Date(pointsInThisExactMonth[pointsInThisExactMonth.length - 1].timestamp);
+                // Add one hour because we want to include the last hour in the timeframe
+                lastTimestamp.setHours(lastTimestamp.getHours() + 1);
+                const lastTimestampInMonth = lastTimestamp.toISOString();
+                const monthName = format(pointsInThisExactMonth[0].date, 'MMMM', { locale: de });
+
+                if (isGray) {
+                    monthReferenceAreas.push(
+                        <ReferenceArea
+                            key={`month-area-${monthKey}`}
+                            x1={firstTimestampInMonth}
+                            x2={lastTimestampInMonth}
+                            yAxisId="price" // Target the main price Y-axis
+                            fill="var(--month-band-fill-color)"
+                            fillOpacity={0.3}
+                            ifOverflow="hidden" // Clip to plot area
+                            label={{
+                                value: monthName,
+                                position: 'insideTop',
+                                fill: 'var(--month-label-color)',
+                                fontSize: 12,
+                                fontWeight: 'bold',
+                                dy: 10, // Adjust vertical position from 'insideTop'
+                                className: 'recharts-month-refarea-label' // For specific styling if needed
+                            }}
+                        />
+                    );
+                }
+                // This band (or absence of band if transparent) is done, toggle for the next distinct month
+                isGray = !isGray; 
+            }
         }
-        currentMonth = month;
-        bandStart = index;
-      }
-      
-      // Handle the last band
-      if (index === chartData.length - 1) {
-        bands.push(
-          <rect
-            key={`month-band-${bandStart}`}
-            x={`${(bandStart / (chartData.length - 1)) * 100}%`}
-            y="0"
-            width={`${((index - bandStart + 1) / (chartData.length - 1)) * 100}%`}
-            height="100%"
-            fill={isGray ? "var(--chart-band-color)" : "transparent"}
-            fillOpacity={0.3}
-          />
-        );
-      }
-    });
-    
-    return (
-      <g className="month-bands">
-        {bands}
-      </g>
-    );
+    }
+    // The returned elements are directly used by Recharts
+    return <>{monthReferenceAreas}</>; 
   };
 
-  // Improved week separators renderer
+  // Renamed from renderWeekBands and uses ReferenceLine for week markers
   const renderWeekMarkers = () => {
     if (!showWeekSeparators || chartData.length === 0) {
       return null;
     }
-    
-    const markers: JSX.Element[] = [];
-    
-    chartData.forEach((item, index) => {
-      if (item.isWeekStart) {
-        markers.push(
-          <line
-            key={`week-marker-${index}`}
-            x1={`${(index / (chartData.length - 1)) * 100}%`}
-            y1="0"
-            x2={`${(index / (chartData.length - 1)) * 100}%`}
-            y2="100%"
-            stroke="var(--week-marker-color)"
-            strokeWidth={1}
-            strokeDasharray="3,3"
-            strokeOpacity={0.5}
-          />
-        );
-      }
+    const weekMarkers: JSX.Element[] = [];
+    chartData.forEach((item) => { // No index needed as we use item.timestamp
+        if (item.isFirstDataPointOfWeek) {
+            weekMarkers.push(
+                <ReferenceLine
+                    key={`week-marker-${item.timestamp}`}
+                    x={item.timestamp}
+                    yAxisId="price" 
+                    stroke="var(--week-marker-color)"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4" 
+                    strokeOpacity={0.75}
+                    ifOverflow="hidden"
+                    label={{
+                        value: `KW ${getISOWeek(item.date)}`,
+                        position: 'insideTop',
+                        fill: 'var(--week-label-color)',
+                        fontSize: 10,
+                        textAnchor: 'middle',
+                        dy: 10, 
+                    }}
+                />
+            );
+        }
     });
-    
-    return (
-      <g className="week-markers">
-        {markers}
-      </g>
-    );
+    return <>{weekMarkers}</>;
+  };
+
+  // New renderDayMarkers to renderDayBands
+  const renderDayBands = () => {
+    if (!showDaySeparators || chartData.length <= 1) {
+      return null;
+    }
+    const bands: JSX.Element[] = [];
+    const dayStarts: number[] = [];
+    chartData.forEach((item, index) => {
+        if (item.isFirstDataPointOfDay) {
+            dayStarts.push(index);
+        }
+    });
+
+    dayStarts.forEach((startIndex, i) => {
+        const endIndex = (i + 1 < dayStarts.length) ? dayStarts[i+1] : chartData.length;
+        // Removed redundant condition: if (chartData.length -1 === 0) return;
+        if (chartData.length -1 === 0 && startIndex / (chartData.length-1) > 1) return; // Defensive, but main dead code removed. The original dead code was just `if (chartData.length -1 === 0) return;`
+        bands.push(
+            <rect
+                key={`day-band-${startIndex}`}
+                x={`${(startIndex / (chartData.length - 1)) * 100}%`}
+                y="0"
+                width={`${((endIndex - startIndex) / (chartData.length - 1)) * 100}%`}
+                height="100%"
+                fill="var(--day-band-fill-color)"
+                fillOpacity={0.15}
+            />
+        );
+    });
+    return <g className="day-bands">{bands}</g>;
   };
 
   return (
     <div className="space-y-4">
+      <div className="w-full h-[500px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart
+            data={chartData}
+            margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
+            className="bg-card border"
+          >
+            <defs>
+              <style type="text/css">
+                {`
+                  :root {
+                    --month-band-fill-color: ${theme === 'dark' ? '#444444' : '#cccccc'};
+                    --week-marker-color: ${theme === 'dark' ? 'rgba(130,130,130,0.75)' : 'rgba(140,140,140,0.75)'};
+                    --day-band-fill-color: ${theme === 'dark' ? '#666666' : '#bbbbbb'};
+                    --month-label-color: ${theme === 'dark' ? '#eeeeee' : '#333333'};
+                    --week-label-color: ${theme === 'dark' ? '#cccccc' : '#444444'};
+                  }
+                  .recharts-cartesian-grid-horizontal line,
+                  .recharts-cartesian-grid-vertical line {
+                    stroke: var(--border);
+                    opacity: 0.3;
+                  }
+                  .recharts-legend-wrapper {
+                    bottom: 5px !important;
+                  }
+                  .recharts-xaxis .recharts-label {
+                    transform: translateY(5px);
+                  }
+                  .recharts-month-label {
+                    font-size: 12px;
+                    fill: var(--month-label-color);
+                    font-weight: bold;
+                  }
+                  .recharts-week-label {
+                    font-size: 10px;
+                    fill: var(--week-label-color);
+                    text-anchor: middle; /* Ensure centering if not default for ReferenceLine label */
+                  }
+                  .recharts-month-refarea-label {
+                    font-size: 12px;
+                    fill: var(--month-label-color);
+                    font-weight: bold;
+                  }
+                `}
+              </style>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
+            <Legend
+              verticalAlign="bottom"
+              height={36}
+              wrapperStyle={{ paddingTop: '0px', paddingBottom: '10px' }}
+            />
+            
+            {/* Background bands for months, weeks, days */}
+            {renderMonthBands()}
+            {renderWeekMarkers()}
+            {renderDayBands()}
+            
+            <XAxis 
+              dataKey="timestamp" 
+              ticks={xAxisTicks}
+              tickFormatter={formatXAxis}
+              label={{ value: averaging === 'daily-cycle' ? 'Stunde des Tages' : getXAxisLabel(), position: 'bottom', offset: 0 }}
+              minTickGap={ averaging === 'daily-cycle' ? 15 : 30} // Smaller gap for hourly view
+              height={30}
+              tick={{ fontSize: 12 }}
+            />
+            
+            <YAxis
+              yAxisId="price"
+              domain={['auto', 'auto']}
+              width={40}
+              label={{ 
+                value: energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh', 
+                angle: -90, 
+                position: 'left',
+                offset: -5,
+              }}
+            />
+            {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
+              <YAxis
+                yAxisId="consumption"
+                orientation="right"
+                label={{ value: 'kWh', angle: 90, position: 'right' }}
+              />
+            )}
+            {showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && showCost && (
+              <YAxis
+                yAxisId="cost"
+                orientation="right"
+                label={{ value: '€', angle: 90, position: 'right', offset: 40 }}
+              />
+            )}
+            <Tooltip content={<CustomTooltip />} />
+            
+            <Line
+              key="price-line"
+              type="monotone"
+              dataKey="price"
+              name="Strompreis"
+              yAxisId="price"
+              stroke="#e53935"
+              strokeWidth={2}
+              dot={energyPrices.length > 100 ? false : {}}
+              activeDot={{ r: 5 }}
+              animationDuration={200}
+            />
+            {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
+              <Line
+                key="consumption-line"
+                type="monotone"
+                dataKey="consumption"
+                name="Verbrauch"
+                yAxisId="consumption"
+                stroke="#4285f4"
+                strokeWidth={2}
+                dot={smartMeterData.length > 100 ? false : {}}
+                animationDuration={200}
+                hide={!showConsumption}
+              />
+            )}
+            {showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && (
+              <Line
+                key="cost-line"
+                type="monotone"
+                dataKey="cost"
+                name="Kosten"
+                yAxisId="cost"
+                stroke="#34a853"
+                strokeWidth={2}
+                dot={smartMeterData.length > 100 ? false : {}}
+                animationDuration={200}
+                hide={!showCost}
+              />
+            )}
+            {selectedContract && (
+              <Line
+                key="contractEnergyPrice-line"
+                type="monotone"
+                dataKey="contractEnergyPrice"
+                name={`${selectedContract.provider} ${selectedContract.name} - Arbeitspreis`}
+                yAxisId="price"
+                stroke="#9c27b0"
+                strokeWidth={4}
+                strokeDasharray="5 5"
+                dot={false}
+                animationDuration={200}
+                hide={!showBasePrice}
+              />
+            )}
+            {selectedContract && (
+              <Line
+                key="contractTotalPrice-line"
+                type="monotone"
+                dataKey="contractTotalPrice"
+                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Fixkosten`}
+                yAxisId="price"
+                stroke="#ff9800"
+                strokeWidth={4}
+                strokeDasharray="5 5"
+                dot={false}
+                animationDuration={200}
+                hide={!showTotalPrice}
+              />
+            )}
+            {selectedContract && (
+              <Line
+                key="contractTotalPriceTaxed-line"
+                type="monotone"
+                dataKey="contractTotalPriceTaxed"
+                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Steuern`}
+                yAxisId="price"
+                stroke="#795548"
+                strokeWidth={4}
+                strokeDasharray="5 5"
+                dot={false}
+                animationDuration={200}
+                hide={!showWithTaxes}
+              />
+            )}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {chartData.length > 0 && (
       <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
-        <div className="text-sm font-medium">Abschnitt-Visualisierung:</div>
+        <div className="text-sm font-medium">Zeitraum-Highlights:</div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="show-day-separators" 
+              checked={showDaySeparators} 
+              onCheckedChange={handleCheckedChange(setShowDaySeparators)}
+            />
+            <Label htmlFor="show-day-separators" className="text-sm">Tage</Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="show-week-separators" 
+              checked={showWeekSeparators} 
+              onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
+            />
+            <Label htmlFor="show-week-separators" className="text-sm">Wochen</Label>
+          </div>
         <div className="flex items-center space-x-2">
           <Checkbox 
             id="show-month-separators" 
@@ -445,19 +826,12 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           />
           <Label htmlFor="show-month-separators" className="text-sm">Monate</Label>
         </div>
-        <div className="flex items-center space-x-2">
-          <Checkbox 
-            id="show-week-separators" 
-            checked={showWeekSeparators} 
-            onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
-          />
-          <Label htmlFor="show-week-separators" className="text-sm">Wochen</Label>
-        </div>
       </div>
+      )}
       
       {selectedContract && (
         <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
-          <div className="text-sm font-medium">Tarifoptionen für {selectedContract.provider} {selectedContract.name} anzeigen:</div>
+          <div className="text-sm font-medium">{selectedContract.provider} - {selectedContract.name}: </div>
           <div className="flex items-center space-x-2">
             <Checkbox 
               id="show-base-price" 
@@ -508,152 +882,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           )}
         </div>
       )}
-      
-      <div className="w-full h-[500px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart
-            data={chartData}
-            margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-            className="bg-card rounded-lg p-2 border"
-          >
-            <defs>
-              <style type="text/css">
-                {`
-                  :root {
-                    --chart-band-color: ${theme === 'dark' ? '#2a2a2a' : '#f3f3f3'};
-                    --week-marker-color: ${theme === 'dark' ? '#555' : '#ccc'};
-                  }
-                  .recharts-cartesian-grid-horizontal line,
-                  .recharts-cartesian-grid-vertical line {
-                    stroke: var(--border);
-                    opacity: 0.3;
-                  }
-                  .recharts-legend-wrapper {
-                    bottom: 5px !important;
-                  }
-                  .recharts-xaxis .recharts-label {
-                    transform: translateY(10px);
-                  }
-                `}
-              </style>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
-            
-            {/* Background bands for months */}
-            {renderMonthBands()}
-            
-            {/* Week start markers */}
-            {renderWeekMarkers()}
-            
-            <XAxis 
-              dataKey="timestamp" 
-              tickFormatter={formatXAxis}
-              label={{ value: averaging === 'daily-cycle' ? 'Stunde des Tages' : 'Datum', position: 'bottom', offset: 50 }}
-              minTickGap={30}
-              height={60}
-              tick={{ fontSize: 12 }}
-            />
-            <YAxis
-              yAxisId="price"
-              domain={['auto', 'auto']}
-              label={{ 
-                value: energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh', 
-                angle: -90, 
-                position: 'left',
-                offset: -5
-              }}
-            />
-            {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
-              <YAxis
-                yAxisId="consumption"
-                orientation="right"
-                label={{ value: 'kWh', angle: 90, position: 'right' }}
-              />
-            )}
-            {showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && (
-              <YAxis
-                yAxisId="cost"
-                orientation="right"
-                label={{ value: '€', angle: 90, position: 'right', offset: 40 }}
-              />
-            )}
-            <Tooltip content={<CustomTooltip />} />
-            <Legend 
-              verticalAlign="bottom" 
-              height={36} 
-              wrapperStyle={{ paddingTop: '20px', bottom: '0px !important' }}
-            />
-            <Line
-              type="monotone"
-              dataKey="price"
-              name="Strompreis"
-              yAxisId="price"
-              stroke="#e53935"
-              strokeWidth={2}
-              dot={energyPrices.length > 100 ? false : {}}
-              activeDot={{ r: 5 }}
-            />
-            {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && showConsumption && (
-              <Line
-                type="monotone"
-                dataKey="consumption"
-                name="Verbrauch"
-                yAxisId="consumption"
-                stroke="#4285f4"
-                strokeWidth={2}
-                dot={smartMeterData.length > 100 ? false : {}}
-              />
-            )}
-            {showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && showCost && (
-              <Line
-                type="monotone"
-                dataKey="cost"
-                name="Kosten"
-                yAxisId="cost"
-                stroke="#34a853"
-                strokeWidth={2}
-                dot={smartMeterData.length > 100 ? false : {}}
-              />
-            )}
-            {selectedContract && showBasePrice && (
-              <Line
-                type="monotone"
-                dataKey="contractEnergyPrice"
-                name={`${selectedContract.provider} ${selectedContract.name} - Arbeitspreis`}
-                yAxisId="price"
-                stroke="#9c27b0"
-                strokeWidth={2}
-                strokeDasharray="5 5"
-                dot={false}
-              />
-            )}
-            {selectedContract && showTotalPrice && (
-              <Line
-                type="monotone"
-                dataKey="contractTotalPrice"
-                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Fixkosten`}
-                yAxisId="price"
-                stroke="#ff9800"
-                strokeWidth={2}
-                strokeDasharray="5 5"
-                dot={false}
-              />
-            )}
-            {selectedContract && showWithTaxes && (
-              <Line
-                type="monotone"
-                dataKey="contractTotalPriceTaxed"
-                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Steuern`}
-                yAxisId="price"
-                stroke="#795548"
-                strokeWidth={2}
-                strokeDasharray="5 5"
-                dot={false}
-              />
-            )}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
     </div>
   );
 };

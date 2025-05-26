@@ -156,8 +156,10 @@ export const calculateTotalCost = (
 export const generateMockEnergyPrices = (): EnergyPrice[] => {
   const prices: EnergyPrice[] = [];
   const now = new Date();
+  now.setMinutes(0, 0, 0);
   const oneYearAgo = new Date();
   oneYearAgo.setFullYear(now.getFullYear() - 1);
+  oneYearAgo.setMinutes(0, 0, 0);
   
   // Generate hourly data for the last year
   let currentDate = new Date(oneYearAgo);
