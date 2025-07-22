@@ -134,8 +134,15 @@ export const calculateTotalCost = (
   prices: EnergyPrice[],
   consumption: SmartMeterData[]
 ): number => {
+  // Validate inputs
+  if (prices.length === 0 || consumption.length === 0) {
+    return 0;
+  }
+
   // Create a map of timestamps to prices for quick lookup
   const priceMap = new Map<string, number>();
+  const priceUnit = prices[0].unit; // Cache the unit after validation
+  
   prices.forEach(price => {
     priceMap.set(price.timestamp, price.price);
   });
@@ -146,7 +153,7 @@ export const calculateTotalCost = (
     if (price === undefined) return total;
     
     // Convert price from €/MWh to €/kWh if needed
-    const pricePerKWh = prices[0].unit === 'EUR_MWh' ? price / 1000 : price / 100;
+    const pricePerKWh = priceUnit === 'EUR_MWh' ? price / 1000 : price / 100;
     
     return total + (data.consumption * pricePerKWh);
   }, 0);

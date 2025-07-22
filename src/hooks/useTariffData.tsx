@@ -24,9 +24,9 @@ export const useTariffData = () => {
 
   const calculateNetworkCostsForConsumption = (consumption: number) => {
     const networkCosts = data.networkCosts;
-    const workPricePerKwh = networkCosts.breakdown.netznutzungsentgelt.arbeitspreis / 3500; // Base calculation per kWh
+    // Use the actual arbeitspreis directly instead of dividing by hardcoded base consumption
+    const calculatedWorkPrice = (networkCosts.breakdown.netznutzungsentgelt.arbeitspreis * consumption) / 1000; // Convert to proper units
     
-    const calculatedWorkPrice = workPricePerKwh * consumption;
     const totalExclTax = calculatedWorkPrice + 
       networkCosts.breakdown.netznutzungsentgelt.grundpauschale +
       networkCosts.breakdown.netzverlustentgelt +
