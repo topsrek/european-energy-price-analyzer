@@ -64,6 +64,13 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               mode="single"
               selected={startDate || undefined}
               onSelect={(date) => {
+                // If date is undefined, it means clicking on already selected date - keep it selected and close
+                if (!date && startDate) {
+                  setIsStartDatePickerOpen(false);
+                  setIsEndDatePickerOpen(true);
+                  return;
+                }
+                
                 onStartDateChange(date);
                 if (date) {
                   setIsStartDatePickerOpen(false);
@@ -72,7 +79,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               }}
               disabled={(date) => date > new Date() || (endDate ? date > endDate : false)}
               initialFocus
-              month={startDate || undefined}
+              defaultMonth={startDate || new Date()}
               className={cn("p-3 pointer-events-auto")}
             />
           </PopoverContent>
@@ -96,6 +103,12 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               mode="single"
               selected={endDate || undefined}
               onSelect={(date) => {
+                // If date is undefined, it means clicking on already selected date - keep it selected and close
+                if (!date && endDate) {
+                  setIsEndDatePickerOpen(false);
+                  return;
+                }
+                
                 onEndDateChange(date);
                 if (date) {
                   setIsEndDatePickerOpen(false);
@@ -103,7 +116,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               }}
               disabled={(date) => date > new Date() || (startDate ? date < startDate : false)}
               initialFocus
-              month={endDate || startDate || undefined}
+              defaultMonth={endDate || startDate || new Date()}
               className={cn("p-3 pointer-events-auto")}
             />
           </PopoverContent>

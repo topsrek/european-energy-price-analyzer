@@ -224,18 +224,19 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     ? differenceInMonths(chartData[chartData.length - 1].date, chartData[0].date)
     : 0;
 
-  // Auto-disable highlights based on time span
+  // Auto-disable highlights based on time span - calculate BEFORE rendering
+  let shouldShowDaySeparators = showDaySeparators && dataTimeSpanMonths < 3;
+  let shouldShowWeekSeparators = showWeekSeparators && dataTimeSpanMonths < 6;
+  
+  // Auto-update state when timespan changes (but only when needed to avoid loops)
   useEffect(() => {
-    // Auto-disable day highlights for 3+ months
     if (dataTimeSpanMonths >= 3 && showDaySeparators) {
       setShowDaySeparators(false);
     }
-    
-    // Auto-disable week highlights for 6+ months
     if (dataTimeSpanMonths >= 6 && showWeekSeparators) {
       setShowWeekSeparators(false);
     }
-  }, [dataTimeSpanMonths, showDaySeparators, showWeekSeparators]);
+  }, [dataTimeSpanMonths]); // Only depend on dataTimeSpanMonths to avoid infinite loops
 
   // Generate dynamic ticks for XAxis
   const getXAxisTicks = () => {
@@ -528,72 +529,98 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     };
   };
 
-  // Updated renderMonthBands function - now works with reduced data points
+  // Simplified renderMonthBands function - avoiding NaN errors
   const renderMonthBands = () => {
     if (!showMonthSeparators || chartData.length === 0) {
       return null;
     }
-    const monthReferenceAreas: JSX.Element[] = [];
-    let isGray = true; // For alternating fill
-    const processedMonths = new Set<string>(); // Tracks yyyy-MM to ensure each month gets one band
-
-    // Get the full date range from first to last data point
-    const startDate = chartData[0].date;
-    const endDate = chartData[chartData.length - 1].date;
     
-    // Generate all months in the date range, even if some data points are missing due to reduction
-    const monthsInRange: Date[] = [];
-    const currentDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-    while (currentDate <= endDate) {
-      monthsInRange.push(new Date(currentDate));
-      currentDate.setMonth(currentDate.getMonth() + 1);
-    }
+    const monthElements: JSX.Element[] = [];
+    const processedMonths = new Set<string>();
 
-    monthsInRange.forEach(monthStart => {
-      const monthKey = format(monthStart, 'yyyy-MM');
-      
-      if (!processedMonths.has(monthKey)) {
-        processedMonths.add(monthKey);
-        
-        // Create month boundaries
-        const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0, 23, 59, 59);
-        const firstTimestampInMonth = monthStart.toISOString();
-        const lastTimestampInMonth = monthEnd.toISOString();
-        const monthName = format(monthStart, 'MMMM', { locale: de });
-
-        // Always create a ReferenceArea, but only with fill for alternating months
-        monthReferenceAreas.push(
-            <ReferenceArea
-                key={`month-area-${monthKey}`}
-                x1={firstTimestampInMonth}
-                x2={lastTimestampInMonth}
-                yAxisId="price" // Target the main price Y-axis
-                fill={isGray ? "var(--month-band-fill-color)" : "transparent"}
-                fillOpacity={isGray ? 0.3 : 0}
-                ifOverflow="hidden" // Clip to plot area
-                label={{
-                    value: monthName,
-                    position: 'insideTop',
-                    fill: 'var(--month-label-color)',
-                    fontSize: 12,
-                    fontWeight: 'bold',
-                    dy: 10, // Adjust vertical position from 'insideTop'
-                    className: 'recharts-month-refarea-label' // For specific styling if needed
-                }}
-            />
-        );
-        // Toggle for the next distinct month
-        isGray = !isGray;
+    // Group all data points by month - don't rely on isFirstDataPointOfMonth flag
+    const monthGroups = new Map<string, ExtendedChartDataPoint[]>();
+    chartData.forEach(dataPoint => {
+      const monthKey = format(dataPoint.date, 'yyyy-MM');
+      if (!monthGroups.has(monthKey)) {
+        monthGroups.set(monthKey, []);
       }
+      monthGroups.get(monthKey)!.push(dataPoint);
     });
+
+    // Sort months chronologically and process each one
+    const sortedMonthKeys = Array.from(monthGroups.keys()).sort();
     
-    // The returned elements are directly used by Recharts
-    return <>{monthReferenceAreas}</>; 
+    sortedMonthKeys.forEach((monthKey, index) => {
+      if (processedMonths.has(monthKey)) return;
+      processedMonths.add(monthKey);
+      
+      const monthDataPoints = monthGroups.get(monthKey)!;
+      if (monthDataPoints.length === 0) return;
+
+      const monthName = format(monthDataPoints[0].date, 'MMMM', { locale: de });
+      const firstTimestamp = monthDataPoints[0].timestamp;
+      const lastTimestamp = monthDataPoints[monthDataPoints.length - 1].timestamp;
+      
+      // Add month marker line at the beginning
+      monthElements.push(
+        <ReferenceLine
+          key={`month-marker-${monthKey}`}
+          x={firstTimestamp}
+          yAxisId="price" 
+          stroke="var(--month-label-color)"
+          strokeWidth={2}
+          strokeOpacity={0.6}
+          ifOverflow="hidden"
+        />
+      );
+      
+      // Add background area for alternating months
+      if (index % 2 === 0) {
+        monthElements.push(
+          <ReferenceArea
+            key={`month-area-${monthKey}`}
+            x1={firstTimestamp}
+            x2={lastTimestamp}
+            yAxisId="price"
+            fill="var(--month-band-fill-color)"
+            fillOpacity={0.3}
+            ifOverflow="hidden"
+          />
+        );
+      }
+      
+      // Add centered label for ALL months using middle data point
+      const middleIndex = Math.floor(monthDataPoints.length / 2);
+      const middleDataPoint = monthDataPoints[middleIndex];
+      
+      monthElements.push(
+        <ReferenceLine
+          key={`month-label-${monthKey}`}
+          x={middleDataPoint.timestamp}
+          yAxisId="price" 
+          stroke="transparent"
+          strokeWidth={0}
+          ifOverflow="hidden"
+          label={{
+            value: monthName,
+            position: 'insideTop',
+            fill: 'var(--month-label-color)',
+            fontSize: 12,
+            fontWeight: 'bold',
+            offset: 10,
+            textAnchor: 'middle'
+          }}
+        />
+      );
+    });
+     
+    return <>{monthElements}</>; 
   };
 
   // Renamed from renderWeekBands and uses ReferenceLine for week markers
   const renderWeekMarkers = () => {
-    if (!showWeekSeparators || chartData.length === 0) {
+    if (!shouldShowWeekSeparators || chartData.length === 0) {
       return null;
     }
     const weekMarkers: JSX.Element[] = [];
@@ -625,7 +652,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
 
   // Updated renderDayBands function using ReferenceArea like months
   const renderDayBands = () => {
-    if (!showDaySeparators || chartData.length <= 1) {
+    if (!shouldShowDaySeparators || chartData.length <= 1) {
       return null;
     }
     const dayReferenceAreas: JSX.Element[] = [];
@@ -870,7 +897,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           <div className="flex items-center space-x-2">
             <Checkbox 
               id="show-day-separators" 
-              checked={showDaySeparators} 
+              checked={shouldShowDaySeparators} 
               onCheckedChange={handleCheckedChange(setShowDaySeparators)}
             />
             <Label htmlFor="show-day-separators" className="text-sm">Tage</Label>
@@ -878,7 +905,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           <div className="flex items-center space-x-2">
             <Checkbox 
               id="show-week-separators" 
-              checked={showWeekSeparators} 
+              checked={shouldShowWeekSeparators} 
               onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
             />
             <Label htmlFor="show-week-separators" className="text-sm">Wochen</Label>
