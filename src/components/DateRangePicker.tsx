@@ -44,7 +44,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   }, [isEndDatePickerOpen]);
 
   return (
-    <div className="flex flex-col sm:flex-row gap-4 mb-6 items-start sm:items-center">
+    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
       <div className="flex flex-col flex-wrap sm:flex-row gap-2">
         <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
           <PopoverTrigger asChild>
@@ -115,6 +115,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         <Button variant="outline" size="sm" onClick={() => handleQuickSelect(30)}>1 Monat</Button>
         <Button variant="outline" size="sm" onClick={() => handleQuickSelect(90)}>3 Monate</Button>
         <Button variant="outline" size="sm" onClick={() => handleQuickSelect(365)}>1 Jahr</Button>
+        <Button variant="outline" size="sm" onClick={() => handleQuickSelect(365*5+1)}>5 Jahre</Button>
       </div>
     </div>
   );

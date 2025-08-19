@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Info } from 'lucide-react';
+import { ArrowUpRight, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
@@ -116,34 +116,31 @@ const Index = () => {
   }, []);
   
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex flex-col min-h-screen bg-background">
       <AppHeader />
-      <main className="flex-grow container mx-auto py-6 px-4">
-        <div className="space-y-8">
-          <Card className="animate-fade-in">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Wiener Strompreis-Rechner</CardTitle>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Netzkosten basieren auf den Tarifen der Wiener Netze
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-4">
-                <HelpModal />
-                <InfoModal trigger={
-                  <Button variant="outline" size="sm" className="flex gap-1 items-center md:h-9 h-fit">
-                    <Info className="h-4 w-4" />
-                    <span className="whitespace-normal"> 
-                      Wie funktioniert der österr. Strommarkt?
-                    </span>
-                  </Button>
-                } />
+      <main className="md:container mx-auto md:pt-4 md:px-4 md:pb-4 pb-2">
+        <div className="space-y-0 md:space-y-8">
+          <Card className="animate-fade-in md:rounded-lg rounded-none">
+            <CardHeader>
+              <div className="flex flex-col md:flex-row md:items-center gap-4 md:justify-between">
+                <CardTitle>Preisanalyse</CardTitle>
+                <div className="flex items-center gap-4">
+                  <HelpModal />
+                  <InfoModal trigger={
+                    <Button variant="outline" size="sm" className="flex gap-1 items-center md:h-9 h-fit">
+                      <Info className="h-4 w-4" />
+                      <span className="whitespace-normal"> 
+                        Wie funktioniert der österr. Strommarkt?
+                      </span>
+                    </Button>
+                  } />
+                </div>
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
+            <CardContent className="p-0 md:p-2 pt-0 md:border border-none">
+              <div className="space-y-0 md:space-y-0 p-0 md:p-2">
                 {/* Date Range Picker */}
-                <div>
+                <div className="p-2 md:p-2 md:border border-none">
                   <DateRangePicker
                     startDate={startDate}
                     endDate={endDate}
@@ -152,8 +149,12 @@ const Index = () => {
                   />
                 </div>
                 
+                <div className="h-4 md:h-6 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+                
                 {/* Filters & Options */}
-                <div className="flex flex-col md:flex-row gap-6">
+                <div className="flex flex-col md:flex-row gap-6 p-2 md:p-2">
                   <div>
                     <AveragingOptions
                       selectedOption={averaging}
@@ -173,8 +174,8 @@ const Index = () => {
                 </div>
                 
                 {/* Visualization */}
-                <div>
-                  <h3 className="text-lg font-medium mb-2">Preisverlauf</h3>
+                <div className="p-0 md:p-2 md:border border-none">
+                  <h3 className="text-lg font-medium mb-2 pl-2 md:pl-0">Preisverlauf</h3>
                   {displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 
                       energyPrices={displayedEnergyPrices}
@@ -193,7 +194,7 @@ const Index = () => {
                 
                 {/* Smart Meter Data Controls */}
                 {smartMeterData && (
-                  <div className="flex flex-wrap gap-4">
+                  <div className="flex flex-wrap gap-4 p-2 md:p-0">
                     <div className="flex items-center space-x-2">
                       <Switch
                         id="show-smart-meter"
@@ -217,9 +218,12 @@ const Index = () => {
             </CardContent>
           </Card>
           
-          <Card className="animate-fade-in">
+          <Card className="animate-fade-in md:rounded-lg rounded-none">
             <CardHeader>
               <CardTitle>Wie viel kosten die günstigsten Tarife?</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                  Netzkosten basieren auf den Tarifen der <b>Wiener Netze</b>
+                </p>
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="contracts">
@@ -263,8 +267,19 @@ const Index = () => {
       <footer className="bg-background border-t py-6">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-muted-foreground text-sm">
-            © {new Date().getFullYear()} Wiener Strompreis-Rechner | Alle Daten sind Beispieldaten
+            © {new Date().getFullYear()} Strompreisrechner Österreich | Alle Daten sind (noch) Beispieldaten
           </p>
+          <p className="text-muted-foreground text-sm">
+            made by <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@topsrek</a> in Austria
+          </p>
+          <a
+            href="https://github.com/topsrek/austrian-electricity-price-analysis"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-primary hover:underline"
+          >
+            GitHub<ArrowUpRight className="w-4 h-4 inline-block ml-1 mb-0.5" />
+          </a>
           <div className="flex gap-4">
             <ImpressumModal />
             <ContactModal />

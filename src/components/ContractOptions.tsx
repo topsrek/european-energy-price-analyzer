@@ -116,7 +116,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
       >
         <CardHeader className="pb-4">
           <CardTitle className="text-lg">{tariff.name}</CardTitle>
-          <CardDescription className="space-y-1">
+          <div className="space-y-1">
             {isCustom ? (
               <Input 
                 value={editableValues.provider}
@@ -125,10 +125,10 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 placeholder="Anbieter eingeben"
               />
             ) : (
-              <span className="font-medium">{tariff.provider}</span>
+              <CardDescription className="font-medium">{tariff.provider}</CardDescription>
             )}
             <div className="text-xs text-muted-foreground">Stand: {data.lastUpdated}</div>
-          </CardDescription>
+          </div>
         </CardHeader>
         
         <CardContent className="space-y-6">

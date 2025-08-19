@@ -12,7 +12,7 @@ import {
   ReferenceLine,
   ReferenceArea
 } from 'recharts';
-import { format, parseISO, getMonth, isMonday, getDate, getDay, differenceInDays, getHours, getMinutes, getISOWeek } from 'date-fns';
+import { format, parseISO, getMonth, isMonday, getDate, getDay, differenceInDays, differenceInMonths, getHours, getMinutes, getISOWeek } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -170,13 +170,72 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         }
       });
     }
-    return internalChartData;
+    
+    // Data point reduction for performance optimization
+    const reduceDataPoints = (data: ExtendedChartDataPoint[]) => {
+      if (data.length === 0) return data;
+      
+      const totalDataPoints = data.length;
+      const threeMonthsInHours = 90 * 24; // ~2160 data points for 3 months
+      const oneYearInHours = 365 * 24; // 8760 data points for a year
+      const fiveYearsInHours = 5 * oneYearInHours; // 43800 data points for 5 years
+      const tenYearsInHours = 10 * oneYearInHours; // 87600 data points for 10 years
+      
+      let step = 1; // Default: show all data points
+      
+      if (totalDataPoints > tenYearsInHours) {
+        step = 24; // Show every 24th hour (daily data points)
+      } else if (totalDataPoints > fiveYearsInHours) {
+        step = 12; // Show every 12th hour (twice daily data points)
+      } else if (totalDataPoints > oneYearInHours) {
+        step = 3; // Show every 3rd hour
+      } else if (totalDataPoints > threeMonthsInHours) {
+        step = 2; // Show every 2nd hour for more than 3 months
+      }
+      
+      if (step === 1) return data; // No reduction needed
+      
+      // Always include the first data point
+      const reducedData = [data[0]];
+      
+      // Add every nth data point based on step
+      for (let i = step; i < data.length; i += step) {
+        reducedData.push(data[i]);
+      }
+      
+      // Always include the last data point if it wasn't already included
+      const lastIndex = data.length - 1;
+      if (lastIndex > 0 && (lastIndex % step !== 0)) {
+        reducedData.push(data[lastIndex]);
+      }
+      
+      return reducedData;
+    };
+    
+    return reduceDataPoints(internalChartData);
   }, [energyPrices, smartMeterData, showSmartMeterData, showTotalCost, selectedContract, averaging, showSpotPriceWithTax]);
 
-  // Calculate data timespan in days
+  // Calculate data timespan in days and months
   const dataTimeSpanDays = chartData.length > 0 
     ? differenceInDays(chartData[chartData.length - 1].date, chartData[0].date)
     : 0;
+  
+  const dataTimeSpanMonths = chartData.length > 0 
+    ? differenceInMonths(chartData[chartData.length - 1].date, chartData[0].date)
+    : 0;
+
+  // Auto-disable highlights based on time span
+  useEffect(() => {
+    // Auto-disable day highlights for 3+ months
+    if (dataTimeSpanMonths >= 3 && showDaySeparators) {
+      setShowDaySeparators(false);
+    }
+    
+    // Auto-disable week highlights for 6+ months
+    if (dataTimeSpanMonths >= 6 && showWeekSeparators) {
+      setShowWeekSeparators(false);
+    }
+  }, [dataTimeSpanMonths, showDaySeparators, showWeekSeparators]);
 
   // Generate dynamic ticks for XAxis
   const getXAxisTicks = () => {
@@ -469,61 +528,65 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     };
   };
 
-  // Updated renderMonthBands function
+  // Updated renderMonthBands function - now works with reduced data points
   const renderMonthBands = () => {
     if (!showMonthSeparators || chartData.length === 0) {
       return null;
     }
     const monthReferenceAreas: JSX.Element[] = [];
-    let isGray = true; // For alternating fill/label display
+    let isGray = true; // For alternating fill
     const processedMonths = new Set<string>(); // Tracks yyyy-MM to ensure each month gets one band
 
-    for (let i = 0; i < chartData.length; i++) {
-        const currentDataPointDate = chartData[i].date;
-        const monthKey = format(currentDataPointDate, 'yyyy-MM');
-
-        if (!processedMonths.has(monthKey)) {
-            // First time encountering this month in the loop
-            processedMonths.add(monthKey);
-
-            // Find all data points actually belonging to this specific month (yyyy-MM)
-            const pointsInThisExactMonth = chartData.filter(dp => format(dp.date, 'yyyy-MM') === monthKey);
-            
-            if (pointsInThisExactMonth.length > 0) {
-                const firstTimestampInMonth = pointsInThisExactMonth[0].timestamp;
-                const lastTimestamp = new Date(pointsInThisExactMonth[pointsInThisExactMonth.length - 1].timestamp);
-                // Add one hour because we want to include the last hour in the timeframe
-                lastTimestamp.setHours(lastTimestamp.getHours() + 1);
-                const lastTimestampInMonth = lastTimestamp.toISOString();
-                const monthName = format(pointsInThisExactMonth[0].date, 'MMMM', { locale: de });
-
-                if (isGray) {
-                    monthReferenceAreas.push(
-                        <ReferenceArea
-                            key={`month-area-${monthKey}`}
-                            x1={firstTimestampInMonth}
-                            x2={lastTimestampInMonth}
-                            yAxisId="price" // Target the main price Y-axis
-                            fill="var(--month-band-fill-color)"
-                            fillOpacity={0.3}
-                            ifOverflow="hidden" // Clip to plot area
-                            label={{
-                                value: monthName,
-                                position: 'insideTop',
-                                fill: 'var(--month-label-color)',
-                                fontSize: 12,
-                                fontWeight: 'bold',
-                                dy: 10, // Adjust vertical position from 'insideTop'
-                                className: 'recharts-month-refarea-label' // For specific styling if needed
-                            }}
-                        />
-                    );
-                }
-                // This band (or absence of band if transparent) is done, toggle for the next distinct month
-                isGray = !isGray; 
-            }
-        }
+    // Get the full date range from first to last data point
+    const startDate = chartData[0].date;
+    const endDate = chartData[chartData.length - 1].date;
+    
+    // Generate all months in the date range, even if some data points are missing due to reduction
+    const monthsInRange: Date[] = [];
+    const currentDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    while (currentDate <= endDate) {
+      monthsInRange.push(new Date(currentDate));
+      currentDate.setMonth(currentDate.getMonth() + 1);
     }
+
+    monthsInRange.forEach(monthStart => {
+      const monthKey = format(monthStart, 'yyyy-MM');
+      
+      if (!processedMonths.has(monthKey)) {
+        processedMonths.add(monthKey);
+        
+        // Create month boundaries
+        const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0, 23, 59, 59);
+        const firstTimestampInMonth = monthStart.toISOString();
+        const lastTimestampInMonth = monthEnd.toISOString();
+        const monthName = format(monthStart, 'MMMM', { locale: de });
+
+        // Always create a ReferenceArea, but only with fill for alternating months
+        monthReferenceAreas.push(
+            <ReferenceArea
+                key={`month-area-${monthKey}`}
+                x1={firstTimestampInMonth}
+                x2={lastTimestampInMonth}
+                yAxisId="price" // Target the main price Y-axis
+                fill={isGray ? "var(--month-band-fill-color)" : "transparent"}
+                fillOpacity={isGray ? 0.3 : 0}
+                ifOverflow="hidden" // Clip to plot area
+                label={{
+                    value: monthName,
+                    position: 'insideTop',
+                    fill: 'var(--month-label-color)',
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                    dy: 10, // Adjust vertical position from 'insideTop'
+                    className: 'recharts-month-refarea-label' // For specific styling if needed
+                }}
+            />
+        );
+        // Toggle for the next distinct month
+        isGray = !isGray;
+      }
+    });
+    
     // The returned elements are directly used by Recharts
     return <>{monthReferenceAreas}</>; 
   };
@@ -560,46 +623,69 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     return <>{weekMarkers}</>;
   };
 
-  // New renderDayMarkers to renderDayBands
+  // Updated renderDayBands function using ReferenceArea like months
   const renderDayBands = () => {
     if (!showDaySeparators || chartData.length <= 1) {
       return null;
     }
-    const bands: JSX.Element[] = [];
-    const dayStarts: number[] = [];
-    chartData.forEach((item, index) => {
-        if (item.isFirstDataPointOfDay) {
-            dayStarts.push(index);
-        }
-    });
+    const dayReferenceAreas: JSX.Element[] = [];
+    let isGray = true; // For alternating fill
+    const processedDays = new Set<string>(); // Tracks yyyy-MM-dd to ensure each day gets one band
 
-    dayStarts.forEach((startIndex, i) => {
-        const endIndex = (i + 1 < dayStarts.length) ? dayStarts[i+1] : chartData.length;
-        // Removed redundant condition: if (chartData.length -1 === 0) return;
-        if (chartData.length -1 === 0 && startIndex / (chartData.length-1) > 1) return; // Defensive, but main dead code removed. The original dead code was just `if (chartData.length -1 === 0) return;`
-        bands.push(
-            <rect
-                key={`day-band-${startIndex}`}
-                x={`${(startIndex / (chartData.length - 1)) * 100}%`}
-                y="0"
-                width={`${((endIndex - startIndex) / (chartData.length - 1)) * 100}%`}
-                height="100%"
-                fill="var(--day-band-fill-color)"
-                fillOpacity={0.15}
-            />
-        );
-    });
-    return <g className="day-bands">{bands}</g>;
+    for (let i = 0; i < chartData.length; i++) {
+        const currentDataPointDate = chartData[i].date;
+        const dayKey = format(currentDataPointDate, 'yyyy-MM-dd');
+
+        if (!processedDays.has(dayKey)) {
+            // First time encountering this day in the loop
+            processedDays.add(dayKey);
+
+            // Find all data points actually belonging to this specific day (yyyy-MM-dd)
+            const pointsInThisExactDay = chartData.filter(dp => format(dp.date, 'yyyy-MM-dd') === dayKey);
+            
+            if (pointsInThisExactDay.length > 0) {
+                const firstTimestampInDay = pointsInThisExactDay[0].timestamp;
+                const lastTimestamp = new Date(pointsInThisExactDay[pointsInThisExactDay.length - 1].timestamp);
+                // Add one hour because we want to include the last hour in the timeframe
+                lastTimestamp.setHours(lastTimestamp.getHours() + 1);
+                const lastTimestampInDay = lastTimestamp.toISOString();
+
+                // Create ReferenceArea for alternating days
+                if (isGray) {
+                    dayReferenceAreas.push(
+                        <ReferenceArea
+                            key={`day-area-${dayKey}`}
+                            x1={firstTimestampInDay}
+                            x2={lastTimestampInDay}
+                            yAxisId="price"
+                            fill="var(--day-band-fill-color)"
+                            fillOpacity={0.15}
+                            ifOverflow="hidden"
+                        />
+                    );
+                }
+                // Toggle for the next distinct day
+                isGray = !isGray; 
+            }
+        }
+    }
+    // The returned elements are directly used by Recharts
+    return <>{dayReferenceAreas}</>; 
   };
 
   return (
-    <div className="space-y-4">
-      <div className="w-full h-[500px]">
+    <div className="space-y-2 md:space-y-4">
+      <div className="w-full h-[400px] md:h-[500px]">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={chartData}
-            margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
-            className="bg-card border"
+            margin={{ 
+              top: 20, 
+              right: window.innerWidth < 768 ? 3 : 10, 
+              left: window.innerWidth < 768 ? 3 : 10, 
+              bottom: 20 
+            }}
+            className="bg-card md:border border-none"
           >
             <defs>
               <style type="text/css">
