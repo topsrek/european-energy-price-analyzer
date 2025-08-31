@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ContractOption } from '@/types/energy-data';
+import { ContractOption, Tariff } from '@/types/energy-data';
 import { cn } from '@/lib/utils';
 import { useTariffData } from '@/hooks/useTariffData';
 import NetworkCostsDisplay from './NetworkCostsDisplay';
@@ -40,7 +40,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
     }));
   };
 
-  const handleSelectContract = (tariff: any) => {
+  const handleSelectContract = (tariff: Tariff) => {
     // Convert tariff data to ContractOption format for compatibility
     const contractOption: ContractOption = {
       name: tariff.name,
@@ -61,11 +61,11 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
     return (value || 0).toFixed(decimals);
   };
 
-  const renderTariffCard = (tariff: any, index: number) => {
+  const renderTariffCard = (tariff: Tariff, index: number) => {
     const isSelected = selectedContract?.name === tariff.name;
     const isCustom = tariff.id === 'custom';
     const isSpot = tariff.type === 'spot';
-    let calculatedTariff = calculateTariffCostsForConsumption(tariff, annualConsumption);
+    const calculatedTariff = calculateTariffCostsForConsumption(tariff, annualConsumption);
     
     // Ensure calculated object exists
     if (!calculatedTariff.calculated) {

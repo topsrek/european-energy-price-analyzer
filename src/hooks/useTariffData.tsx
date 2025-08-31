@@ -1,17 +1,12 @@
 
 import { useState, useEffect } from 'react';
 import tariffData from '@/config/tariff-costs.json';
-
-interface TariffData {
-  lastUpdated: string;
-  networkCosts: any;
-  tariffs: any[];
-}
+import { TariffData, Tariff } from '@/types/energy-data';
 
 export const useTariffData = () => {
   const [data, setData] = useState<TariffData>(tariffData);
 
-  const updateCustomTariff = (updates: Partial<any>) => {
+  const updateCustomTariff = (updates: Partial<Tariff>) => {
     setData(prev => ({
       ...prev,
       tariffs: prev.tariffs.map(tariff => 
@@ -47,7 +42,7 @@ export const useTariffData = () => {
     };
   };
 
-  const calculateTariffCostsForConsumption = (tariff: any, consumption: number) => {
+  const calculateTariffCostsForConsumption = (tariff: Tariff, consumption: number) => {
     if (tariff.type === 'spot') {
       // For spot tariffs, calculate administrative fee
       const verwaltungskosten = (tariff.verwaltungsgebuehr_cent_kwh / 100) * consumption;

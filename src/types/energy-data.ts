@@ -39,3 +39,69 @@ export interface ChartData {
     fill?: boolean;
   }[];
 }
+
+export interface TariffRabatte {
+  total: number;
+  details?: Array<{
+    name: string;
+    amount: number;
+  }>;
+}
+
+export interface TariffCalculated {
+  arbeitspreis_total: number;
+  energiekosten_excl_tax: number;
+  tax_amount: number;
+  energiekosten_incl_tax: number;
+}
+
+export interface Tariff {
+  id: string;
+  name: string;
+  provider: string;
+  arbeitspreis_cent_kwh: number;
+  grundpauschale: number;
+  grundgebuehr?: number;
+  rabatte?: TariffRabatte;
+  tax_rate: number;
+  type?: 'spot' | 'fixed';
+  verwaltungsgebuehr_cent_kwh?: number;
+  calculated?: TariffCalculated;
+}
+
+export interface NetworkCostsCalculated {
+  arbeitspreis: number;
+  total_excl_tax: number;
+  tax_amount: number;
+  total_incl_tax: number;
+}
+
+export interface NetworkCosts {
+  name: string;
+  netztarif: number;
+  breakdown: {
+    netznutzungsentgelt: {
+      arbeitspreis: number;
+      grundpauschale: number;
+    };
+    netzverlustentgelt: number;
+    messleistungen: number;
+    abgaben: {
+      elektrizitaetsabgabe: number;
+      erneuerbaren_foerderbeitrag: number;
+      erneuerbaren_foerderpauschale: number;
+      total: number;
+    };
+  };
+  total_excl_tax: number;
+  tax_rate: number;
+  tax_amount: number;
+  total_incl_tax: number;
+  calculated?: NetworkCostsCalculated;
+}
+
+export interface TariffData {
+  lastUpdated: string;
+  networkCosts: NetworkCosts;
+  tariffs: Tariff[];
+}

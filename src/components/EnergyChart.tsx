@@ -37,7 +37,7 @@ interface ExtendedChartDataPoint {
   contractTotalPriceTaxed?: number;
   fixedCosts?: number; // New property for fixed costs
   // Allow other dynamic properties if necessary, though specific props are preferred
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 interface EnergyChartProps {
@@ -102,30 +102,30 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       const date = item.date;
       const dayKey = format(date, 'yyyy-MM-dd');
       if (!dayProcessed.has(dayKey)) {
-        (item as any).isFirstDataPointOfDay = true;
+        item.isFirstDataPointOfDay = true;
         dayProcessed.set(dayKey, true);
       } else {
-        (item as any).isFirstDataPointOfDay = false;
+        item.isFirstDataPointOfDay = false;
       }
 
       const weekOfYearKey = format(date, 'yyyy-II');
       if (getDay(date) === 1) {
         if (!weekProcessed.has(weekOfYearKey)) {
-          (item as any).isFirstDataPointOfWeek = true;
+          item.isFirstDataPointOfWeek = true;
           weekProcessed.set(weekOfYearKey, true);
         } else {
-          (item as any).isFirstDataPointOfWeek = false;
+          item.isFirstDataPointOfWeek = false;
         }
       } else {
-        (item as any).isFirstDataPointOfWeek = false;
+        item.isFirstDataPointOfWeek = false;
       }
 
       const monthKey = format(date, 'yyyy-MM');
       if (!monthProcessed.has(monthKey)) {
-        (item as any).isFirstDataPointOfMonth = true;
+        item.isFirstDataPointOfMonth = true;
         monthProcessed.set(monthKey, true);
       } else {
-        (item as any).isFirstDataPointOfMonth = false;
+        item.isFirstDataPointOfMonth = false;
       }
     });
 
@@ -138,11 +138,11 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       internalChartData.forEach(item => {
         const consumption = consumptionMap.get(item.timestamp);
         if (consumption !== undefined) {
-          (item as any).consumption = consumption;
+          item.consumption = consumption;
           if (showTotalCost) {
             const price = item.price;
             const pricePerKWh = item.unit === 'EUR_MWh' ? price / 1000 : price / 100;
-            (item as any).cost = consumption * pricePerKWh;
+            item.cost = consumption * pricePerKWh;
           }
         }
       });
@@ -160,13 +160,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       internalChartData.forEach(item => {
         // Contract energy price (Nettostromkosten)
         if (item.unit === 'EUR_MWh') {
-          (item as any).contractEnergyPrice = energyPriceInCents * 10;
-          (item as any).contractNetworkCosts = (energyPriceInCents + networkCostsPerKwh * 100) * 10;
-          (item as any).contractTotalPriceTaxed = (energyPriceInCents + networkCostsPerKwh * 100) * 10 * 1.2;
+          item.contractEnergyPrice = energyPriceInCents * 10;
+          item.contractNetworkCosts = (energyPriceInCents + networkCostsPerKwh * 100) * 10;
+          item.contractTotalPriceTaxed = (energyPriceInCents + networkCostsPerKwh * 100) * 10 * 1.2;
         } else {
-          (item as any).contractEnergyPrice = energyPriceInCents;
-          (item as any).contractNetworkCosts = energyPriceInCents + (networkCostsPerKwh * 100);
-          (item as any).contractTotalPriceTaxed = (energyPriceInCents + (networkCostsPerKwh * 100)) * 1.2;
+          item.contractEnergyPrice = energyPriceInCents;
+          item.contractNetworkCosts = energyPriceInCents + (networkCostsPerKwh * 100);
+          item.contractTotalPriceTaxed = (energyPriceInCents + (networkCostsPerKwh * 100)) * 1.2;
         }
       });
     }
@@ -225,8 +225,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     : 0;
 
   // Auto-disable highlights based on time span - calculate BEFORE rendering
-  let shouldShowDaySeparators = showDaySeparators && dataTimeSpanMonths < 3;
-  let shouldShowWeekSeparators = showWeekSeparators && dataTimeSpanMonths < 6;
+  const shouldShowDaySeparators = showDaySeparators && dataTimeSpanMonths < 3;
+  const shouldShowWeekSeparators = showWeekSeparators && dataTimeSpanMonths < 6;
   
   // Auto-update state when timespan changes (but only when needed to avoid loops)
   useEffect(() => {
@@ -236,7 +236,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     if (dataTimeSpanMonths >= 6 && showWeekSeparators) {
       setShowWeekSeparators(false);
     }
-  }, [dataTimeSpanMonths]); // Only depend on dataTimeSpanMonths to avoid infinite loops
+  }, [dataTimeSpanMonths, showDaySeparators, showWeekSeparators]); // Include all dependencies
 
   // Generate dynamic ticks for XAxis
   const getXAxisTicks = () => {
@@ -456,7 +456,18 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   };
   
   // Custom tooltip formatter
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  interface TooltipProps {
+    active?: boolean;
+    payload?: Array<{
+      value: number;
+      name: string;
+      color: string;
+      dataKey: string;
+    }>;
+    label?: string;
+  }
+  
+  const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
     if (active && payload && payload.length) {
       const date = parseISO(label);
       
@@ -482,10 +493,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       return (
         <div className="bg-card p-3 border border-border rounded-md shadow-md">
           <p className="font-medium text-sm mb-2">{formattedDate}</p>
-          {payload.map((entry: any, index: number) => {
+          {payload.map((entry, index: number) => {
             if (!entry.value) return null;
             
-            let value = entry.value;
+            const value = entry.value;
             let unit = '';
             let name = entry.name;
             
