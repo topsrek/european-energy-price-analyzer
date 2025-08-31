@@ -162,7 +162,7 @@ export const generateMockEnergyPrices = (): EnergyPrice[] => {
   oneYearAgo.setMinutes(0, 0, 0);
   
   // Generate hourly data for the last year
-  let currentDate = new Date(oneYearAgo);
+  const currentDate = new Date(oneYearAgo);
   while (currentDate <= now) {
     const basePrice = 5 + Math.sin(currentDate.getHours() / 24 * Math.PI * 2) * 2; // Daily pattern
     const seasonalFactor = 1 + Math.sin((currentDate.getMonth() / 12) * Math.PI * 2) * 0.3; // Seasonal pattern
@@ -191,7 +191,7 @@ export const generateMockSmartMeterData = (): SmartMeterData[] => {
   oneMonthAgo.setMonth(now.getMonth() - 1);
   
   // Generate hourly data for the last month
-  let currentDate = new Date(oneMonthAgo);
+  const currentDate = new Date(oneMonthAgo);
   while (currentDate <= now) {
     const hour = currentDate.getHours();
     

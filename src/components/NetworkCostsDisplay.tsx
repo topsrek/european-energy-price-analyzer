@@ -1,9 +1,10 @@
 
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { NetworkCosts } from '@/types/energy-data';
 
 interface NetworkCostsDisplayProps {
-  networkCosts: any;
+  networkCosts: NetworkCosts;
   consumption: number;
 }
 

@@ -81,7 +81,7 @@ const Index = () => {
       title: "Daten geladen",
       description: "Die Energiepreisdaten wurden erfolgreich geladen."
     });
-  }, []);
+  }, [toast]);
   
   // Process data whenever filters or date range changes
   useEffect(() => {

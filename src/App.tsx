@@ -4,7 +4,6 @@ import { useEffect } from 'react';
 import Index from './pages/Index';
 import NotFound from './pages/NotFound';
 import { Toaster } from '@/components/ui/toaster';
-import datesConfig from '@/config/dates.json';
 
 function App() {
   useEffect(() => {
