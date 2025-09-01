@@ -16,12 +16,14 @@ const NotFound = () => {
       tag.setAttribute('content', 'noindex, nofollow');
       document.head.appendChild(tag);
     }
-
-    console.error(
-      "404 Error: User attempted to access non-existent route:",
-      location.pathname
-    );
-
+        
+    // Log 404 errors only in development mode
+    if (import.meta.env.DEV) {
+      console.error(
+        "404 Error: User attempted to access non-existent route:",
+        location.pathname
+      );
+    }
     return () => {
       // Optional: restore indexing settings when navigating away
       const robots = document.querySelector('meta[name="robots"]');
@@ -29,6 +31,7 @@ const NotFound = () => {
         robots.setAttribute('content', previousRobots);
       }
     };
+
   }, [location.pathname]);
 
   return (
