@@ -5,6 +5,18 @@ const NotFound = () => {
   const location = useLocation();
 
   useEffect(() => {
+    document.title = "Seite nicht gefunden – Strompreisrechner Österreich";
+    const metaRobots = document.querySelector('meta[name="robots"]');
+    const previousRobots = metaRobots?.getAttribute('content');
+    if (metaRobots) {
+      metaRobots.setAttribute('content', 'noindex, nofollow');
+    } else {
+      const tag = document.createElement('meta');
+      tag.setAttribute('name', 'robots');
+      tag.setAttribute('content', 'noindex, nofollow');
+      document.head.appendChild(tag);
+    }
+        
     // Log 404 errors only in development mode
     if (import.meta.env.DEV) {
       console.error(
@@ -12,6 +24,14 @@ const NotFound = () => {
         location.pathname
       );
     }
+    return () => {
+      // Optional: restore indexing settings when navigating away
+      const robots = document.querySelector('meta[name="robots"]');
+      if (robots && previousRobots) {
+        robots.setAttribute('content', previousRobots);
+      }
+    };
+
   }, [location.pathname]);
 
   return (
