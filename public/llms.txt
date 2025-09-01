@@ -1,0 +1,38 @@
+LLM Usage Policy for Strompreismonitor Österreich
+Version: 1.0
+Last-Updated: 2025-09-01
+
+Contact: https://topsrek.top
+Repository: https://github.com/topsrek/austrian-electricity-price-analysis
+
+Scope: This file communicates our preferences to AI/LLM crawlers. It is advisory and does not replace robots.txt.
+
+Allowed Purposes:
+- Indexing for search and discovery
+- Summarization, snippet generation, and question answering with citation
+
+Disallowed Purposes:
+- Training foundation models on our content without explicit permission
+- Storing or redistributing full content or datasets derived from it
+- Reproducing large excerpts (> 200 characters) without attribution and link
+
+Crawler Guidance:
+- Respect robots.txt and meta robots directives
+- Include a source link to the original page when using our content
+- Avoid collecting personal data; remove sensitive information
+
+Named Agents Policy:
+- GPTBot: Allowed for browsing and summarization
+- OAI-SearchBot: Allowed
+- Google-Extended: Allowed
+- CCBot (Common Crawl): Allowed for indexing only
+- ClaudeBot / Claude-Web: Allowed
+- PerplexityBot: Allowed
+- Applebot / Applebot-Extended: Allowed
+- Meta-ExternalAgent: Allowed
+
+Rate Limiting:
+- Please keep request rates reasonable (<= 1 request/second) and use caching
+
+If you need an exception or commercial license, please reach out via the contact above.
+
