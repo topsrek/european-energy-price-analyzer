@@ -1,3 +1,16 @@
+FROM node:22-alpine AS frontend-build
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+ARG VITE_DATA_BASE_URL=
+ARG VITE_GEOIP_ENDPOINT=
+ENV VITE_DATA_BASE_URL=$VITE_DATA_BASE_URL
+ENV VITE_GEOIP_ENDPOINT=$VITE_GEOIP_ENDPOINT
+RUN npm run build
+
 FROM python:3.13-slim
 
 WORKDIR /app
@@ -10,6 +23,7 @@ COPY scripts ./scripts
 COPY data ./data
 COPY worker ./worker
 COPY public ./public
+COPY --from=frontend-build /app/dist ./dist
 
 RUN pip install --no-cache-dir -r scripts/requirements.txt
 

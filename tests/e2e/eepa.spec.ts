@@ -14,8 +14,9 @@ test('Austria route loads the committed real hourly dataset', async ({ page }) =
 });
 
 test('home uses stored country preference before browser guessing', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(() => localStorage.setItem('eepa.selectedRegion', 'at'));
+  await page.addInitScript(() => {
+    localStorage.setItem('eepa.selectedRegion', 'at');
+  });
 
   await page.goto('/');
 

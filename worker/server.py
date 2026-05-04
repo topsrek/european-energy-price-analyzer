@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
 import os
 import subprocess
 import threading
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+DIST_ROOT = ROOT / "dist"
 DEFAULT_PORT = 49173
 DEFAULT_UPDATE_HOUR_UTC = 3
 DEFAULT_COUNTRIES = "AT"
@@ -84,8 +86,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        self.send_response(HTTPStatus.NOT_FOUND)
-        self.end_headers()
+        self.send_static(head_only=True)
 
     def do_GET(self) -> None:
         path = self.normalized_path()
@@ -112,7 +113,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_file(ROOT / "public" / path.lstrip("/"), "application/octet-stream")
             return
 
-        self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+        self.send_static()
 
     def normalized_path(self) -> str:
         path = self.path.split("?", 1)[0]
@@ -143,6 +144,36 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "public, max-age=300")
         self.send_header("Access-Control-Allow-Origin", os.getenv("CORS_ORIGIN", "*"))
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(body)
+
+    def send_static(self, head_only: bool = False) -> None:
+        request_path = self.path.split("?", 1)[0]
+        relative_path = request_path.lstrip("/") or "index.html"
+        candidate = (DIST_ROOT / relative_path).resolve()
+
+        try:
+            candidate.relative_to(DIST_ROOT.resolve())
+        except ValueError:
+            self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+            return
+
+        if not candidate.exists() or not candidate.is_file():
+            candidate = DIST_ROOT / "index.html"
+
+        if not candidate.exists() or not candidate.is_file():
+            self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+            return
+
+        body = candidate.read_bytes()
+        content_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+        cache_control = "public, immutable, max-age=31536000" if "/assets/" in request_path else "no-cache"
+
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", cache_control)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if not head_only:
