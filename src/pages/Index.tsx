@@ -9,13 +9,14 @@ import ContractOptions from '@/components/ContractOptions';
 import InfoModal from '@/components/InfoModal';
 import HelpModal from '@/components/HelpModal';
 import { AveragingOption, ContractOption, EnergyPrice, FilterOptions as FilterOptionsType, SmartMeterData } from '@/types/energy-data';
-import { applyFilters, calculateAverage, filterByDateRange, generateMockEnergyPrices } from '@/utils/data-utils';
+import { applyFilters, calculateAverage, filterByDateRange } from '@/utils/data-utils';
+import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowUpRight, Info } from 'lucide-react';
+import { ArrowUpRight, Info, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
@@ -43,8 +44,11 @@ const Index = ({ region }: IndexProps) => {
   const [showTotalCost, setShowTotalCost] = useState<boolean>(false);
   const [annualConsumption, setAnnualConsumption] = useState<number>(3500); // Default annual consumption
   const [selectedContract, setSelectedContract] = useState<ContractOption | undefined>(undefined);
+  const [isLoadingPriceData, setIsLoadingPriceData] = useState<boolean>(true);
+  const [dataSource, setDataSource] = useState<string>('Lädt...');
+  const [dataError, setDataError] = useState<string | null>(null);
   
-  // Mock contract options with clearer naming that includes provider
+  // Static starter tariff options with clearer naming that includes provider.
   const contractOptions: ContractOption[] = [
     {
       name: 'Flexibler Stromtarif',
@@ -77,22 +81,64 @@ const Index = ({ region }: IndexProps) => {
   }, [region]);
 
   useEffect(() => {
-    // In a real app, this would load from the binary file
-    const initialData = generateMockEnergyPrices();
-    setRawEnergyPrices(initialData);
-    
-    // Set initial date range to last 30 days
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - 30);
-    setStartDate(start);
-    setEndDate(end);
-    
-    toast({
-      title: "Daten geladen",
-      description: "Die Energiepreisdaten wurden erfolgreich geladen."
-    });
-  }, [toast]);
+    let isMounted = true;
+
+    const setDateRangeFromData = (data: EnergyPrice[]) => {
+      if (!data.length) return;
+
+      const timestamps = data.map((record) => new Date(record.timestamp).getTime());
+      setStartDate(new Date(Math.min(...timestamps)));
+      setEndDate(new Date(Math.max(...timestamps)));
+    };
+
+    const loadPriceData = async () => {
+      setIsLoadingPriceData(true);
+      setDataError(null);
+
+      try {
+        const binaryFile = `/${region.code.toLowerCase()}_electricity_prices.bin`;
+        const realData = await fetchOptimizedBinaryPriceData(binaryFile);
+
+        if (!isMounted) return;
+
+        setRawEnergyPrices(realData);
+        setDateRangeFromData(realData);
+        setDataSource(`${realData.length.toLocaleString('de-AT')} reale Preisdatensätze (${region.countryName})`);
+
+        toast({
+          title: 'Daten geladen',
+          description: `${region.countryName}: ${realData.length.toLocaleString('de-AT')} reale Preisdatensätze geladen.`
+        });
+      } catch (error) {
+        console.warn(`Failed to load ${region.code} binary price data:`, error);
+
+        if (!isMounted) return;
+
+        setRawEnergyPrices([]);
+        setDisplayedEnergyPrices([]);
+        setStartDate(null);
+        setEndDate(null);
+        setDataSource('Keine Datendatei verfügbar');
+        setDataError(`Für ${region.countryName} wurde keine aktuelle Preisdatei gefunden.`);
+
+        toast({
+          title: 'Keine Preisdaten verfügbar',
+          description: `Für ${region.countryName} wurde keine Binärdatei gefunden.`,
+          variant: 'destructive'
+        });
+      } finally {
+        if (isMounted) {
+          setIsLoadingPriceData(false);
+        }
+      }
+    };
+
+    void loadPriceData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [region, toast]);
   
   // Process data whenever filters or date range changes
   useEffect(() => {
@@ -134,7 +180,13 @@ const Index = ({ region }: IndexProps) => {
           <Card className="animate-fade-in md:rounded-lg rounded-none">
             <CardHeader>
               <div className="flex flex-col md:flex-row md:items-center gap-4 md:justify-between">
-                <CardTitle>Preisanalyse</CardTitle>
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    Preisanalyse
+                    {isLoadingPriceData && <Loader2 className="h-4 w-4 animate-spin" />}
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">Datenquelle: {dataSource}</p>
+                </div>
                 <div className="flex items-center gap-4">
                   <HelpModal />
                   <InfoModal trigger={
@@ -187,7 +239,16 @@ const Index = ({ region }: IndexProps) => {
                 {/* Visualization */}
                 <div className="p-0 md:p-2 md:border border-none">
                   <h3 className="text-lg font-medium mb-2 pl-2 md:pl-0">Preisverlauf</h3>
-                  {displayedEnergyPrices.length > 0 ? (
+                  {isLoadingPriceData ? (
+                    <div className="h-[400px] flex flex-col items-center justify-center bg-muted rounded-lg">
+                      <Loader2 className="h-8 w-8 animate-spin mb-2" />
+                      <p className="text-muted-foreground">Lädt Energiepreisdaten...</p>
+                    </div>
+                  ) : dataError ? (
+                    <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg px-4 text-center">
+                      <p className="text-muted-foreground">{dataError}</p>
+                    </div>
+                  ) : displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 
                       energyPrices={displayedEnergyPrices}
                       smartMeterData={smartMeterData}
@@ -278,7 +339,7 @@ const Index = ({ region }: IndexProps) => {
       <footer className="bg-background border-t py-6">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-muted-foreground text-sm">
-            © {new Date().getFullYear()} {region.title} | Alle Daten sind (noch) Beispieldaten
+            © {new Date().getFullYear()} {region.title} | {dataSource}
           </p>
           <p className="text-muted-foreground text-sm">
             made by <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@topsrek</a> in Austria

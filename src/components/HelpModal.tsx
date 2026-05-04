@@ -76,7 +76,7 @@ const HelpModal: React.FC<HelpModalProps> = ({ trigger }) => {
               <ul className="list-disc pl-6 space-y-1 mt-2">
                 <li>Die Netzkosten beziehen sich nur auf das Gebiet der Wiener Netze</li>
                 <li>Alle Berechnungen basieren auf den angegebenen Tarifen und können von tatsächlichen Rechnungen abweichen</li>
-                <li>Die dargestellten Strompreise sind reine Beispieldaten</li>
+                <li>Die dargestellten Strompreise werden aus den verfügbaren Landessätzen geladen</li>
                 <li>Für mehr Informationen zum österreichischen Strommarkt nutzen Sie die Info-Funktion</li>
               </ul>
             </section>

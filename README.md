@@ -10,7 +10,7 @@ The long-term shape is one international application with localized country anal
 
 ## Current Status
 
-This repo currently contains the frontend only. The old downloader/custom binary data pipeline was not found in this checkout, git history, local `/home/topsrek/src`, or the visible GitHub repos for `topsrek`. The current app still uses generated mock price data until that pipeline is located or rebuilt.
+This repo contains the frontend plus the recovered Austrian downloader/custom binary data pipeline. The frontend loads country-specific binary price files such as `public/at_electricity_prices.bin`; it does not generate fallback price data when a country artifact is missing.
 
 ## Local Development
 

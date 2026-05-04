@@ -1,18 +1,96 @@
 
 import { AveragingOption, EnergyPrice, FilterOptions, SmartMeterData } from "@/types/energy-data";
+import { decodeOptimizedBinaryEnergyPrices } from "@/utils/optimized-binary-decoder";
 
-// Parse binary data file (placeholder for actual implementation)
 export const parseBinaryEnergyData = (data: ArrayBuffer): EnergyPrice[] => {
-  // This is a placeholder function that would actually parse the binary file
-  // For testing purposes, let's just return mock data
-  return generateMockEnergyPrices();
+  return decodeOptimizedBinaryEnergyPrices(data);
 };
 
-// Parse smart meter data (placeholder for actual implementation)
 export const parseSmartMeterData = (data: ArrayBuffer): SmartMeterData[] => {
-  // This is a placeholder function that would actually parse the smart meter data file
-  // For testing purposes, let's just return mock data
-  return generateMockSmartMeterData();
+  const text = new TextDecoder().decode(data).trim();
+
+  if (!text) {
+    throw new Error("Die Datei ist leer.");
+  }
+
+  if (text.startsWith("[") || text.startsWith("{")) {
+    const parsed = JSON.parse(text) as unknown;
+    const records = Array.isArray(parsed)
+      ? parsed
+      : typeof parsed === "object" && parsed !== null && "records" in parsed
+        ? (parsed as { records: unknown }).records
+        : null;
+
+    if (!Array.isArray(records)) {
+      throw new Error("JSON-Dateien müssen ein Array oder ein Objekt mit records enthalten.");
+    }
+
+    return records.map(normalizeSmartMeterRecord);
+  }
+
+  return parseSmartMeterCsv(text);
+};
+
+const normalizeSmartMeterRecord = (record: unknown): SmartMeterData => {
+  if (typeof record !== "object" || record === null) {
+    throw new Error("Ungültiger Smart-Meter-Datensatz.");
+  }
+
+  const values = record as Record<string, unknown>;
+  const timestampValue = values.timestamp ?? values.date ?? values.datetime ?? values.time;
+  const consumptionValue = values.consumption ?? values.kwh ?? values.value ?? values.energy;
+
+  if (typeof timestampValue !== "string" && typeof timestampValue !== "number") {
+    throw new Error("Smart-Meter-Datensätze benötigen einen Zeitstempel.");
+  }
+
+  const timestamp = new Date(timestampValue);
+  const consumption = Number(
+    typeof consumptionValue === "string"
+      ? consumptionValue.replace(",", ".")
+      : consumptionValue
+  );
+
+  if (Number.isNaN(timestamp.getTime()) || !Number.isFinite(consumption)) {
+    throw new Error("Smart-Meter-Datensatz enthält ungültige Werte.");
+  }
+
+  return {
+    timestamp: timestamp.toISOString(),
+    consumption,
+  };
+};
+
+const parseSmartMeterCsv = (text: string): SmartMeterData[] => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    throw new Error("CSV-Dateien benötigen eine Kopfzeile und mindestens eine Datenzeile.");
+  }
+
+  const delimiter = lines[0].includes(";") ? ";" : ",";
+  const headers = lines[0].split(delimiter).map((header) => header.trim().toLowerCase());
+  const timestampIndex = findHeaderIndex(headers, ["timestamp", "datetime", "date", "time", "zeitpunkt", "datum"]);
+  const consumptionIndex = findHeaderIndex(headers, ["consumption", "kwh", "value", "energy", "verbrauch"]);
+
+  if (timestampIndex === -1 || consumptionIndex === -1) {
+    throw new Error("CSV-Dateien benötigen Zeitstempel- und Verbrauchsspalten.");
+  }
+
+  return lines.slice(1).map((line) => {
+    const columns = line.split(delimiter).map((column) => column.trim());
+    return normalizeSmartMeterRecord({
+      timestamp: columns[timestampIndex],
+      consumption: columns[consumptionIndex],
+    });
+  });
+};
+
+const findHeaderIndex = (headers: string[], names: string[]) => {
+  return headers.findIndex((header) => names.includes(header));
 };
 
 // Filter energy prices by date range
@@ -150,88 +228,4 @@ export const calculateTotalCost = (
     
     return total + (data.consumption * pricePerKWh);
   }, 0);
-};
-
-// Generate mock energy price data for development
-export const generateMockEnergyPrices = (): EnergyPrice[] => {
-  const prices: EnergyPrice[] = [];
-  const now = new Date();
-  now.setMinutes(0, 0, 0);
-  const oneYearAgo = new Date();
-  oneYearAgo.setFullYear(now.getFullYear() - 1);
-  oneYearAgo.setMinutes(0, 0, 0);
-  
-  // Generate hourly data for the last year
-  const currentDate = new Date(oneYearAgo);
-  while (currentDate <= now) {
-    const basePrice = 5 + Math.sin(currentDate.getHours() / 24 * Math.PI * 2) * 2; // Daily pattern
-    const seasonalFactor = 1 + Math.sin((currentDate.getMonth() / 12) * Math.PI * 2) * 0.3; // Seasonal pattern
-    const randomFactor = 0.8 + Math.random() * 0.4; // Random variation
-    
-    const price = basePrice * seasonalFactor * randomFactor;
-    
-    prices.push({
-      timestamp: currentDate.toISOString(),
-      price,
-      unit: 'cent_kWh'
-    });
-    
-    // Advance to next hour
-    currentDate.setHours(currentDate.getHours() + 1);
-  }
-  
-  return prices;
-};
-
-// Generate mock smart meter data for development
-export const generateMockSmartMeterData = (): SmartMeterData[] => {
-  const data: SmartMeterData[] = [];
-  const now = new Date();
-  const oneMonthAgo = new Date();
-  oneMonthAgo.setMonth(now.getMonth() - 1);
-  
-  // Generate hourly data for the last month
-  const currentDate = new Date(oneMonthAgo);
-  while (currentDate <= now) {
-    const hour = currentDate.getHours();
-    
-    // Create a realistic consumption pattern with higher usage in mornings and evenings
-    let baseConsumption = 0.2; // Base load
-    
-    // Morning peak (7-9 AM)
-    if (hour >= 7 && hour <= 9) {
-      baseConsumption += 0.8;
-    } 
-    // Midday (10 AM - 4 PM)
-    else if (hour >= 10 && hour <= 16) {
-      baseConsumption += 0.4;
-    }
-    // Evening peak (5 PM - 10 PM)
-    else if (hour >= 17 && hour <= 22) {
-      baseConsumption += 1.2;
-    }
-    // Night (11 PM - 6 AM)
-    else {
-      baseConsumption += 0.1;
-    }
-    
-    // Weekend vs weekday
-    const dayOfWeek = currentDate.getDay();
-    const weekendFactor = (dayOfWeek === 0 || dayOfWeek === 6) ? 1.2 : 1.0;
-    
-    // Random variation
-    const randomFactor = 0.8 + Math.random() * 0.4;
-    
-    const consumption = baseConsumption * weekendFactor * randomFactor;
-    
-    data.push({
-      timestamp: currentDate.toISOString(),
-      consumption
-    });
-    
-    // Advance to next hour
-    currentDate.setHours(currentDate.getHours() + 1);
-  }
-  
-  return data;
 };
