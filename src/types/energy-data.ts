@@ -59,9 +59,10 @@ export interface Tariff {
   id: string;
   name: string;
   provider: string;
-  arbeitspreis_cent_kwh: number;
-  grundpauschale: number;
+  arbeitspreis_cent_kwh?: number;
+  grundpauschale?: number;
   grundgebuehr?: number;
+  editable?: boolean;
   rabatte?: TariffRabatte;
   tax_rate: number;
   type?: 'spot' | 'fixed';

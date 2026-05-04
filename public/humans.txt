@@ -1,13 +1,12 @@
 /* TEAM */
-Developer: @topsrek (Austria)
-Site: Strompreismonitor Österreich
+Developer: @topsrek
+Site: European Energy Price Analyzer
 Repo: https://github.com/topsrek/austrian-electricity-price-analysis
 
 /* THANKS */
 Tools: Vite, React, TypeScript, Tailwind CSS, shadcn-ui
 
 /* SITE */
-Language: de-AT
-Description: Historische Strompreise in Österreich analysieren und mit persönlichem Verbrauch vergleichen
-Last-Updated: 2025-09-01
-
+Language: de-AT, en
+Description: European electricity price analysis by country, starting with Austria.
+Last-Updated: 2026-05-04

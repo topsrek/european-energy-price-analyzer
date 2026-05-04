@@ -1,6 +1,6 @@
-LLM Usage Policy for Strompreismonitor Österreich
+LLM Usage Policy for European Energy Price Analyzer
 Version: 1.0
-Last-Updated: 2025-09-01
+Last-Updated: 2026-05-04
 
 Contact: https://topsrek.top
 Repository: https://github.com/topsrek/austrian-electricity-price-analysis
@@ -35,4 +35,3 @@ Rate Limiting:
 - Please keep request rates reasonable (<= 1 request/second) and use caching
 
 If you need an exception or commercial license, please reach out via the contact above.
-

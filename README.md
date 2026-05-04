@@ -1,73 +1,67 @@
-# Welcome to your Lovable project
+# European Energy Price Analyzer
 
-## Project info
+European Energy Price Analyzer is a country-based electricity price calculator and explorer. The first supported country route is Austria at `/at`, titled `Strompreisrechner Österreich - EEPA-AT`.
 
-**URL**: https://lovable.dev/projects/1ef1dc04-ae7a-4852-b31a-6f62891dbf10
+The long-term shape is one international application with localized country analyzers:
 
-## How can I edit this code?
+- `/` lists available countries and suggests one from saved preference, optional GeoIP, browser locale, or timezone.
+- `/at` loads the Austrian analyzer and stores Austria as the selected country.
+- Future country routes can be added in `src/config/regions.ts`.
 
-There are several ways of editing your application.
+## Current Status
 
-**Use Lovable**
+This repo currently contains the frontend only. The old downloader/custom binary data pipeline was not found in this checkout, git history, local `/home/topsrek/src`, or the visible GitHub repos for `topsrek`. The current app still uses generated mock price data until that pipeline is located or rebuilt.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/1ef1dc04-ae7a-4852-b31a-6f62891dbf10) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+## Local Development
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+npm ci
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Useful checks:
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```sh
+npm run build
+npm run lint
+npm run typecheck
+npm run test
+```
 
-**Use GitHub Codespaces**
+## Region Selection
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Selection order on `/`:
 
-## What technologies are used for this project?
+1. `localStorage` key `eepa.selectedRegion`
+2. Optional GeoIP endpoint from `VITE_GEOIP_ENDPOINT`
+3. Browser language country code
+4. Browser timezone
+5. Default region, currently Austria
 
-This project is built with:
+The GeoIP endpoint must return one of these fields: `country_code`, `countryCode`, or `country`.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Data Architecture Target
 
-## How can I deploy this project?
+The recommended deployment architecture is:
 
-Simply open [Lovable](https://lovable.dev/projects/1ef1dc04-ae7a-4852-b31a-6f62891dbf10) and click on Share -> Publish.
+- Static frontend container.
+- Separate data-worker container in the same Coolify project.
+- Worker downloads country datasets daily.
+- Worker writes versioned country artifacts such as `data/at/manifest.json` and the efficient price data file.
+- Frontend fetches only the selected country dataset.
+- Smart meter files stay client-side and are never uploaded.
 
-## Can I connect a custom domain to my Lovable project?
+## Deployment
 
-Yes, you can!
+The included Dockerfile builds the Vite app and serves it with nginx. It is suitable for a first Coolify deployment at `eepm.topsrek.top` or a later renamed host.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+Build locally:
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+```sh
+docker build -t european-energy-price-analyzer .
+docker run --rm -p 8080:80 european-energy-price-analyzer
+```
+
+## Branding Note
+
+`EEPA` is a working name for "European Energy Price Analyzer". A legal trademark clearance is still required before public branding is treated as final.

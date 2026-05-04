@@ -1,6 +1,6 @@
 {
-  "name": "Strompreismonitor Österreich",
-  "short_name": "Strompreis",
+  "name": "European Energy Price Analyzer",
+  "short_name": "EEPA",
   "lang": "de-AT",
   "start_url": "/",
   "scope": "/",
@@ -21,4 +21,3 @@
     }
   ]
 }
-

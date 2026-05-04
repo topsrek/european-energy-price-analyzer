@@ -1,13 +1,16 @@
 
 import React from 'react';
 import Header from './Header';
-import { ThemeToggle } from './ThemeToggle';
-import VersionInfo from './VersionInfo';
+import { RegionConfig } from '@/config/regions';
 
-const AppHeader = () => {
+interface AppHeaderProps {
+  region: RegionConfig;
+}
+
+const AppHeader = ({ region }: AppHeaderProps) => {
   return (
     <div className="relative w-full bg-background">
-      <Header />
+      <Header region={region} />
     </div>
   );
 };

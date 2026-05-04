@@ -1,7 +1,9 @@
 
 import { useState, useEffect } from 'react';
-import tariffData from '@/config/tariff-costs.json';
+import tariffDataJson from '@/config/tariff-costs.json';
 import { TariffData, Tariff } from '@/types/energy-data';
+
+const tariffData = tariffDataJson as TariffData;
 
 export const useTariffData = () => {
   const [data, setData] = useState<TariffData>(tariffData);

@@ -19,8 +19,13 @@ import { ArrowUpRight, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
+import { RegionConfig, saveSelectedRegion } from '@/config/regions';
 
-const Index = () => {
+interface IndexProps {
+  region: RegionConfig;
+}
+
+const Index = ({ region }: IndexProps) => {
   const { toast } = useToast();
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(new Date());
@@ -65,6 +70,12 @@ const Index = () => {
   ];
   
   // Load initial data
+  useEffect(() => {
+    saveSelectedRegion(region.code);
+    document.documentElement.lang = region.language;
+    document.title = `${region.title} - ${region.appCode}`;
+  }, [region]);
+
   useEffect(() => {
     // In a real app, this would load from the binary file
     const initialData = generateMockEnergyPrices();
@@ -117,7 +128,7 @@ const Index = () => {
   
   return (
     <div className="flex flex-col min-h-screen bg-background">
-      <AppHeader />
+      <AppHeader region={region} />
       <main className="md:container mx-auto md:pt-4 md:px-4 md:pb-4 pb-2">
         <div className="space-y-0 md:space-y-8">
           <Card className="animate-fade-in md:rounded-lg rounded-none">
@@ -267,7 +278,7 @@ const Index = () => {
       <footer className="bg-background border-t py-6">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-muted-foreground text-sm">
-            © {new Date().getFullYear()} Strompreisrechner Österreich | Alle Daten sind (noch) Beispieldaten
+            © {new Date().getFullYear()} {region.title} | Alle Daten sind (noch) Beispieldaten
           </p>
           <p className="text-muted-foreground text-sm">
             made by <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@topsrek</a> in Austria
