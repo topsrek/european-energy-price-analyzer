@@ -1,0 +1,20 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="boltClip">
+      <!-- More centered and aligned lightning bolt with wide bottom -->
+      <path d="M9 2 L23 2 L17 12 L29 12 L11 30 L7 30 L14 18 L3 18 Z"/>
+    </clipPath>
+  </defs>
+  
+  <!-- Black background with rounded corners -->
+  <rect width="32" height="32" fill="#1a1a1a" rx="6"/>
+  
+  <!-- Top red stripe (Austrian flag) -->
+  <rect x="0" y="0" width="32" height="10.67" fill="#ED2939" clip-path="url(#boltClip)"/>
+  
+  <!-- Middle white stripe (Austrian flag) -->
+  <rect x="0" y="10.67" width="32" height="10.67" fill="#FFFFFF" clip-path="url(#boltClip)"/>
+  
+  <!-- Bottom red stripe (Austrian flag) -->
+  <rect x="0" y="21.34" width="32" height="10.67" fill="#ED2939" clip-path="url(#boltClip)"/>
+</svg>

@@ -7,15 +7,18 @@ import EnergyChart from '@/components/EnergyChart';
 import FileUpload from '@/components/FileUpload';
 import ContractOptions from '@/components/ContractOptions';
 import InfoModal from '@/components/InfoModal';
+import { BinaryPriceLoader } from '@/components/BinaryPriceLoader';
 import HelpModal from '@/components/HelpModal';
 import { AveragingOption, ContractOption, EnergyPrice, FilterOptions as FilterOptionsType, SmartMeterData } from '@/types/energy-data';
 import { applyFilters, calculateAverage, filterByDateRange, generateMockEnergyPrices } from '@/utils/data-utils';
+import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowUpRight, Info } from 'lucide-react';
+import { ArrowUpRight, Info, Loader2, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
@@ -38,6 +41,9 @@ const Index = () => {
   const [showTotalCost, setShowTotalCost] = useState<boolean>(false);
   const [annualConsumption, setAnnualConsumption] = useState<number>(3500); // Default annual consumption
   const [selectedContract, setSelectedContract] = useState<ContractOption | undefined>(undefined);
+  const [isLoadingPriceData, setIsLoadingPriceData] = useState<boolean>(true);
+  const [dataSource, setDataSource] = useState<string>('loading');
+  const [selectedCountry, setSelectedCountry] = useState<string>('AT');
   
   // Mock contract options with clearer naming that includes provider
   const contractOptions: ContractOption[] = [
@@ -66,22 +72,76 @@ const Index = () => {
   
   // Load initial data
   useEffect(() => {
-    // In a real app, this would load from the binary file
-    const initialData = generateMockEnergyPrices();
-    setRawEnergyPrices(initialData);
-    
-    // Set initial date range to last 30 days
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - 30);
-    setStartDate(start);
-    setEndDate(end);
-    
-    toast({
-      title: "Daten geladen",
-      description: "Die Energiepreisdaten wurden erfolgreich geladen."
-    });
-  }, []);
+    const loadPriceData = async (countryCode: string) => {
+      setIsLoadingPriceData(true);
+      try {
+        // Try to load real country-specific energy price data
+        const binaryFile = `/${countryCode.toLowerCase()}_electricity_prices.bin`;
+        const realData = await fetchOptimizedBinaryPriceData(binaryFile);
+        
+        setRawEnergyPrices(realData);
+        
+        // Set data source info based on loaded data
+        const countryNames: { [key: string]: string } = {
+          'AT': 'Austria',
+          'DE': 'Germany', 
+          'FR': 'France',
+          'CH': 'Switzerland'
+        };
+        
+        const countryName = countryNames[countryCode] || countryCode;
+        
+        let dateRange = 'unknown period';
+        if (realData.length > 0) {
+          const timestamps = realData.map(r => new Date(r.timestamp));
+          const start = new Date(Math.min(...timestamps.map(d => d.getTime())));
+          const end = new Date(Math.max(...timestamps.map(d => d.getTime())));
+          dateRange = `${start.toLocaleDateString()} to ${end.toLocaleDateString()}`;
+        }
+        
+        setDataSource(`real (${realData.length} records from ${countryName}, ${dateRange})`);
+        
+        // Set date range based on loaded data
+        if (realData.length > 0) {
+          const timestamps = realData.map(r => new Date(r.timestamp));
+          const start = new Date(Math.min(...timestamps.map(d => d.getTime())));
+          const end = new Date(Math.max(...timestamps.map(d => d.getTime())));
+          setStartDate(start);
+          setEndDate(end);
+        }
+        
+        toast({
+          title: `${countryName} data loaded! 🎉`,
+          description: `Successfully loaded ${realData.length} real energy price records.`
+        });
+        
+      } catch (error) {
+        console.warn(`Failed to load ${countryCode} binary price data, falling back to mock data:`, error);
+        
+        // Fallback to mock data
+        const mockData = generateMockEnergyPrices();
+        setRawEnergyPrices(mockData);
+        setDataSource(`mock (${mockData.length} generated records)`);
+        
+        // Set initial date range to last 30 days for mock data
+        const end = new Date();
+        const start = new Date();
+        start.setDate(end.getDate() - 30);
+        setStartDate(start);
+        setEndDate(end);
+        
+        toast({
+          title: "Mock data loaded",
+          description: `No real data available for ${countryCode}. Using generated data.`,
+          variant: "destructive"
+        });
+      } finally {
+        setIsLoadingPriceData(false);
+      }
+    };
+
+    loadPriceData(selectedCountry);
+  }, [selectedCountry, toast]);
   
   // Process data whenever filters or date range changes
   useEffect(() => {
@@ -123,8 +183,32 @@ const Index = () => {
           <Card className="animate-fade-in md:rounded-lg rounded-none">
             <CardHeader>
               <div className="flex flex-col md:flex-row md:items-center gap-4 md:justify-between">
-                <CardTitle>Preisanalyse</CardTitle>
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    Preisanalyse
+                    {isLoadingPriceData && <Loader2 className="h-4 w-4 animate-spin" />}
+                  </CardTitle>
+                  {!isLoadingPriceData && (
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Datenquelle: {dataSource}
+                    </p>
+                  )}
+                </div>
                 <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Globe className="h-4 w-4" />
+                    <Select value={selectedCountry} onValueChange={setSelectedCountry}>
+                      <SelectTrigger className="w-[120px] h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="AT">🇦🇹 Austria</SelectItem>
+                        <SelectItem value="DE" disabled>🇩🇪 Germany</SelectItem>
+                        <SelectItem value="CH" disabled>🇨🇭 Switzerland</SelectItem>
+                        <SelectItem value="FR" disabled>🇫🇷 France</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <HelpModal />
                   <InfoModal trigger={
                     <Button variant="outline" size="sm" className="flex gap-1 items-center md:h-9 h-fit">
@@ -176,7 +260,13 @@ const Index = () => {
                 {/* Visualization */}
                 <div className="p-0 md:p-2 md:border border-none">
                   <h3 className="text-lg font-medium mb-2 pl-2 md:pl-0">Preisverlauf</h3>
-                  {displayedEnergyPrices.length > 0 ? (
+                  {isLoadingPriceData ? (
+                    <div className="h-[400px] flex flex-col items-center justify-center bg-muted rounded-lg">
+                      <Loader2 className="h-8 w-8 animate-spin mb-2" />
+                      <p className="text-muted-foreground">Lädt Energiepreisdaten...</p>
+                      <p className="text-sm text-muted-foreground mt-1">Echte österreichische Strompreise werden geladen</p>
+                    </div>
+                  ) : displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 
                       energyPrices={displayedEnergyPrices}
                       smartMeterData={smartMeterData}
@@ -230,6 +320,7 @@ const Index = () => {
                 <TabsList>
                   <TabsTrigger value="contracts">Preisoptionen</TabsTrigger>
                   <TabsTrigger value="upload">Smart Meter Daten</TabsTrigger>
+                  <TabsTrigger value="binary-test">Binary Test</TabsTrigger>
                 </TabsList>
                 <TabsContent value="contracts">
                   <ContractOptions
@@ -258,6 +349,24 @@ const Index = () => {
                     </div>
                   </div>
                 </TabsContent>
+                <TabsContent value="binary-test">
+                  <div className="p-4">
+                    <div className="bg-muted rounded-lg p-4 mb-6">
+                      <h3 className="text-lg font-medium mb-2">Binary Price Data Test</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Test the custom binary encoding format for energy price data.
+                        This system compresses price data by ~5x compared to JSON.
+                      </p>
+                    </div>
+                    <BinaryPriceLoader onDataLoaded={(data) => {
+                      setRawEnergyPrices(data);
+                      toast({
+                        title: "Binary data loaded",
+                        description: `Successfully decoded ${data.length} price records from binary format.`
+                      });
+                    }} />
+                  </div>
+                </TabsContent>
               </Tabs>
             </CardContent>
           </Card>
@@ -267,7 +376,11 @@ const Index = () => {
       <footer className="bg-background border-t py-6">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-muted-foreground text-sm">
-            © {new Date().getFullYear()} Strompreisrechner Österreich | Alle Daten sind (noch) Beispieldaten
+            © {new Date().getFullYear()} Strompreisrechner Österreich | 
+            {dataSource.startsWith('real') 
+              ? ' Real Austrian energy price data from energy-charts.info' 
+              : ' Alle Daten sind (noch) Beispieldaten'
+            }
           </p>
           <p className="text-muted-foreground text-sm">
             made by <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@topsrek</a> in Austria

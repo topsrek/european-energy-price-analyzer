@@ -1,11 +1,16 @@
 
 import { AveragingOption, EnergyPrice, FilterOptions, SmartMeterData } from "@/types/energy-data";
+import { decodeBinaryEnergyPrices } from "./binary-decoder";
 
-// Parse binary data file (placeholder for actual implementation)
+// Parse binary data file using custom binary format
 export const parseBinaryEnergyData = (data: ArrayBuffer): EnergyPrice[] => {
-  // This is a placeholder function that would actually parse the binary file
-  // For testing purposes, let's just return mock data
-  return generateMockEnergyPrices();
+  try {
+    return decodeBinaryEnergyPrices(data);
+  } catch (error) {
+    console.error('Failed to parse binary energy data:', error);
+    // Fallback to mock data if parsing fails
+    return generateMockEnergyPrices();
+  }
 };
 
 // Parse smart meter data (placeholder for actual implementation)
