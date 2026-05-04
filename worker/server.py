@@ -72,11 +72,12 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "EEPAWorker/0.1"
 
     def do_HEAD(self) -> None:
-        if self.path in {"/at_electricity_prices.bin", "/at_electricity_prices_backup.bin"}:
-            self.send_file(ROOT / "public" / self.path.lstrip("/"), "application/octet-stream", head_only=True)
+        path = self.normalized_path()
+        if path in {"/at_electricity_prices.bin", "/at_electricity_prices_backup.bin"}:
+            self.send_file(ROOT / "public" / path.lstrip("/"), "application/octet-stream", head_only=True)
             return
 
-        if self.path in {"/health", "/geoip", "/data-manifest"}:
+        if path in {"/health", "/geoip", "/data-manifest"}:
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -87,7 +88,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
-        if self.path == "/health":
+        path = self.normalized_path()
+        if path == "/health":
             self.send_json(
                 {
                     "ok": True,
@@ -98,19 +100,25 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        if self.path == "/geoip":
+        if path == "/geoip":
             self.send_json(resolve_geoip(self.headers))
             return
 
-        if self.path == "/data-manifest":
+        if path == "/data-manifest":
             self.send_json(load_data_manifest())
             return
 
-        if self.path in {"/at_electricity_prices.bin", "/at_electricity_prices_backup.bin"}:
-            self.send_file(ROOT / "public" / self.path.lstrip("/"), "application/octet-stream")
+        if path in {"/at_electricity_prices.bin", "/at_electricity_prices_backup.bin"}:
+            self.send_file(ROOT / "public" / path.lstrip("/"), "application/octet-stream")
             return
 
         self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+
+    def normalized_path(self) -> str:
+        path = self.path.split("?", 1)[0]
+        if path.startswith("/api/"):
+            return path[4:]
+        return path
 
     def log_message(self, fmt: str, *args: Any) -> None:
         logger.info("%s - %s", self.address_string(), fmt % args)

@@ -3,7 +3,7 @@
   "countries": [
     {
       "code": "AT",
-      "hourly": "/at_electricity_prices.bin",
+      "hourly": "/api/at_electricity_prices.bin",
       "interval": null,
       "tariffs": "/data/at/tariffs.json",
       "grid": "/data/at/grid-areas.json"

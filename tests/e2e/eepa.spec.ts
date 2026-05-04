@@ -8,7 +8,7 @@ test('Austria route loads the committed real hourly dataset', async ({ page }) =
   await expect(page.getByText('Keine Datendatei verfügbar')).toHaveCount(0);
   await expect(page.getByText(/Beispieldaten|Mock data/i)).toHaveCount(0);
 
-  const response = await page.request.get('/at_electricity_prices.bin');
+  const response = await page.request.get('/api/at_electricity_prices.bin');
   expect(response.ok()).toBe(true);
   expect(Number(response.headers()['content-length'])).toBeGreaterThan(100_000);
 });

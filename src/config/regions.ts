@@ -38,8 +38,8 @@ export const regions: RegionConfig[] = [
     market: 'Day-ahead electricity prices',
     dataStatus: 'available',
     dataFiles: {
-      hourly: '/at_electricity_prices.bin',
-      interval: '/at_electricity_prices_15min.bin',
+      hourly: '/api/at_electricity_prices.bin',
+      interval: '/api/at_electricity_prices_15min.bin',
     },
   },
 ];
@@ -84,7 +84,7 @@ export const guessRegionFromBrowser = (): RegionConfig => {
 export const getInitialRegion = () => getStoredRegion() ?? guessRegionFromBrowser();
 
 export const detectRegionFromGeoIp = async (
-  endpoint = import.meta.env.VITE_GEOIP_ENDPOINT
+  endpoint = import.meta.env.VITE_GEOIP_ENDPOINT ?? '/api/geoip'
 ): Promise<RegionConfig | undefined> => {
   if (!endpoint) return undefined;
 
