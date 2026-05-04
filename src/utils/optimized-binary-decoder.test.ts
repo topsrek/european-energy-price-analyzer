@@ -103,5 +103,7 @@ class BitWriter {
 }
 
 const toArrayBuffer = (buffer: Buffer) => {
-  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  const copy = new Uint8Array(buffer.byteLength);
+  copy.set(buffer);
+  return copy.buffer;
 };

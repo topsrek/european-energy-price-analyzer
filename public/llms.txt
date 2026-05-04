@@ -3,7 +3,7 @@ Version: 1.0
 Last-Updated: 2026-05-04
 
 Contact: https://topsrek.top
-Repository: https://github.com/topsrek/austrian-electricity-price-analysis
+Repository: https://github.com/topsrek/european-energy-price-analyzer
 
 Scope: This file communicates our preferences to AI/LLM crawlers. It is advisory and does not replace robots.txt.
 

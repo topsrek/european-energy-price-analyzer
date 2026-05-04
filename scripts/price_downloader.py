@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Austrian Energy Price Downloader and Binary Encoder
+EEPA Energy Price Downloader and Binary Encoder
 
 Downloads daily energy prices from energy-charts.info API and encodes them
 into a custom binary format for efficient storage and fast decoding.
@@ -124,7 +124,7 @@ class EnergyPriceDownloader:
         self.session = requests.Session()
         self.session.headers.update({
             'accept': 'application/json',
-            'User-Agent': 'Austrian-Energy-Insight/1.0'
+            'User-Agent': 'European-Energy-Price-Analyzer/0.1'
         })
     
     def download_date_range_data(self, start_date: date, end_date: date) -> Optional[Tuple[List[int], List[float]]]:

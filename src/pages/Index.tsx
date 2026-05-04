@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowUpRight, Info, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,8 @@ import { RegionConfig, saveSelectedRegion } from '@/config/regions';
 interface IndexProps {
   region: RegionConfig;
 }
+
+type DataResolution = 'hourly' | 'interval';
 
 const Index = ({ region }: IndexProps) => {
   const { toast } = useToast();
@@ -47,6 +50,7 @@ const Index = ({ region }: IndexProps) => {
   const [isLoadingPriceData, setIsLoadingPriceData] = useState<boolean>(true);
   const [dataSource, setDataSource] = useState<string>('Lädt...');
   const [dataError, setDataError] = useState<string | null>(null);
+  const [dataResolution, setDataResolution] = useState<DataResolution>('hourly');
   
   // Static starter tariff options with clearer naming that includes provider.
   const contractOptions: ContractOption[] = [
@@ -96,18 +100,28 @@ const Index = ({ region }: IndexProps) => {
       setDataError(null);
 
       try {
-        const binaryFile = `/${region.code.toLowerCase()}_electricity_prices.bin`;
+        const binaryPath = dataResolution === 'interval'
+          ? region.dataFiles.interval
+          : region.dataFiles.hourly;
+
+        if (!binaryPath) {
+          throw new Error('No data file configured for selected resolution');
+        }
+
+        const dataBaseUrl = import.meta.env.VITE_DATA_BASE_URL ?? '';
+        const binaryFile = `${dataBaseUrl}${binaryPath}`;
         const realData = await fetchOptimizedBinaryPriceData(binaryFile);
 
         if (!isMounted) return;
 
         setRawEnergyPrices(realData);
         setDateRangeFromData(realData);
-        setDataSource(`${realData.length.toLocaleString('de-AT')} reale Preisdatensätze (${region.countryName})`);
+        const resolutionLabel = dataResolution === 'interval' ? '15-Minuten' : 'stündliche';
+        setDataSource(`${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel} Preisdatensätze (${region.countryName})`);
 
         toast({
           title: 'Daten geladen',
-          description: `${region.countryName}: ${realData.length.toLocaleString('de-AT')} reale Preisdatensätze geladen.`
+          description: `${region.countryName}: ${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel} Preisdatensätze geladen.`
         });
       } catch (error) {
         console.warn(`Failed to load ${region.code} binary price data:`, error);
@@ -119,7 +133,11 @@ const Index = ({ region }: IndexProps) => {
         setStartDate(null);
         setEndDate(null);
         setDataSource('Keine Datendatei verfügbar');
-        setDataError(`Für ${region.countryName} wurde keine aktuelle Preisdatei gefunden.`);
+        setDataError(
+          dataResolution === 'interval'
+            ? `Für ${region.countryName} wurde noch keine 15-Minuten-Preisdatei gefunden.`
+            : `Für ${region.countryName} wurde keine aktuelle Preisdatei gefunden.`
+        );
 
         toast({
           title: 'Keine Preisdaten verfügbar',
@@ -138,7 +156,7 @@ const Index = ({ region }: IndexProps) => {
     return () => {
       isMounted = false;
     };
-  }, [region, toast]);
+  }, [region, dataResolution, toast]);
   
   // Process data whenever filters or date range changes
   useEffect(() => {
@@ -218,6 +236,26 @@ const Index = ({ region }: IndexProps) => {
                 
                 {/* Filters & Options */}
                 <div className="flex flex-col md:flex-row gap-6 p-2 md:p-2">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Auflösung</Label>
+                    <ToggleGroup
+                      type="single"
+                      value={dataResolution}
+                      onValueChange={(value) => {
+                        if (value === 'hourly' || value === 'interval') {
+                          setDataResolution(value);
+                        }
+                      }}
+                      className="justify-start"
+                    >
+                      <ToggleGroupItem value="hourly" aria-label="Stündliche Daten anzeigen">
+                        Stündlich
+                      </ToggleGroupItem>
+                      <ToggleGroupItem value="interval" aria-label="15-Minuten-Daten anzeigen">
+                        15 Minuten
+                      </ToggleGroupItem>
+                    </ToggleGroup>
+                  </div>
                   <div>
                     <AveragingOptions
                       selectedOption={averaging}
@@ -345,7 +383,7 @@ const Index = ({ region }: IndexProps) => {
             made by <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@topsrek</a> in Austria
           </p>
           <a
-            href="https://github.com/topsrek/austrian-electricity-price-analysis"
+            href="https://github.com/topsrek/european-energy-price-analyzer"
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-primary hover:underline"

@@ -1,7 +1,7 @@
 /**
  * Binary Energy Price Decoder
  * 
- * Decodes custom binary format used to store Austrian energy price data.
+ * Decodes the legacy custom binary format used to store hourly country price data.
  * Format: 37/43 bits per record depending on price encoding mode.
  * 
  * See docs/binary-encoding-format.md for detailed format specification.

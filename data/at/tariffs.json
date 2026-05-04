@@ -1,0 +1,9 @@
+{
+  "country": "AT",
+  "updated_at": "2026-05-04",
+  "source_notes": [
+    "Seed file for version-controlled supplier tariffs.",
+    "Supplier tariffs are user-changeable; grid fees are configured separately."
+  ],
+  "tariffs": []
+}

@@ -1,13 +1,13 @@
-# PowerShell script to set up daily Austrian energy price updates
+# PowerShell script to set up daily EEPA energy price updates
 # Run this script as Administrator to create the scheduled task
 
 param(
-    [string]$TaskName = "AustrianEnergyPriceUpdate",
-    [string]$ScriptPath = "D:\DEV\austrian-energy-insight\scripts\daily_update.py",
+    [string]$TaskName = "EEPAEnergyPriceUpdate",
+    [string]$ScriptPath = "D:\DEV\european-energy-price-analyzer\scripts\daily_update.py",
     [string]$PythonPath = "python"
 )
 
-Write-Host "Setting up daily Austrian energy price update job..." -ForegroundColor Green
+Write-Host "Setting up daily EEPA energy price update job..." -ForegroundColor Green
 
 # Get the current directory
 $CurrentDir = Get-Location
@@ -24,7 +24,7 @@ $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 
 # Create the task
 try {
-    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Description "Daily update of Austrian energy price data"
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Description "Daily update of EEPA energy price data"
     Write-Host "✅ Scheduled task '$TaskName' created successfully!" -ForegroundColor Green
     Write-Host "   - Runs daily at 2:00 AM" -ForegroundColor Yellow
     Write-Host "   - Script: $ScriptPath" -ForegroundColor Yellow

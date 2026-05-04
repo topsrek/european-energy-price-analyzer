@@ -1,0 +1,12 @@
+{
+  "updated_at": "2026-05-04",
+  "countries": [
+    {
+      "code": "AT",
+      "hourly": "/at_electricity_prices.bin",
+      "interval": null,
+      "tariffs": "/data/at/tariffs.json",
+      "grid": "/data/at/grid-areas.json"
+    }
+  ]
+}

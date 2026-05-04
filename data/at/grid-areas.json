@@ -1,0 +1,9 @@
+{
+  "country": "AT",
+  "updated_at": "2026-05-04",
+  "source_notes": [
+    "Seed file for grid/operator areas and regulated network fees.",
+    "Grid costs are location-dependent and not chosen like supplier tariffs."
+  ],
+  "grid_areas": []
+}

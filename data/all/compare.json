@@ -1,0 +1,6 @@
+{
+  "route": "all",
+  "updated_at": "2026-05-04",
+  "default_countries": ["AT", "DE"],
+  "notes": "Configuration seed for the future multi-country comparison route."
+}

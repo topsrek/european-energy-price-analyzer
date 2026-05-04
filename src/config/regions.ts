@@ -1,5 +1,10 @@
 export type RegionCode = 'at';
 
+export interface RegionDataFiles {
+  hourly: string;
+  interval?: string;
+}
+
 export interface RegionConfig {
   code: RegionCode;
   countryCode: string;
@@ -13,6 +18,7 @@ export interface RegionConfig {
   timezone: string;
   market: string;
   dataStatus: 'available' | 'planned';
+  dataFiles: RegionDataFiles;
 }
 
 export const REGION_STORAGE_KEY = 'eepa.selectedRegion';
@@ -31,6 +37,10 @@ export const regions: RegionConfig[] = [
     timezone: 'Europe/Vienna',
     market: 'Day-ahead electricity prices',
     dataStatus: 'available',
+    dataFiles: {
+      hourly: '/at_electricity_prices.bin',
+      interval: '/at_electricity_prices_15min.bin',
+    },
   },
 ];
 

@@ -31,7 +31,7 @@ This system automatically fetches the latest Austrian energy price data daily to
 1. **Run as Administrator**:
    ```powershell
    # Navigate to scripts directory
-   cd D:\DEV\austrian-energy-insight\scripts
+   cd D:\DEV\european-energy-price-analyzer\scripts
    
    # Run the setup script
    .\setup_daily_job.ps1
@@ -61,7 +61,7 @@ python daily_update.py
 - **Task Name**: `AustrianEnergyPriceUpdate`
 - **Schedule**: Daily at 2:00 AM
 - **Script**: `daily_update.py`
-- **Working Directory**: `D:\DEV\austrian-energy-insight\scripts`
+- **Working Directory**: `D:\DEV\european-energy-price-analyzer\scripts`
 - **Log File**: `daily_update.log`
 
 ### Management Commands
@@ -138,4 +138,4 @@ python daily_update.py
 3. **Monitor logs** for the first few days
 4. **Verify data updates** in your web application
 
-Your Austrian Energy Insight system will now automatically stay current with the latest market data! 🇦🇹⚡
+Your EEPA data system will now automatically stay current with the latest market data.

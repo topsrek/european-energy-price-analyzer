@@ -53,7 +53,7 @@ The recommended deployment architecture is:
 
 ## Deployment
 
-The included Dockerfile builds the Vite app and serves it with nginx. It is suitable for a first Coolify deployment at `eepm.topsrek.top` or a later renamed host.
+The included Dockerfile builds the Vite app and serves it with nginx. It is suitable for Coolify deployment at `eepa.topsrek.top`.
 
 Build locally:
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Daily update script for Austrian energy price data.
+Daily update script for EEPA country energy price data.
 This script should be run daily to fetch the latest price data.
 """
 

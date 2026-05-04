@@ -1,7 +1,7 @@
 /* TEAM */
 Developer: @topsrek
 Site: European Energy Price Analyzer
-Repo: https://github.com/topsrek/austrian-electricity-price-analysis
+Repo: https://github.com/topsrek/european-energy-price-analyzer
 
 /* THANKS */
 Tools: Vite, React, TypeScript, Tailwind CSS, shadcn-ui

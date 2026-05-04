@@ -5,7 +5,7 @@ import './index.css';
 import { ThemeProvider } from './hooks/useTheme';
 
 createRoot(document.getElementById("root")!).render(
-  <ThemeProvider defaultTheme="light" storageKey="energy-calculator-theme">
+  <ThemeProvider defaultTheme="light" storageKey="eepa-theme">
     <App />
   </ThemeProvider>
 );
