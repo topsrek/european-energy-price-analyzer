@@ -133,6 +133,21 @@ export const applyFilters = (
   });
 };
 
+export const convertEnergyPriceUnit = (
+  data: EnergyPrice[],
+  unit: EnergyPrice['unit']
+): EnergyPrice[] => {
+  return data.map((item) => {
+    if (item.unit === unit) return item;
+
+    return {
+      ...item,
+      price: unit === 'cent_kWh' ? item.price / 10 : item.price * 10,
+      unit,
+    };
+  });
+};
+
 // Average data according to the selected option
 export const calculateAverage = (
   data: EnergyPrice[], 

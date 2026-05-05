@@ -9,7 +9,7 @@ import ContractOptions from '@/components/ContractOptions';
 import InfoModal from '@/components/InfoModal';
 import HelpModal from '@/components/HelpModal';
 import { AveragingOption, ContractOption, EnergyPrice, FilterOptions as FilterOptionsType, SmartMeterData } from '@/types/energy-data';
-import { applyFilters, calculateAverage, filterByDateRange } from '@/utils/data-utils';
+import { applyFilters, calculateAverage, convertEnergyPriceUnit, filterByDateRange } from '@/utils/data-utils';
 import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -30,6 +30,7 @@ interface IndexProps {
 }
 
 type DataResolution = 'hourly' | 'interval';
+type PriceUnit = EnergyPrice['unit'];
 
 interface CachedPriceData {
   data: EnergyPrice[];
@@ -100,6 +101,7 @@ const Index = ({ region }: IndexProps) => {
   const [dataSource, setDataSource] = useState<string>('Lädt...');
   const [dataError, setDataError] = useState<string | null>(null);
   const [dataResolution, setDataResolution] = useState<DataResolution>('hourly');
+  const [priceUnit, setPriceUnit] = useState<PriceUnit>('EUR_MWh');
   const dataCacheRef = useRef<Partial<Record<DataResolution, CachedPriceData>>>({});
   
   // Static starter tariff options with clearer naming that includes provider.
@@ -245,8 +247,10 @@ const Index = ({ region }: IndexProps) => {
   useEffect(() => {
     if (!rawEnergyPrices.length) return;
     
+    const convertedEnergyPrices = convertEnergyPriceUnit(rawEnergyPrices, priceUnit);
+
     // Apply date range filter
-    let filteredData = filterByDateRange(rawEnergyPrices, startDate, endDate);
+    let filteredData = filterByDateRange(convertedEnergyPrices, startDate, endDate);
     
     // Apply other filters if averaging is enabled
     if (isAveragingEnabled) {
@@ -259,7 +263,7 @@ const Index = ({ region }: IndexProps) => {
       filteredData;
     
     setDisplayedEnergyPrices(processedData);
-  }, [rawEnergyPrices, startDate, endDate, filters, averaging, isAveragingEnabled]);
+  }, [rawEnergyPrices, priceUnit, startDate, endDate, filters, averaging, isAveragingEnabled]);
   
   // Handler for averaging toggle
   const handleAveragingToggle = (enabled: boolean) => {
@@ -317,10 +321,29 @@ const Index = ({ region }: IndexProps) => {
                 <div className="h-4 md:h-6 flex items-center">
                   <div className="w-full border-t border-border" />
                 </div>
-                
-                {/* Filters & Options */}
-                <div className="flex flex-col md:flex-row gap-6 p-2 md:p-2">
-                  <div className="space-y-2">
+
+                <div className="grid grid-cols-1 gap-4 p-2 md:grid-cols-2 md:p-2">
+                  <div className="flex flex-col items-start gap-2">
+                    <Label className="text-sm font-medium">Einheit</Label>
+                    <ToggleGroup
+                      type="single"
+                      value={priceUnit}
+                      onValueChange={(value) => {
+                        if (value === 'EUR_MWh' || value === 'cent_kWh') {
+                          setPriceUnit(value);
+                        }
+                      }}
+                      className="justify-start"
+                    >
+                      <ToggleGroupItem value="EUR_MWh" aria-label="Preise in Euro pro Megawattstunde anzeigen">
+                        €/MWh
+                      </ToggleGroupItem>
+                      <ToggleGroupItem value="cent_kWh" aria-label="Preise in Cent pro Kilowattstunde anzeigen">
+                        c/kWh
+                      </ToggleGroupItem>
+                    </ToggleGroup>
+                  </div>
+                  <div className="flex flex-col items-start gap-2">
                     <Label className="text-sm font-medium">Auflösung</Label>
                     <ToggleGroup
                       type="single"
@@ -340,6 +363,14 @@ const Index = ({ region }: IndexProps) => {
                       </ToggleGroupItem>
                     </ToggleGroup>
                   </div>
+                </div>
+
+                <div className="h-4 md:h-6 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+                
+                {/* Filters & Options */}
+                <div className="flex flex-col md:flex-row gap-6 p-2 md:p-2">
                   <div>
                     <AveragingOptions
                       selectedOption={averaging}

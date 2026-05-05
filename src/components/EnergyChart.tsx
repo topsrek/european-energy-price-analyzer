@@ -66,6 +66,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [showMonthSeparators, setShowMonthSeparators] = useState(true);
   const [showDaySeparators, setShowDaySeparators] = useState(false);
   const [showSpotPriceWithTax, setShowSpotPriceWithTax] = useState(false);
+  const priceUnitLabel = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'c/kWh';
 
   // Prepare chart data, memoized
   const chartData = useMemo(() => {
@@ -499,7 +500,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             let name = entry.name;
             
             if (entry.dataKey === 'price') {
-              unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
+              unit = priceUnitLabel;
               name = showSpotPriceWithTax ? 'Strompreis (inkl. USt.)' : 'Strompreis';
             } else if (entry.dataKey === 'consumption') {
               unit = 'kWh';
@@ -508,13 +509,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               unit = '€';
               name = 'Kosten';
             } else if (entry.dataKey === 'contractEnergyPrice') {
-              unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
+              unit = priceUnitLabel;
               name = `${selectedContract?.provider} ${selectedContract?.name}: Nettostromkosten`;
             } else if (entry.dataKey === 'contractNetworkCosts') {
-              unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
+              unit = priceUnitLabel;
               name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Netzkosten`;
             } else if (entry.dataKey === 'contractTotalPriceTaxed') {
-              unit = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh';
+              unit = priceUnitLabel;
               name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Steuern`;
             }
             
@@ -782,7 +783,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               domain={['auto', 'auto']}
               width={40}
               label={{ 
-                value: energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'cent/kWh', 
+                value: priceUnitLabel, 
                 angle: -90, 
                 position: 'left',
                 offset: -5,
