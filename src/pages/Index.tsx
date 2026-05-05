@@ -322,9 +322,9 @@ const Index = ({ region }: IndexProps) => {
                   <div className="w-full border-t border-border" />
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 p-2 md:grid-cols-2 md:p-2">
-                  <div className="flex flex-col items-start gap-2">
-                    <Label className="text-sm font-medium">Einheit</Label>
+                <div className="flex flex-col items-start gap-3 p-2 md:flex-row md:flex-wrap md:items-center md:gap-6 md:p-2">
+                  <div className="flex flex-col items-start gap-2 md:flex-row md:items-center">
+                    <Label className="text-sm font-medium md:min-w-16">Einheit</Label>
                     <ToggleGroup
                       type="single"
                       value={priceUnit}
@@ -343,8 +343,8 @@ const Index = ({ region }: IndexProps) => {
                       </ToggleGroupItem>
                     </ToggleGroup>
                   </div>
-                  <div className="flex flex-col items-start gap-2">
-                    <Label className="text-sm font-medium">Auflösung</Label>
+                  <div className="flex flex-col items-start gap-2 md:flex-row md:items-center">
+                    <Label className="text-sm font-medium md:min-w-20">Auflösung</Label>
                     <ToggleGroup
                       type="single"
                       value={dataResolution}
