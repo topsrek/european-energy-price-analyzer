@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 interface DateRangePickerProps {
   startDate: Date | null;
   endDate: Date | null;
+  maxDate?: Date | null;
   onStartDateChange: (date: Date | null) => void;
   onEndDateChange: (date: Date | null) => void;
 }
@@ -21,15 +22,17 @@ interface DateRangePickerProps {
 const DateRangePicker: React.FC<DateRangePickerProps> = ({
   startDate,
   endDate,
+  maxDate,
   onStartDateChange,
   onEndDateChange,
 }) => {
   const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
   const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+  const latestSelectableDate = maxDate ?? new Date();
 
   const handleQuickSelect = (days: number) => {
-    const end = new Date();
-    const start = new Date();
+    const end = new Date(latestSelectableDate);
+    const start = new Date(latestSelectableDate);
     start.setDate(end.getDate() - days);
     
     onStartDateChange(start);
@@ -77,9 +80,9 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   setIsEndDatePickerOpen(true);
                 }
               }}
-              disabled={(date) => date > new Date() || (endDate ? date > endDate : false)}
+              disabled={(date) => date > latestSelectableDate || (endDate ? date > endDate : false)}
               initialFocus
-              defaultMonth={startDate || new Date()}
+              defaultMonth={startDate || latestSelectableDate}
               className={cn("p-3 pointer-events-auto")}
             />
           </PopoverContent>
@@ -114,9 +117,9 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   setIsEndDatePickerOpen(false);
                 }
               }}
-              disabled={(date) => date > new Date() || (startDate ? date < startDate : false)}
+              disabled={(date) => date > latestSelectableDate || (startDate ? date < startDate : false)}
               initialFocus
-              defaultMonth={endDate || startDate || new Date()}
+              defaultMonth={endDate || startDate || latestSelectableDate}
               className={cn("p-3 pointer-events-auto")}
             />
           </PopoverContent>

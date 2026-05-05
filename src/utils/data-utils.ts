@@ -100,12 +100,16 @@ export const filterByDateRange = (
   endDate: Date | null
 ): EnergyPrice[] => {
   if (!startDate && !endDate) return data;
+  const inclusiveEndDate = endDate ? new Date(endDate) : null;
+  if (inclusiveEndDate) {
+    inclusiveEndDate.setHours(23, 59, 59, 999);
+  }
   
   return data.filter(item => {
     const itemDate = new Date(item.timestamp);
     return (
       (!startDate || itemDate >= startDate) &&
-      (!endDate || itemDate <= endDate)
+      (!inclusiveEndDate || itemDate <= inclusiveEndDate)
     );
   });
 };

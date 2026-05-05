@@ -90,6 +90,7 @@ const Index = ({ region }: IndexProps) => {
   });
   const [rawEnergyPrices, setRawEnergyPrices] = useState<EnergyPrice[]>([]);
   const [displayedEnergyPrices, setDisplayedEnergyPrices] = useState<EnergyPrice[]>([]);
+  const [latestAvailableDate, setLatestAvailableDate] = useState<Date | null>(null);
   const [smartMeterData, setSmartMeterData] = useState<SmartMeterData[] | undefined>(undefined);
   const [showSmartMeterData, setShowSmartMeterData] = useState<boolean>(true);
   const [showTotalCost, setShowTotalCost] = useState<boolean>(false);
@@ -152,6 +153,7 @@ const Index = ({ region }: IndexProps) => {
       setRawEnergyPrices(cachedData.data);
       setDataSource(cachedData.dataSource);
       setDataError(null);
+      setLatestAvailableDate(new Date(cachedData.latestTimestamp));
       if (resetDateRange) {
         setDateRangeFromData(cachedData.data);
       }
@@ -199,6 +201,7 @@ const Index = ({ region }: IndexProps) => {
           setDisplayedEnergyPrices([]);
           setStartDate(null);
           setEndDate(null);
+          setLatestAvailableDate(null);
           setDataSource('Keine Datendatei verfügbar');
         }
         setDataError(
@@ -305,6 +308,7 @@ const Index = ({ region }: IndexProps) => {
                   <DateRangePicker
                     startDate={startDate}
                     endDate={endDate}
+                    maxDate={latestAvailableDate}
                     onStartDateChange={setStartDate}
                     onEndDateChange={setEndDate}
                   />
