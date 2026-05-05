@@ -36,6 +36,7 @@ const RegionSwitcher = ({ currentRegion }: RegionSwitcherProps) => {
   const sortedRegions = [...regions].sort((a, b) =>
     displayCountryName(a).localeCompare(displayCountryName(b), currentRegion.language)
   );
+  const currentName = displayCountryName(currentRegion);
 
   const handleRegionSelect = (region: RegionConfig) => {
     saveSelectedRegion(region.code);
@@ -47,7 +48,8 @@ const RegionSwitcher = ({ currentRegion }: RegionSwitcherProps) => {
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="h-9 gap-1.5 px-2.5">
           <span aria-hidden="true">{countryFlag(currentRegion.countryCode)}</span>
-          <span>{currentRegion.countryCode}</span>
+          <span className="sm:hidden">{currentRegion.countryCode}</span>
+          <span className="hidden sm:inline">{currentName}</span>
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>

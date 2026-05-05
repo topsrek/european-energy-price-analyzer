@@ -188,11 +188,6 @@ const Index = ({ region }: IndexProps) => {
 
         dataCacheRef.current[dataResolution] = cachedData;
         applyPriceData(cachedData, !preserveVisibleData);
-
-        toast({
-          title: 'Daten geladen',
-          description: `${region.countryName}: ${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel(dataResolution)} Preisdatensätze geladen.`
-        });
       } catch (error) {
         console.warn(`Failed to load ${region.code} binary price data:`, error);
 
