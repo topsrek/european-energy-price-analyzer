@@ -11,10 +11,12 @@ export class OptimizedBinaryPriceDecoder {
   private data: Uint8Array;
   private bitPosition: number = 0;
   private readonly BASE_YEAR = 2000;
+  private readonly intervalMinutes: number;
 
-  constructor(buffer: ArrayBuffer) {
+  constructor(buffer: ArrayBuffer, intervalMinutes: number = 60) {
     this.data = new Uint8Array(buffer);
     this.bitPosition = 0;
+    this.intervalMinutes = intervalMinutes;
   }
 
   /**
@@ -81,8 +83,8 @@ export class OptimizedBinaryPriceDecoder {
    * Calculate consecutive hour count from position
    * No need to generate timestamps - they're calculated on demand
    */
-  private getTimestampForHour(startDate: Date, hourOffset: number): Date {
-    // Start at midnight UTC of start date, add consecutive hours
+  private getTimestampForRecord(startDate: Date, recordOffset: number): Date {
+    // Start at midnight UTC of start date, add consecutive intervals.
     const timestamp = new Date(Date.UTC(
       startDate.getFullYear(), 
       startDate.getMonth(), 
@@ -90,7 +92,7 @@ export class OptimizedBinaryPriceDecoder {
       0, 0, 0
     ));
     
-    timestamp.setUTCHours(timestamp.getUTCHours() + hourOffset);
+    timestamp.setUTCMinutes(timestamp.getUTCMinutes() + (recordOffset * this.intervalMinutes));
     return timestamp;
   }
 
@@ -112,7 +114,7 @@ export class OptimizedBinaryPriceDecoder {
     
     // Read consecutive price records (actual count, no expectations)
     const records: EnergyPrice[] = [];
-    let hourOffset = 0;
+    let recordOffset = 0;
     
     while (true) {
       try {
@@ -125,7 +127,7 @@ export class OptimizedBinaryPriceDecoder {
         const price = this.readPriceRecord();
         
         // Calculate UTC timestamp for this hour offset
-        const timestamp = this.getTimestampForHour(startDate, hourOffset);
+        const timestamp = this.getTimestampForRecord(startDate, recordOffset);
         
         // Stop if we've passed the end date
         if (timestamp.getUTCFullYear() > endDate.getFullYear() || 
@@ -143,10 +145,10 @@ export class OptimizedBinaryPriceDecoder {
           unit: 'EUR_MWh'
         });
         
-        hourOffset++;
+        recordOffset++;
         
       } catch (error) {
-        console.info(`Decode completed at record ${hourOffset}: ${error}`);
+        console.info(`Decode completed at record ${recordOffset}: ${error}`);
         break;
       }
     }
@@ -185,22 +187,28 @@ export class OptimizedBinaryPriceDecoder {
 /**
  * Convenience function to decode optimized binary energy price data
  */
-export function decodeOptimizedBinaryEnergyPrices(buffer: ArrayBuffer): EnergyPrice[] {
-  const decoder = new OptimizedBinaryPriceDecoder(buffer);
+export function decodeOptimizedBinaryEnergyPrices(
+  buffer: ArrayBuffer,
+  options?: { intervalMinutes?: number }
+): EnergyPrice[] {
+  const decoder = new OptimizedBinaryPriceDecoder(buffer, options?.intervalMinutes ?? 60);
   return decoder.decodeAll();
 }
 
 /**
  * Load and decode optimized binary price data from a file
  */
-export async function loadOptimizedBinaryPriceFile(file: File): Promise<EnergyPrice[]> {
+export async function loadOptimizedBinaryPriceFile(
+  file: File,
+  options?: { intervalMinutes?: number }
+): Promise<EnergyPrice[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     
     reader.onload = () => {
       try {
         const buffer = reader.result as ArrayBuffer;
-        const prices = decodeOptimizedBinaryEnergyPrices(buffer);
+        const prices = decodeOptimizedBinaryEnergyPrices(buffer, options);
         resolve(prices);
       } catch (error) {
         reject(error);
@@ -218,7 +226,10 @@ export async function loadOptimizedBinaryPriceFile(file: File): Promise<EnergyPr
 /**
  * Fetch and decode optimized binary price data from a URL
  */
-export async function fetchOptimizedBinaryPriceData(url: string): Promise<EnergyPrice[]> {
+export async function fetchOptimizedBinaryPriceData(
+  url: string,
+  options?: { intervalMinutes?: number }
+): Promise<EnergyPrice[]> {
   try {
     const response = await fetch(url);
     
@@ -227,7 +238,7 @@ export async function fetchOptimizedBinaryPriceData(url: string): Promise<Energy
     }
     
     const buffer = await response.arrayBuffer();
-    return decodeOptimizedBinaryEnergyPrices(buffer);
+    return decodeOptimizedBinaryEnergyPrices(buffer, options);
     
   } catch (error) {
     throw new Error(`Failed to fetch optimized binary price data: ${error}`, { cause: error });

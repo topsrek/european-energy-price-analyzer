@@ -25,6 +25,22 @@ const applyTheme = (theme: string) => {
   root.classList.add(theme);
 };
 
+let themeTransitionTimeout: number | undefined;
+
+const startThemeTransition = () => {
+  const root = window.document.documentElement;
+  root.classList.add('theme-transitioning');
+
+  if (themeTransitionTimeout) {
+    window.clearTimeout(themeTransitionTimeout);
+  }
+
+  themeTransitionTimeout = window.setTimeout(() => {
+    root.classList.remove('theme-transitioning');
+    themeTransitionTimeout = undefined;
+  }, 180);
+};
+
 export function ThemeProvider({
   children,
   defaultTheme = 'light',
@@ -42,6 +58,7 @@ export function ThemeProvider({
   }, [theme, storageKey]);
 
   const updateTheme = useCallback((nextTheme: string) => {
+    startThemeTransition();
     applyTheme(nextTheme);
     localStorage.setItem(storageKey, nextTheme);
     setTheme(nextTheme);

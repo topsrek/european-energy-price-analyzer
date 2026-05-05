@@ -124,6 +124,15 @@
   }
 }
 
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition-property: color, background-color, border-color, fill, stroke, box-shadow;
+  transition-duration: 180ms !important;
+  transition-timing-function: ease-out !important;
+}
+
 /* Card hover effects */
 .card-hover {
   @apply transition-all duration-200 hover:shadow-md;

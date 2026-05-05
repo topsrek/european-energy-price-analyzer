@@ -16,6 +16,22 @@ describe('optimized binary decoder', () => {
     ]);
   });
 
+  it('decodes quarter-hour data when interval minutes are provided', () => {
+    const buffer = encodeOptimizedFixture([
+      { timestamp: '2026-05-05T00:00:00.000Z', price: 12.34 },
+      { timestamp: '2026-05-05T00:15:00.000Z', price: 11.11 },
+      { timestamp: '2026-05-05T00:30:00.000Z', price: 10.01 },
+    ]);
+
+    expect(
+      decodeOptimizedBinaryEnergyPrices(buffer, { intervalMinutes: 15 })
+    ).toEqual([
+      { timestamp: '2026-05-05T00:00:00.000Z', price: 12.34, unit: 'EUR_MWh' },
+      { timestamp: '2026-05-05T00:15:00.000Z', price: 11.11, unit: 'EUR_MWh' },
+      { timestamp: '2026-05-05T00:30:00.000Z', price: 10.01, unit: 'EUR_MWh' },
+    ]);
+  });
+
   it('decodes the committed Austrian price artifact', () => {
     const artifact = readFileSync(resolve(process.cwd(), 'public/at_electricity_prices.bin'));
     const prices = decodeOptimizedBinaryEnergyPrices(toArrayBuffer(artifact));
@@ -29,6 +45,23 @@ describe('optimized binary decoder', () => {
     expect(prices[prices.length - 1]).toEqual({
       timestamp: '2026-05-06T21:00:00.000Z',
       price: 138.55,
+      unit: 'EUR_MWh',
+    });
+  });
+
+  it('decodes the committed Austrian 15-minute artifact', () => {
+    const artifact = readFileSync(resolve(process.cwd(), 'public/at_electricity_prices_15min.bin'));
+    const prices = decodeOptimizedBinaryEnergyPrices(toArrayBuffer(artifact), { intervalMinutes: 15 });
+
+    expect(prices).toHaveLength(20920);
+    expect(prices[0]).toEqual({
+      timestamp: '2025-10-01T00:00:00.000Z',
+      price: 97.05,
+      unit: 'EUR_MWh',
+    });
+    expect(prices[prices.length - 1]).toEqual({
+      timestamp: '2026-05-06T21:45:00.000Z',
+      price: 121.34,
       unit: 'EUR_MWh',
     });
   });

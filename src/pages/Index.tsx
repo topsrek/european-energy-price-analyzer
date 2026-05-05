@@ -37,7 +37,73 @@ interface CachedPriceData {
   latestTimestamp: string;
 }
 
+const DATA_RESOLUTION_STORAGE_KEY = 'eepa.dataResolution';
+const PRICE_UNIT_STORAGE_KEY = 'eepa.priceUnit';
+const DEFAULT_DATA_RESOLUTION: DataResolution = 'hourly';
+const DEFAULT_PRICE_UNIT: PriceUnit = 'cent_kWh';
+
+const SELECTED_OPTION_BUTTON_CLASS =
+  'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
+
 const getDataBaseUrl = () => import.meta.env.VITE_DATA_BASE_URL ?? '';
+
+const isDataResolution = (value: string | null): value is DataResolution =>
+  value === 'hourly' || value === 'interval';
+
+const isPriceUnit = (value: string | null): value is PriceUnit =>
+  value === 'EUR_MWh' || value === 'cent_kWh';
+
+const parseResolutionQueryParam = (value: string | null): DataResolution | null => {
+  if (value === '15min' || value === 'interval') return 'interval';
+  if (value === 'hourly') return 'hourly';
+  return null;
+};
+
+const serializeResolutionQueryParam = (value: DataResolution) =>
+  value === 'interval' ? '15min' : 'hourly';
+
+const parseUnitQueryParam = (value: string | null): PriceUnit | null => {
+  if (value === 'eurmwh' || value === 'EUR_MWh') return 'EUR_MWh';
+  if (value === 'ckwh' || value === 'cent_kWh') return 'cent_kWh';
+  return null;
+};
+
+const serializeUnitQueryParam = (value: PriceUnit) =>
+  value === 'EUR_MWh' ? 'eurmwh' : 'ckwh';
+
+const readInitialDataResolution = (): DataResolution => {
+  if (typeof window === 'undefined') return DEFAULT_DATA_RESOLUTION;
+
+  const params = new URLSearchParams(window.location.search);
+  const queryValue = parseResolutionQueryParam(params.get('resolution'));
+  if (queryValue) return queryValue;
+
+  try {
+    const storedValue = window.localStorage.getItem(DATA_RESOLUTION_STORAGE_KEY);
+    if (isDataResolution(storedValue)) return storedValue;
+  } catch {
+    // Ignore storage access failures and fall back to defaults.
+  }
+
+  return DEFAULT_DATA_RESOLUTION;
+};
+
+const readInitialPriceUnit = (): PriceUnit => {
+  if (typeof window === 'undefined') return DEFAULT_PRICE_UNIT;
+
+  const params = new URLSearchParams(window.location.search);
+  const queryValue = parseUnitQueryParam(params.get('unit'));
+  if (queryValue) return queryValue;
+
+  try {
+    const storedValue = window.localStorage.getItem(PRICE_UNIT_STORAGE_KEY);
+    if (isPriceUnit(storedValue)) return storedValue;
+  } catch {
+    // Ignore storage access failures and fall back to defaults.
+  }
+
+  return DEFAULT_PRICE_UNIT;
+};
 
 const resolutionLabel = (resolution: DataResolution) =>
   resolution === 'interval' ? '15-Minuten' : 'stündliche';
@@ -99,8 +165,8 @@ const Index = ({ region }: IndexProps) => {
   const [isLoadingPriceData, setIsLoadingPriceData] = useState<boolean>(true);
   const [dataSource, setDataSource] = useState<string>('Lädt...');
   const [dataError, setDataError] = useState<string | null>(null);
-  const [dataResolution, setDataResolution] = useState<DataResolution>('hourly');
-  const [priceUnit, setPriceUnit] = useState<PriceUnit>('EUR_MWh');
+  const [dataResolution, setDataResolution] = useState<DataResolution>(readInitialDataResolution);
+  const [priceUnit, setPriceUnit] = useState<PriceUnit>(readInitialPriceUnit);
   const dataCacheRef = useRef<Partial<Record<DataResolution, CachedPriceData>>>({});
   const hasVisiblePriceDataRef = useRef(false);
   
@@ -183,7 +249,9 @@ const Index = ({ region }: IndexProps) => {
 
         const dataBaseUrl = getDataBaseUrl();
         const binaryFile = `${dataBaseUrl}${binaryPath}`;
-        const realData = await fetchOptimizedBinaryPriceData(binaryFile);
+        const realData = await fetchOptimizedBinaryPriceData(binaryFile, {
+          intervalMinutes: dataResolution === 'interval' ? 15 : 60,
+        });
 
         if (!isMounted) return;
 
@@ -245,6 +313,23 @@ const Index = ({ region }: IndexProps) => {
       isMounted = false;
     };
   }, [region, dataResolution, toast]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DATA_RESOLUTION_STORAGE_KEY, dataResolution);
+      window.localStorage.setItem(PRICE_UNIT_STORAGE_KEY, priceUnit);
+    } catch {
+      // Ignore storage access failures in private or restricted contexts.
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    params.set('resolution', serializeResolutionQueryParam(dataResolution));
+    params.set('unit', serializeUnitQueryParam(priceUnit));
+
+    const search = params.toString();
+    const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }, [dataResolution, priceUnit]);
   
   // Process data whenever filters or date range changes
   useEffect(() => {
@@ -331,6 +416,7 @@ const Index = ({ region }: IndexProps) => {
                       <Button
                         variant="outline"
                         size="sm"
+                        className={priceUnit === 'EUR_MWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
                         aria-pressed={priceUnit === 'EUR_MWh'}
                         onClick={() => setPriceUnit('EUR_MWh')}
                       >
@@ -339,6 +425,7 @@ const Index = ({ region }: IndexProps) => {
                       <Button
                         variant="outline"
                         size="sm"
+                        className={priceUnit === 'cent_kWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
                         aria-pressed={priceUnit === 'cent_kWh'}
                         onClick={() => setPriceUnit('cent_kWh')}
                       >
@@ -352,6 +439,7 @@ const Index = ({ region }: IndexProps) => {
                       <Button
                         variant="outline"
                         size="sm"
+                        className={dataResolution === 'hourly' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
                         aria-pressed={dataResolution === 'hourly'}
                         onClick={() => setDataResolution('hourly')}
                       >
@@ -360,6 +448,7 @@ const Index = ({ region }: IndexProps) => {
                       <Button
                         variant="outline"
                         size="sm"
+                        className={dataResolution === 'interval' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
                         aria-pressed={dataResolution === 'interval'}
                         onClick={() => setDataResolution('interval')}
                       >

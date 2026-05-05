@@ -78,7 +78,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self) -> None:
         path = self.normalized_path()
-        if path in {"/at_electricity_prices.bin", "/at_electricity_prices_backup.bin"}:
+        if path in {
+            "/at_electricity_prices.bin",
+            "/at_electricity_prices_backup.bin",
+            "/at_electricity_prices_15min.bin",
+        }:
             self.send_file(ROOT / "public" / path.lstrip("/"), "application/octet-stream", head_only=True)
             return
 
@@ -112,7 +116,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(load_data_manifest())
             return
 
-        if path in {"/at_electricity_prices.bin", "/at_electricity_prices_backup.bin"}:
+        if path in {
+            "/at_electricity_prices.bin",
+            "/at_electricity_prices_backup.bin",
+            "/at_electricity_prices_15min.bin",
+        }:
             self.send_file(ROOT / "public" / path.lstrip("/"), "application/octet-stream")
             return
 
@@ -389,15 +397,23 @@ def run_update() -> None:
     try:
         for country in countries:
             start_date, end_date = update_window(country)
-            command = [
+            hourly_command = [
                 "python3",
                 str(ROOT / "scripts" / "smart_batch_downloader.py"),
                 country,
                 start_date.isoformat(),
                 end_date.isoformat(),
             ]
+            interval_command = [
+                "python3",
+                str(ROOT / "scripts" / "build_interval_dataset.py"),
+                country,
+                start_date.isoformat(),
+                end_date.isoformat(),
+            ]
             logger.info("Running daily update for %s from %s to %s", country, start_date, end_date)
-            subprocess.run(command, cwd=ROOT, check=True, timeout=60 * 30)
+            subprocess.run(hourly_command, cwd=ROOT, check=True, timeout=60 * 30)
+            subprocess.run(interval_command, cwd=ROOT, check=True, timeout=60 * 30)
             time.sleep(30)
 
         STATE.mark_finished(True, f"updated {','.join(countries)}")

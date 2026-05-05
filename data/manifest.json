@@ -1,10 +1,10 @@
 {
-  "updated_at": "2026-05-04",
+  "updated_at": "2026-05-05",
   "countries": [
     {
       "code": "AT",
       "hourly": "/api/at_electricity_prices.bin",
-      "interval": null,
+      "interval": "/api/at_electricity_prices_15min.bin",
       "tariffs": "/data/at/tariffs.json",
       "grid": "/data/at/grid-areas.json"
     }

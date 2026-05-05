@@ -14,15 +14,16 @@ interface RegionSwitcherProps {
 }
 
 const flagUrl = (countryCode: string) =>
-  `https://flagcdn.com/24x18/${countryCode.toLowerCase()}.png`;
+  `/flags/${countryCode.toLowerCase()}.svg`;
 
 const Flag = ({ countryCode }: { countryCode: string }) => (
   <img
     src={flagUrl(countryCode)}
     alt=""
     aria-hidden="true"
-    className="h-3.5 w-5 shrink-0 rounded-[1px] object-cover"
-    loading="lazy"
+    className="h-4 w-6 shrink-0 rounded-[1px] object-cover"
+    loading="eager"
+    decoding="async"
   />
 );
 
