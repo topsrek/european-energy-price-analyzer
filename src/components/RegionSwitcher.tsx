@@ -13,10 +13,18 @@ interface RegionSwitcherProps {
   currentRegion: RegionConfig;
 }
 
-const countryFlag = (countryCode: string) =>
-  countryCode
-    .toUpperCase()
-    .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+const flagUrl = (countryCode: string) =>
+  `https://flagcdn.com/24x18/${countryCode.toLowerCase()}.png`;
+
+const Flag = ({ countryCode }: { countryCode: string }) => (
+  <img
+    src={flagUrl(countryCode)}
+    alt=""
+    aria-hidden="true"
+    className="h-3.5 w-5 shrink-0 rounded-[1px] object-cover"
+    loading="lazy"
+  />
+);
 
 const displayCountryName = (region: RegionConfig) => {
   try {
@@ -46,8 +54,13 @@ const RegionSwitcher = ({ currentRegion }: RegionSwitcherProps) => {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="h-9 gap-1.5 px-2.5">
-          <span aria-hidden="true">{countryFlag(currentRegion.countryCode)}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 gap-1.5 px-2.5"
+          aria-label={`Region: ${currentName}`}
+        >
+          <Flag countryCode={currentRegion.countryCode} />
           <span className="hidden sm:inline">{currentName}</span>
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </Button>
@@ -64,7 +77,7 @@ const RegionSwitcher = ({ currentRegion }: RegionSwitcherProps) => {
               className="flex items-center justify-between gap-3"
             >
               <span className="flex min-w-0 items-center gap-2">
-                <span aria-hidden="true">{countryFlag(region.countryCode)}</span>
+                <Flag countryCode={region.countryCode} />
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{primaryName}</span>
                   <span className="block truncate text-[10px] leading-3 text-muted-foreground">{secondaryName}</span>

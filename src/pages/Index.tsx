@@ -15,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowUpRight, Info, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -103,6 +102,7 @@ const Index = ({ region }: IndexProps) => {
   const [dataResolution, setDataResolution] = useState<DataResolution>('hourly');
   const [priceUnit, setPriceUnit] = useState<PriceUnit>('EUR_MWh');
   const dataCacheRef = useRef<Partial<Record<DataResolution, CachedPriceData>>>({});
+  const hasVisiblePriceDataRef = useRef(false);
   
   // Static starter tariff options with clearer naming that includes provider.
   const contractOptions: ContractOption[] = [
@@ -152,6 +152,7 @@ const Index = ({ region }: IndexProps) => {
     };
 
     const applyPriceData = (cachedData: CachedPriceData, resetDateRange: boolean) => {
+      hasVisiblePriceDataRef.current = true;
       setRawEnergyPrices(cachedData.data);
       setDataSource(cachedData.dataSource);
       setDataError(null);
@@ -164,6 +165,7 @@ const Index = ({ region }: IndexProps) => {
     const loadPriceData = async (preserveVisibleData = false) => {
       try {
         if (!preserveVisibleData) {
+          hasVisiblePriceDataRef.current = false;
           setRawEnergyPrices([]);
           setDisplayedEnergyPrices([]);
         }
@@ -199,6 +201,7 @@ const Index = ({ region }: IndexProps) => {
         if (!isMounted) return;
 
         if (!preserveVisibleData) {
+          hasVisiblePriceDataRef.current = false;
           setRawEnergyPrices([]);
           setDisplayedEnergyPrices([]);
           setStartDate(null);
@@ -235,7 +238,7 @@ const Index = ({ region }: IndexProps) => {
         }
       });
     } else {
-      void loadPriceData();
+      void loadPriceData(hasVisiblePriceDataRef.current);
     }
 
     return () => {
@@ -290,7 +293,6 @@ const Index = ({ region }: IndexProps) => {
                     Preisanalyse
                     {isLoadingPriceData && <Loader2 className="h-4 w-4 animate-spin" />}
                   </CardTitle>
-                  <p className="text-sm text-muted-foreground mt-1">Datenquelle: {dataSource}</p>
                 </div>
                 <div className="flex items-center gap-4">
                   <HelpModal />
@@ -324,44 +326,46 @@ const Index = ({ region }: IndexProps) => {
 
                 <div className="flex flex-col items-start gap-3 p-2 md:flex-row md:flex-wrap md:items-center md:gap-6 md:p-2">
                   <div className="flex flex-col items-start gap-2 md:flex-row md:items-center">
-                    <Label className="text-sm font-medium md:min-w-16">Einheit</Label>
-                    <ToggleGroup
-                      type="single"
-                      value={priceUnit}
-                      onValueChange={(value) => {
-                        if (value === 'EUR_MWh' || value === 'cent_kWh') {
-                          setPriceUnit(value);
-                        }
-                      }}
-                      className="justify-start"
-                    >
-                      <ToggleGroupItem value="EUR_MWh" aria-label="Preise in Euro pro Megawattstunde anzeigen">
+                    <Label className="text-sm font-medium md:min-w-16">Einheit:</Label>
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-pressed={priceUnit === 'EUR_MWh'}
+                        onClick={() => setPriceUnit('EUR_MWh')}
+                      >
                         €/MWh
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="cent_kWh" aria-label="Preise in Cent pro Kilowattstunde anzeigen">
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-pressed={priceUnit === 'cent_kWh'}
+                        onClick={() => setPriceUnit('cent_kWh')}
+                      >
                         c/kWh
-                      </ToggleGroupItem>
-                    </ToggleGroup>
+                      </Button>
+                    </div>
                   </div>
                   <div className="flex flex-col items-start gap-2 md:flex-row md:items-center">
-                    <Label className="text-sm font-medium md:min-w-20">Auflösung</Label>
-                    <ToggleGroup
-                      type="single"
-                      value={dataResolution}
-                      onValueChange={(value) => {
-                        if (value === 'hourly' || value === 'interval') {
-                          setDataResolution(value);
-                        }
-                      }}
-                      className="justify-start"
-                    >
-                      <ToggleGroupItem value="hourly" aria-label="Stündliche Daten anzeigen">
+                    <Label className="text-sm font-medium md:min-w-20">Auflösung:</Label>
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-pressed={dataResolution === 'hourly'}
+                        onClick={() => setDataResolution('hourly')}
+                      >
                         Stündlich
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="interval" aria-label="15-Minuten-Daten anzeigen">
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-pressed={dataResolution === 'interval'}
+                        onClick={() => setDataResolution('interval')}
+                      >
                         15 Minuten
-                      </ToggleGroupItem>
-                    </ToggleGroup>
+                      </Button>
+                    </div>
                   </div>
                 </div>
 

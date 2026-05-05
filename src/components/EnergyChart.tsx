@@ -307,6 +307,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
     }
 
+    if (averaging === 'weekly') {
+      chartData.forEach((item) => {
+        ticks.push(item.timestamp);
+      });
+      return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
+    }
+
     if (averaging === 'monthly') {
       // Show every month
       const monthTicks = new Set<string>();
@@ -388,6 +395,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   // Calculate time unit based on data length and averaging option
   const getTimeUnit = () => {
     if (averaging === 'monthly') return 'month';
+    if (averaging === 'weekly') return 'week';
     if (averaging === 'daily') return 'day';
     if (averaging === 'daily-cycle') return 'hour';
     if (averaging === 'hourly') return 'hour';
@@ -415,6 +423,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         // If many days, only show month for first tick of a new month
         if (daysDiff > 30 && date.getDate() === 1) return format(date, 'MMM', { locale: de });
         return format(date, 'dd.MM.', { locale: de });
+      case 'weekly':
+        return `KW ${getISOWeek(date)}`;
       case 'daily-cycle':
         return format(date, 'HH:00', { locale: de });
       case 'hourly':
@@ -445,6 +455,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         return 'Monatsdurchschnitt';
       case 'daily':
         return 'Tagesdurchschnitt';
+      case 'weekly':
+        return 'Wochendurchschnitt';
       case 'daily-cycle':
         return 'Stunde des Tages';
       case 'hourly':
@@ -478,6 +490,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           break;
         case 'daily':
           formattedDate = format(date, 'dd.MM.yyyy', { locale: de });
+          break;
+        case 'weekly':
+          formattedDate = `KW ${getISOWeek(date)} ${format(date, 'yyyy', { locale: de })}`;
           break;
         case 'daily-cycle':
           formattedDate = format(date, 'HH:00 \'Uhr\'', { locale: de });

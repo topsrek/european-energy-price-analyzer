@@ -50,6 +50,7 @@ const AveragingOptions: React.FC<AveragingOptionsProps> = ({
           <SelectContent>
             <SelectItem value="daily-cycle">24 Stunden Durchschnitt</SelectItem>
             <SelectItem value="daily">Durchschnitt pro Tag</SelectItem>
+            <SelectItem value="weekly">Durchschnitt pro Woche</SelectItem>
             <SelectItem value="monthly">Durchschnitt pro Monat</SelectItem>
           </SelectContent>
         </Select>

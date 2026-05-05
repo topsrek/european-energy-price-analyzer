@@ -203,6 +203,13 @@ export const calculateAverage = (
       case 'daily':
         key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
         break;
+      case 'weekly': {
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+        weekStart.setHours(0, 0, 0, 0);
+        key = weekStart.toISOString().slice(0, 10);
+        break;
+      }
       case 'hourly':
         key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}`;
         break;
