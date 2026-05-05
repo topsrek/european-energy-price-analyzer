@@ -425,7 +425,7 @@ const Index = ({ region }: IndexProps) => {
                   <div className="w-full border-t border-border" />
                 </div>
 
-                <div className="flex min-w-0 flex-wrap items-start gap-x-6 gap-y-3 p-2 md:p-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-3 p-2 md:p-2">
                     <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                       <Label className="shrink-0 text-sm font-medium">Einheit:</Label>
                       <div className="flex min-w-0 flex-wrap gap-2">
@@ -521,7 +521,6 @@ const Index = ({ region }: IndexProps) => {
                 
                 {/* Visualization */}
                 <div className="p-0 md:p-2 md:border border-none">
-                  <h3 className="text-lg font-medium mb-2 pl-2 md:pl-0">Preisverlauf</h3>
                   {isLoadingPriceData ? (
                     <div className="h-[400px] flex flex-col items-center justify-center bg-muted rounded-lg">
                       <Loader2 className="h-8 w-8 animate-spin mb-2" />
