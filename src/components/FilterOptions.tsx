@@ -116,10 +116,10 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
   const hasActiveFilters = filterCounts.months > 0 || filterCounts.weekdays > 0 || filterCounts.hours > 0;
   
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-2">
+    <div className="min-w-0">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
         <h3 className="text-sm font-medium">Datenfilter:</h3>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2">
           <Popover open={isMonthsOpen && !isMonthsDisabled} onOpenChange={(open) => !isMonthsDisabled && setIsMonthsOpen(open)}>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isMonthsDisabled}>

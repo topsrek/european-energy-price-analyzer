@@ -15,14 +15,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowUpRight, Info, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
 import { RegionConfig, saveSelectedRegion } from '@/config/regions';
-import { subYears } from 'date-fns';
 import VersionInfo from '@/components/VersionInfo';
+import { CheckedState } from '@radix-ui/react-checkbox';
+import { getQuickRangeDates } from '@/utils/date-range-presets';
 
 interface IndexProps {
   region: RegionConfig;
@@ -41,6 +43,8 @@ const DATA_RESOLUTION_STORAGE_KEY = 'eepa.dataResolution';
 const PRICE_UNIT_STORAGE_KEY = 'eepa.priceUnit';
 const DEFAULT_DATA_RESOLUTION: DataResolution = 'hourly';
 const DEFAULT_PRICE_UNIT: PriceUnit = 'cent_kWh';
+const DEFAULT_SHOW_ZERO_LINE = false;
+const DEFAULT_SHOW_AVERAGE_LINE = false;
 
 const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
@@ -156,6 +160,7 @@ const Index = ({ region }: IndexProps) => {
   });
   const [rawEnergyPrices, setRawEnergyPrices] = useState<EnergyPrice[]>([]);
   const [displayedEnergyPrices, setDisplayedEnergyPrices] = useState<EnergyPrice[]>([]);
+  const [earliestAvailableDate, setEarliestAvailableDate] = useState<Date | null>(null);
   const [latestAvailableDate, setLatestAvailableDate] = useState<Date | null>(null);
   const [smartMeterData, setSmartMeterData] = useState<SmartMeterData[] | undefined>(undefined);
   const [showSmartMeterData, setShowSmartMeterData] = useState<boolean>(true);
@@ -167,8 +172,15 @@ const Index = ({ region }: IndexProps) => {
   const [dataError, setDataError] = useState<string | null>(null);
   const [dataResolution, setDataResolution] = useState<DataResolution>(readInitialDataResolution);
   const [priceUnit, setPriceUnit] = useState<PriceUnit>(readInitialPriceUnit);
+  const [showZeroLine, setShowZeroLine] = useState(DEFAULT_SHOW_ZERO_LINE);
+  const [showAverageLine, setShowAverageLine] = useState(DEFAULT_SHOW_AVERAGE_LINE);
   const dataCacheRef = useRef<Partial<Record<DataResolution, CachedPriceData>>>({});
   const hasVisiblePriceDataRef = useRef(false);
+
+  const handleCheckedChange =
+    (setter: React.Dispatch<React.SetStateAction<boolean>>) => (checked: CheckedState) => {
+      setter(checked === true);
+    };
   
   // Static starter tariff options with clearer naming that includes provider.
   const contractOptions: ContractOption[] = [
@@ -211,10 +223,10 @@ const Index = ({ region }: IndexProps) => {
       const timestamps = data.map((record) => new Date(record.timestamp).getTime());
       const earliest = new Date(Math.min(...timestamps));
       const latest = new Date(Math.max(...timestamps));
-      const oneYearStart = subYears(latest, 1);
+      const defaultRange = getQuickRangeDates('1y', latest, earliest);
 
-      setStartDate(oneYearStart > earliest ? oneYearStart : earliest);
-      setEndDate(latest);
+      setStartDate(defaultRange.startDate);
+      setEndDate(defaultRange.endDate);
     };
 
     const applyPriceData = (cachedData: CachedPriceData, resetDateRange: boolean) => {
@@ -222,6 +234,8 @@ const Index = ({ region }: IndexProps) => {
       setRawEnergyPrices(cachedData.data);
       setDataSource(cachedData.dataSource);
       setDataError(null);
+      const timestamps = cachedData.data.map((record) => new Date(record.timestamp).getTime());
+      setEarliestAvailableDate(new Date(Math.min(...timestamps)));
       setLatestAvailableDate(new Date(cachedData.latestTimestamp));
       if (resetDateRange) {
         setDateRangeFromData(cachedData.data);
@@ -274,6 +288,7 @@ const Index = ({ region }: IndexProps) => {
           setDisplayedEnergyPrices([]);
           setStartDate(null);
           setEndDate(null);
+          setEarliestAvailableDate(null);
           setLatestAvailableDate(null);
           setDataSource('Keine Datendatei verfügbar');
         }
@@ -399,6 +414,7 @@ const Index = ({ region }: IndexProps) => {
                   <DateRangePicker
                     startDate={startDate}
                     endDate={endDate}
+                    minDate={earliestAvailableDate}
                     maxDate={latestAvailableDate}
                     onStartDateChange={setStartDate}
                     onEndDateChange={setEndDate}
@@ -409,51 +425,74 @@ const Index = ({ region }: IndexProps) => {
                   <div className="w-full border-t border-border" />
                 </div>
 
-                <div className="flex flex-col items-start gap-3 p-2 md:flex-row md:flex-wrap md:items-center md:gap-6 md:p-2">
-                  <div className="flex flex-col items-start gap-2 md:flex-row md:items-center">
-                    <Label className="text-sm font-medium md:min-w-16">Einheit:</Label>
-                    <div className="flex gap-2 flex-wrap">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={priceUnit === 'EUR_MWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                        aria-pressed={priceUnit === 'EUR_MWh'}
-                        onClick={() => setPriceUnit('EUR_MWh')}
-                      >
-                        €/MWh
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={priceUnit === 'cent_kWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                        aria-pressed={priceUnit === 'cent_kWh'}
-                        onClick={() => setPriceUnit('cent_kWh')}
-                      >
-                        c/kWh
-                      </Button>
+                <div className="flex flex-col gap-3 p-2 md:p-2">
+                  <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-6">
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <Label className="shrink-0 text-sm font-medium">Einheit:</Label>
+                      <div className="flex min-w-0 flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={priceUnit === 'EUR_MWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                          aria-pressed={priceUnit === 'EUR_MWh'}
+                          onClick={() => setPriceUnit('EUR_MWh')}
+                        >
+                          €/MWh
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={priceUnit === 'cent_kWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                          aria-pressed={priceUnit === 'cent_kWh'}
+                          onClick={() => setPriceUnit('cent_kWh')}
+                        >
+                          c/kWh
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <Label className="shrink-0 text-sm font-medium">Auflösung:</Label>
+                      <div className="flex min-w-0 flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={dataResolution === 'hourly' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                          aria-pressed={dataResolution === 'hourly'}
+                          onClick={() => setDataResolution('hourly')}
+                        >
+                          Stündlich
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={dataResolution === 'interval' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                          aria-pressed={dataResolution === 'interval'}
+                          onClick={() => setDataResolution('interval')}
+                        >
+                          15 Minuten
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-start gap-2 md:flex-row md:items-center">
-                    <Label className="text-sm font-medium md:min-w-20">Auflösung:</Label>
-                    <div className="flex gap-2 flex-wrap">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={dataResolution === 'hourly' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                        aria-pressed={dataResolution === 'hourly'}
-                        onClick={() => setDataResolution('hourly')}
-                      >
-                        Stündlich
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={dataResolution === 'interval' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                        aria-pressed={dataResolution === 'interval'}
-                        onClick={() => setDataResolution('interval')}
-                      >
-                        15 Minuten
-                      </Button>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <Label className="shrink-0 text-sm font-medium">Hilfslinien:</Label>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="show-zero-line"
+                          checked={showZeroLine}
+                          onCheckedChange={handleCheckedChange(setShowZeroLine)}
+                        />
+                        <Label htmlFor="show-zero-line" className="text-sm">Zeige Nulllinie</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="show-average-line"
+                          checked={showAverageLine}
+                          onCheckedChange={handleCheckedChange(setShowAverageLine)}
+                        />
+                        <Label htmlFor="show-average-line" className="text-sm">Zeige Mittelwert</Label>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -463,8 +502,8 @@ const Index = ({ region }: IndexProps) => {
                 </div>
                 
                 {/* Filters & Options */}
-                <div className="flex flex-col md:flex-row gap-6 p-2 md:p-2">
-                  <div>
+                <div className="flex flex-col gap-4 p-2 md:p-2 xl:flex-row xl:items-start xl:gap-6">
+                  <div className="min-w-0">
                     <AveragingOptions
                       selectedOption={averaging}
                       onChange={setAveraging}
@@ -472,7 +511,7 @@ const Index = ({ region }: IndexProps) => {
                       onAveragingToggle={handleAveragingToggle}
                     />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <FilterOptions
                       filters={filters}
                       onChange={setFilters}
@@ -502,6 +541,8 @@ const Index = ({ region }: IndexProps) => {
                       showTotalCost={showTotalCost}
                       selectedContract={selectedContract}
                       averaging={isAveragingEnabled ? averaging : 'none'}
+                      showZeroLine={showZeroLine}
+                      showAverageLine={showAverageLine}
                     />
                   ) : (
                     <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg">

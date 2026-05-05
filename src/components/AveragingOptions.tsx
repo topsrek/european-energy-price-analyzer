@@ -20,8 +20,8 @@ const AveragingOptions: React.FC<AveragingOptionsProps> = ({
   onAveragingToggle
 }) => {
   return (
-    <div className="space-x-8">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="min-w-0">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
         <Switch
           id="enable-averaging"
           checked={isAveragingEnabled}
@@ -44,7 +44,7 @@ const AveragingOptions: React.FC<AveragingOptionsProps> = ({
           onValueChange={(value) => onChange(value as AveragingOption)}
           disabled={!isAveragingEnabled}
         >
-          <SelectTrigger id="averaging" className="w-[220px] ml-2">
+          <SelectTrigger id="averaging" className="w-full min-w-[220px] sm:w-[220px]">
             <SelectValue placeholder="Durchschnitt auswählen" />
           </SelectTrigger>
           <SelectContent>
@@ -56,7 +56,6 @@ const AveragingOptions: React.FC<AveragingOptionsProps> = ({
         </Select>
       </div>
     </div>
-
   );
 };
 

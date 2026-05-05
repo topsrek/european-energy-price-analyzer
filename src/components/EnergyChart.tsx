@@ -46,6 +46,8 @@ interface EnergyChartProps {
   showTotalCost: boolean;
   selectedContract?: ContractOption;
   averaging: string;
+  showZeroLine: boolean;
+  showAverageLine: boolean;
 }
 
 const EnergyChart: React.FC<EnergyChartProps> = ({ 
@@ -54,7 +56,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   showSmartMeterData,
   showTotalCost,
   selectedContract,
-  averaging
+  averaging,
+  showZeroLine,
+  showAverageLine,
 }) => {
   // State for toggling visibility of various lines
   const [showBasePrice, setShowBasePrice] = useState(true);
@@ -222,6 +226,19 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const dataTimeSpanMonths = chartData.length > 0 
     ? differenceInMonths(chartData[chartData.length - 1].date, chartData[0].date)
     : 0;
+
+  const averagePrice = useMemo(() => {
+    if (!energyPrices.length) {
+      return null;
+    }
+
+    const total = energyPrices.reduce((sum, item) => {
+      const plottedPrice = showSpotPriceWithTax ? item.price * 1.2 : item.price;
+      return sum + plottedPrice;
+    }, 0);
+
+    return total / energyPrices.length;
+  }, [energyPrices, showSpotPriceWithTax]);
 
   // Auto-disable highlights based on time span - calculate BEFORE rendering
   const shouldShowDaySeparators = showDaySeparators && dataTimeSpanMonths < 3;
@@ -819,6 +836,27 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               />
             )}
             <Tooltip content={<CustomTooltip />} />
+            {showZeroLine && (
+              <ReferenceLine
+                y={0}
+                yAxisId="price"
+                stroke="hsl(var(--muted-foreground))"
+                strokeWidth={1}
+                strokeDasharray="4 4"
+                strokeOpacity={0.45}
+                ifOverflow="extendDomain"
+              />
+            )}
+            {showAverageLine && averagePrice !== null && Number.isFinite(averagePrice) && (
+              <ReferenceLine
+                y={averagePrice}
+                yAxisId="price"
+                stroke="hsl(var(--muted-foreground))"
+                strokeWidth={1}
+                strokeDasharray="4 4"
+                strokeOpacity={0.35}
+              />
+            )}
             
             <Line
               key="price-line"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -10,10 +10,20 @@ import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import {
+  getActiveQuickRangePreset,
+  getQuickRangeDates,
+  QUICK_RANGE_PRESETS,
+  type QuickRangePresetId,
+} from '@/utils/date-range-presets';
+
+const SELECTED_OPTION_BUTTON_CLASS =
+  'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
 
 interface DateRangePickerProps {
   startDate: Date | null;
   endDate: Date | null;
+  minDate?: Date | null;
   maxDate?: Date | null;
   onStartDateChange: (date: Date | null) => void;
   onEndDateChange: (date: Date | null) => void;
@@ -22,21 +32,27 @@ interface DateRangePickerProps {
 const DateRangePicker: React.FC<DateRangePickerProps> = ({
   startDate,
   endDate,
+  minDate,
   maxDate,
   onStartDateChange,
   onEndDateChange,
 }) => {
   const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
   const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
-  const latestSelectableDate = maxDate ?? new Date();
+  const latestSelectableDate = useMemo(() => maxDate ?? new Date(), [maxDate]);
+  const earliestSelectableDate = minDate ?? null;
 
-  const handleQuickSelect = (days: number) => {
-    const end = new Date(latestSelectableDate);
-    const start = new Date(latestSelectableDate);
-    start.setDate(end.getDate() - days);
-    
-    onStartDateChange(start);
-    onEndDateChange(end);
+  const activePreset = useMemo(
+    () =>
+      getActiveQuickRangePreset(startDate, endDate, latestSelectableDate, earliestSelectableDate),
+    [startDate, endDate, latestSelectableDate, earliestSelectableDate]
+  );
+
+  const handleQuickSelect = (presetId: QuickRangePresetId) => {
+    const range = getQuickRangeDates(presetId, latestSelectableDate, earliestSelectableDate);
+
+    onStartDateChange(range.startDate);
+    onEndDateChange(range.endDate);
   };
 
   useEffect(() => {
@@ -47,14 +63,14 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   }, [isEndDatePickerOpen]);
 
   return (
-    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-      <div className="flex flex-col flex-wrap sm:flex-row gap-2">
+    <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div className="flex w-full min-w-0 flex-col gap-2 min-[420px]:flex-row min-[420px]:flex-wrap xl:w-auto">
         <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
               className={cn(
-                "w-[180px] justify-start text-left font-normal",
+                "w-full justify-start text-left font-normal min-[420px]:w-[180px]",
                 !startDate && "text-muted-foreground"
               )}
             >
@@ -80,7 +96,11 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   setIsEndDatePickerOpen(true);
                 }
               }}
-              disabled={(date) => date > latestSelectableDate || (endDate ? date > endDate : false)}
+              disabled={(date) =>
+                date > latestSelectableDate ||
+                (earliestSelectableDate ? date < earliestSelectableDate : false) ||
+                (endDate ? date > endDate : false)
+              }
               initialFocus
               defaultMonth={startDate || latestSelectableDate}
               className={cn("p-3 pointer-events-auto")}
@@ -93,7 +113,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             <Button
               variant="outline"
               className={cn(
-                "w-[180px] justify-start text-left font-normal",
+                "w-full justify-start text-left font-normal min-[420px]:w-[180px]",
                 !endDate && "text-muted-foreground"
               )}
             >
@@ -117,7 +137,11 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   setIsEndDatePickerOpen(false);
                 }
               }}
-              disabled={(date) => date > latestSelectableDate || (startDate ? date < startDate : false)}
+              disabled={(date) =>
+                date > latestSelectableDate ||
+                (earliestSelectableDate ? date < earliestSelectableDate : false) ||
+                (startDate ? date < startDate : false)
+              }
               initialFocus
               defaultMonth={endDate || startDate || latestSelectableDate}
               className={cn("p-3 pointer-events-auto")}
@@ -126,13 +150,19 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         </Popover>
       </div>
       
-      <div className="flex gap-2 flex-wrap">
-        <Button variant="outline" size="sm" onClick={() => handleQuickSelect(1)}>1 Tag</Button>
-        <Button variant="outline" size="sm" onClick={() => handleQuickSelect(7)}>1 Woche</Button>
-        <Button variant="outline" size="sm" onClick={() => handleQuickSelect(30)}>1 Monat</Button>
-        <Button variant="outline" size="sm" onClick={() => handleQuickSelect(90)}>3 Monate</Button>
-        <Button variant="outline" size="sm" onClick={() => handleQuickSelect(365)}>1 Jahr</Button>
-        <Button variant="outline" size="sm" onClick={() => handleQuickSelect(365*5+1)}>5 Jahre</Button>
+      <div className="flex w-full min-w-0 flex-wrap items-center gap-2 xl:w-auto">
+        {QUICK_RANGE_PRESETS.map((preset) => (
+          <Button
+            key={preset.id}
+            variant="outline"
+            size="sm"
+            className={cn(activePreset === preset.id && SELECTED_OPTION_BUTTON_CLASS)}
+            aria-pressed={activePreset === preset.id}
+            onClick={() => handleQuickSelect(preset.id)}
+          >
+            {preset.label}
+          </Button>
+        ))}
       </div>
     </div>
   );
