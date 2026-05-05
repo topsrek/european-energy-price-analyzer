@@ -425,9 +425,8 @@ const Index = ({ region }: IndexProps) => {
                   <div className="w-full border-t border-border" />
                 </div>
 
-                <div className="flex flex-col gap-3 p-2 md:p-2">
-                  <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-6">
-                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <div className="flex min-w-0 flex-wrap items-start gap-x-6 gap-y-3 p-2 md:p-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                       <Label className="shrink-0 text-sm font-medium">Einheit:</Label>
                       <div className="flex min-w-0 flex-wrap gap-2">
                         <Button
@@ -450,7 +449,7 @@ const Index = ({ region }: IndexProps) => {
                         </Button>
                       </div>
                     </div>
-                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                       <Label className="shrink-0 text-sm font-medium">Auflösung:</Label>
                       <div className="flex min-w-0 flex-wrap gap-2">
                         <Button
@@ -473,8 +472,7 @@ const Index = ({ region }: IndexProps) => {
                         </Button>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                     <Label className="shrink-0 text-sm font-medium">Hilfslinien:</Label>
                     <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
                       <div className="flex items-center space-x-2">
