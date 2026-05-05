@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppHeader from '@/components/AppHeader';
 import DateRangePicker from '@/components/DateRangePicker';
 import AveragingOptions from '@/components/AveragingOptions';
@@ -22,12 +22,59 @@ import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
 import { RegionConfig, saveSelectedRegion } from '@/config/regions';
+import { subYears } from 'date-fns';
 
 interface IndexProps {
   region: RegionConfig;
 }
 
 type DataResolution = 'hourly' | 'interval';
+
+interface CachedPriceData {
+  data: EnergyPrice[];
+  dataSource: string;
+  latestTimestamp: string;
+}
+
+const getDataBaseUrl = () => import.meta.env.VITE_DATA_BASE_URL ?? '';
+
+const resolutionLabel = (resolution: DataResolution) =>
+  resolution === 'interval' ? '15-Minuten' : 'stündliche';
+
+const latestTimestampFromData = (data: EnergyPrice[]) => {
+  return data.reduce<string>((latest, record) => {
+    if (!latest) return record.timestamp;
+    return new Date(record.timestamp).getTime() > new Date(latest).getTime()
+      ? record.timestamp
+      : latest;
+  }, '');
+};
+
+const isCachedDataFresh = async (
+  region: RegionConfig,
+  resolution: DataResolution,
+  latestTimestamp: string
+) => {
+  try {
+    const dataBaseUrl = getDataBaseUrl().replace(/\/$/, '');
+    const response = await fetch(`${dataBaseUrl}/api/data-freshness`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        countryCode: region.countryCode,
+        resolution,
+        latestTimestamp,
+      }),
+    });
+
+    if (!response.ok) return true;
+
+    const payload = await response.json();
+    return payload.fresh !== false;
+  } catch {
+    return true;
+  }
+};
 
 const Index = ({ region }: IndexProps) => {
   const { toast } = useToast();
@@ -51,6 +98,7 @@ const Index = ({ region }: IndexProps) => {
   const [dataSource, setDataSource] = useState<string>('Lädt...');
   const [dataError, setDataError] = useState<string | null>(null);
   const [dataResolution, setDataResolution] = useState<DataResolution>('hourly');
+  const dataCacheRef = useRef<Partial<Record<DataResolution, CachedPriceData>>>({});
   
   // Static starter tariff options with clearer naming that includes provider.
   const contractOptions: ContractOption[] = [
@@ -91,15 +139,33 @@ const Index = ({ region }: IndexProps) => {
       if (!data.length) return;
 
       const timestamps = data.map((record) => new Date(record.timestamp).getTime());
-      setStartDate(new Date(Math.min(...timestamps)));
-      setEndDate(new Date(Math.max(...timestamps)));
+      const earliest = new Date(Math.min(...timestamps));
+      const latest = new Date(Math.max(...timestamps));
+      const oneYearStart = subYears(latest, 1);
+
+      setStartDate(oneYearStart > earliest ? oneYearStart : earliest);
+      setEndDate(latest);
     };
 
-    const loadPriceData = async () => {
-      setIsLoadingPriceData(true);
+    const applyPriceData = (cachedData: CachedPriceData, resetDateRange: boolean) => {
+      setRawEnergyPrices(cachedData.data);
+      setDataSource(cachedData.dataSource);
       setDataError(null);
+      if (resetDateRange) {
+        setDateRangeFromData(cachedData.data);
+      }
+    };
 
+    const loadPriceData = async (preserveVisibleData = false) => {
       try {
+        if (!preserveVisibleData) {
+          setRawEnergyPrices([]);
+          setDisplayedEnergyPrices([]);
+        }
+
+        setIsLoadingPriceData(true);
+        setDataError(null);
+
         const binaryPath = dataResolution === 'interval'
           ? region.dataFiles.interval
           : region.dataFiles.hourly;
@@ -108,31 +174,37 @@ const Index = ({ region }: IndexProps) => {
           throw new Error('No data file configured for selected resolution');
         }
 
-        const dataBaseUrl = import.meta.env.VITE_DATA_BASE_URL ?? '';
+        const dataBaseUrl = getDataBaseUrl();
         const binaryFile = `${dataBaseUrl}${binaryPath}`;
         const realData = await fetchOptimizedBinaryPriceData(binaryFile);
 
         if (!isMounted) return;
 
-        setRawEnergyPrices(realData);
-        setDateRangeFromData(realData);
-        const resolutionLabel = dataResolution === 'interval' ? '15-Minuten' : 'stündliche';
-        setDataSource(`${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel} Preisdatensätze (${region.countryName})`);
+        const cachedData = {
+          data: realData,
+          latestTimestamp: latestTimestampFromData(realData),
+          dataSource: `${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel(dataResolution)} Preisdatensätze (${region.countryName})`,
+        };
+
+        dataCacheRef.current[dataResolution] = cachedData;
+        applyPriceData(cachedData, !preserveVisibleData);
 
         toast({
           title: 'Daten geladen',
-          description: `${region.countryName}: ${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel} Preisdatensätze geladen.`
+          description: `${region.countryName}: ${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel(dataResolution)} Preisdatensätze geladen.`
         });
       } catch (error) {
         console.warn(`Failed to load ${region.code} binary price data:`, error);
 
         if (!isMounted) return;
 
-        setRawEnergyPrices([]);
-        setDisplayedEnergyPrices([]);
-        setStartDate(null);
-        setEndDate(null);
-        setDataSource('Keine Datendatei verfügbar');
+        if (!preserveVisibleData) {
+          setRawEnergyPrices([]);
+          setDisplayedEnergyPrices([]);
+          setStartDate(null);
+          setEndDate(null);
+          setDataSource('Keine Datendatei verfügbar');
+        }
         setDataError(
           dataResolution === 'interval'
             ? `Für ${region.countryName} wurde noch keine 15-Minuten-Preisdatei gefunden.`
@@ -151,7 +223,19 @@ const Index = ({ region }: IndexProps) => {
       }
     };
 
-    void loadPriceData();
+    const cachedData = dataCacheRef.current[dataResolution];
+    if (cachedData) {
+      applyPriceData(cachedData, false);
+      setIsLoadingPriceData(false);
+
+      void isCachedDataFresh(region, dataResolution, cachedData.latestTimestamp).then((fresh) => {
+        if (isMounted && !fresh) {
+          void loadPriceData(true);
+        }
+      });
+    } else {
+      void loadPriceData();
+    }
 
     return () => {
       isMounted = false;

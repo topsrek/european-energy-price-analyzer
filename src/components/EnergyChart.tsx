@@ -18,7 +18,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { CheckedState } from "@radix-ui/react-checkbox";
 import { cn } from '@/lib/utils';
-import { useTheme } from '@/hooks/useTheme';
 
 // Define the structure for individual data points used in the chart
 interface ExtendedChartDataPoint {
@@ -57,7 +56,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   selectedContract,
   averaging
 }) => {
-  const { theme } = useTheme();
   // State for toggling visibility of various lines
   const [showBasePrice, setShowBasePrice] = useState(true);
   const [showNetworkCosts, setShowNetworkCosts] = useState(true);
@@ -728,13 +726,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <defs>
               <style type="text/css">
                 {`
-                  :root {
-                    --month-band-fill-color: ${theme === 'dark' ? '#444444' : '#cccccc'};
-                    --week-marker-color: ${theme === 'dark' ? 'rgba(130,130,130,0.75)' : 'rgba(140,140,140,0.75)'};
-                    --day-band-fill-color: ${theme === 'dark' ? '#666666' : '#bbbbbb'};
-                    --month-label-color: ${theme === 'dark' ? '#eeeeee' : '#333333'};
-                    --week-label-color: ${theme === 'dark' ? '#cccccc' : '#444444'};
-                  }
                   .recharts-cartesian-grid-horizontal line,
                   .recharts-cartesian-grid-vertical line {
                     stroke: var(--border);

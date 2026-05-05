@@ -42,6 +42,12 @@
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    --month-band-fill-color: #cccccc;
+    --week-marker-color: rgba(140, 140, 140, 0.75);
+    --day-band-fill-color: #bbbbbb;
+    --month-label-color: #333333;
+    --week-label-color: #444444;
   }
 
   .dark {
@@ -81,6 +87,12 @@
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    --month-band-fill-color: #444444;
+    --week-marker-color: rgba(130, 130, 130, 0.75);
+    --day-band-fill-color: #666666;
+    --month-label-color: #eeeeee;
+    --week-label-color: #cccccc;
   }
 }
 

@@ -79,7 +79,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_file(ROOT / "public" / path.lstrip("/"), "application/octet-stream", head_only=True)
             return
 
-        if path in {"/health", "/geoip", "/data-manifest"}:
+        if path in {"/health", "/geoip", "/data-manifest", "/data-freshness"}:
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -115,6 +115,22 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_static()
 
+    def do_POST(self) -> None:
+        path = self.normalized_path()
+        if path == "/data-freshness":
+            self.handle_data_freshness()
+            return
+
+        self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header("Access-Control-Allow-Origin", os.getenv("CORS_ORIGIN", "*"))
+        self.send_header("Access-Control-Allow-Methods", "GET,HEAD,POST,OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.end_headers()
+
     def normalized_path(self) -> str:
         path = self.path.split("?", 1)[0]
         if path.startswith("/api/"):
@@ -133,6 +149,55 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def read_json_body(self) -> dict[str, Any]:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        if content_length <= 0:
+            return {}
+        if content_length > 4096:
+            raise ValueError("request body too large")
+        return json.loads(self.rfile.read(content_length).decode("utf-8"))
+
+    def handle_data_freshness(self) -> None:
+        try:
+            payload = self.read_json_body()
+            country_code = str(payload.get("countryCode") or payload.get("country") or "AT").upper()
+            resolution = str(payload.get("resolution") or "hourly").lower()
+            client_latest = first_nonempty(
+                payload.get("latestTimestamp"),
+                payload.get("latestDataPointDate"),
+                payload.get("clientLatestTimestamp"),
+            )
+
+            if not client_latest:
+                self.send_json({"error": "latest_timestamp_required"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+            server_latest = get_latest_data_timestamp(country_code, resolution)
+            if not server_latest:
+                self.send_json(
+                    {
+                        "fresh": False,
+                        "countryCode": country_code,
+                        "resolution": resolution,
+                        "serverLatestTimestamp": None,
+                        "clientLatestTimestamp": client_latest,
+                    }
+                )
+                return
+
+            fresh = parse_timestamp(client_latest) >= parse_timestamp(server_latest)
+            self.send_json(
+                {
+                    "fresh": fresh,
+                    "countryCode": country_code,
+                    "resolution": resolution,
+                    "serverLatestTimestamp": server_latest,
+                    "clientLatestTimestamp": client_latest,
+                }
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
+            self.send_json({"error": "bad_request", "message": str(exc)}, status=HTTPStatus.BAD_REQUEST)
 
     def send_file(self, path: Path, content_type: str, head_only: bool = False) -> None:
         if not path.exists() or not path.is_file():
@@ -228,6 +293,41 @@ def load_data_manifest() -> dict[str, Any]:
     if not manifest_path.exists():
         return {"countries": [], "updated_at": None}
     return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
+def get_latest_data_timestamp(country_code: str, resolution: str) -> str | None:
+    country = country_code.lower()
+    if resolution in {"interval", "quarterhourly", "15min"}:
+        suffixes = ["electricity_prices_15min_metadata.json"]
+    else:
+        suffixes = ["electricity_prices_metadata.json"]
+
+    for suffix in suffixes:
+        file_name = f"{country}_{suffix}"
+        for metadata_dir in (ROOT / "scripts" / "data", ROOT / "scripts" / "metadata", ROOT / "public"):
+            metadata_path = metadata_dir / file_name
+            if not metadata_path.exists():
+                continue
+
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse metadata file: %s", metadata_path)
+                continue
+
+            latest = metadata.get("data_coverage", {}).get("last_timestamp")
+            if isinstance(latest, str) and latest:
+                return latest
+
+    return None
+
+
+def parse_timestamp(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def scheduler_loop() -> None:
