@@ -17,16 +17,19 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST_ROOT = ROOT / "dist"
 DEFAULT_PORT = 49173
-DEFAULT_UPDATE_HOUR_UTC = 3
+DEFAULT_UPDATE_TIMEZONE = "Europe/Vienna"
+DEFAULT_UPDATE_HOUR_LOCAL = 13
+DEFAULT_UPDATE_MINUTE_LOCAL = 7
 DEFAULT_COUNTRIES = "AT"
 MIN_UPDATE_INTERVAL_SECONDS = 6 * 60 * 60
 
@@ -330,13 +333,42 @@ def parse_timestamp(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def update_timezone() -> ZoneInfo:
+    timezone_name = os.getenv("UPDATE_TIMEZONE", DEFAULT_UPDATE_TIMEZONE)
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        logger.warning("Unknown UPDATE_TIMEZONE=%s, falling back to UTC", timezone_name)
+        return ZoneInfo("UTC")
+
+
+def update_window(country_code: str) -> tuple[date, date]:
+    tz = update_timezone()
+    target_date = datetime.now(tz).date() + timedelta(days=1)
+    latest_timestamp = get_latest_data_timestamp(country_code, "hourly")
+
+    if not latest_timestamp:
+        return target_date, target_date
+
+    latest_date = parse_timestamp(latest_timestamp).astimezone(tz).date()
+    start_date = latest_date + timedelta(days=1)
+    if start_date > target_date:
+        start_date = target_date
+
+    return start_date, target_date
+
+
 def scheduler_loop() -> None:
     last_run_monotonic = 0.0
 
     while True:
-        update_hour = int(os.getenv("UPDATE_HOUR_UTC", str(DEFAULT_UPDATE_HOUR_UTC)))
-        now = datetime.now(timezone.utc)
-        should_run = now.hour == update_hour and now.minute < 10
+        update_hour = int(os.getenv("UPDATE_HOUR_LOCAL", str(DEFAULT_UPDATE_HOUR_LOCAL)))
+        update_minute = int(os.getenv("UPDATE_MINUTE_LOCAL", str(DEFAULT_UPDATE_MINUTE_LOCAL)))
+        now = datetime.now(update_timezone())
+        should_run = (
+            now.hour == update_hour
+            and update_minute <= now.minute < update_minute + 10
+        )
         enough_time_elapsed = time.monotonic() - last_run_monotonic > MIN_UPDATE_INTERVAL_SECONDS
 
         if should_run and enough_time_elapsed:
@@ -353,18 +385,18 @@ def run_update() -> None:
         for country in os.getenv("COUNTRIES", DEFAULT_COUNTRIES).split(",")
         if country.strip()
     ]
-    yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
 
     try:
         for country in countries:
+            start_date, end_date = update_window(country)
             command = [
                 "python3",
                 str(ROOT / "scripts" / "smart_batch_downloader.py"),
                 country,
-                yesterday.isoformat(),
-                yesterday.isoformat(),
+                start_date.isoformat(),
+                end_date.isoformat(),
             ]
-            logger.info("Running daily update for %s", country)
+            logger.info("Running daily update for %s from %s to %s", country, start_date, end_date)
             subprocess.run(command, cwd=ROOT, check=True, timeout=60 * 30)
             time.sleep(30)
 

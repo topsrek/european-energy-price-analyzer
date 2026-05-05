@@ -1,8 +1,8 @@
 
 import React from 'react';
-import VersionInfo from './VersionInfo';
 import { ThemeToggle } from './ThemeToggle';
 import RegionSwitcher from './RegionSwitcher';
+import AppInfoModal from './AppInfoModal';
 import { RegionConfig } from '@/config/regions';
 
 
@@ -12,15 +12,14 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ region }) => {
   return (
-    <header className="bg-background shadow-sm py-4">
-      <div className="container mx-auto px-4 flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{region.title}</h1>
-          <p className="text-sm text-muted-foreground">{region.appCode}</p>
+    <header className="bg-background shadow-sm py-3 md:py-4">
+      <div className="container mx-auto px-4 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="truncate text-xl font-bold text-foreground md:text-2xl">{region.title}</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
           <RegionSwitcher currentRegion={region} />
-          <VersionInfo />
+          <AppInfoModal />
           <ThemeToggle />
         </div>
       </div>

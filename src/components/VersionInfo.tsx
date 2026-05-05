@@ -1,17 +1,17 @@
 
 import React from 'react';
-import datesConfig from '@/config/dates.json';
 import { Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const VersionInfo = () => {
-  // Placeholder for commit hash - in a CI setup, this would be replaced with actual commit hash
-  const commitHash = "dev"; 
+  const buildTime = new Intl.DateTimeFormat('de-AT', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(__BUILD_TIME__));
   
   return (
     <div className="flex items-center gap-1 text-sm text-muted-foreground">
-      <span>v{datesConfig.version}</span>
-      <span className="text-xs opacity-60">({commitHash})</span>
+      <span>v{__APP_VERSION__}</span>
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -20,7 +20,7 @@ const VersionInfo = () => {
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            <p>Zuletzt aktualisiert: {datesConfig.lastUpdated}</p>
+            <p>Build: {buildTime}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

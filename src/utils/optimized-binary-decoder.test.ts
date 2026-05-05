@@ -20,15 +20,15 @@ describe('optimized binary decoder', () => {
     const artifact = readFileSync(resolve(process.cwd(), 'public/at_electricity_prices.bin'));
     const prices = decodeOptimizedBinaryEnergyPrices(toArrayBuffer(artifact));
 
-    expect(prices).toHaveLength(66550);
+    expect(prices).toHaveLength(66622);
     expect(prices[0]).toEqual({
       timestamp: '2018-09-30T00:00:00.000Z',
       price: 59.53,
       unit: 'EUR_MWh',
     });
     expect(prices[prices.length - 1]).toEqual({
-      timestamp: '2026-05-03T21:00:00.000Z',
-      price: 137.2,
+      timestamp: '2026-05-06T21:00:00.000Z',
+      price: 138.55,
       unit: 'EUR_MWh',
     });
   });

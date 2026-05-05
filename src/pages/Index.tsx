@@ -23,6 +23,7 @@ import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
 import { RegionConfig, saveSelectedRegion } from '@/config/regions';
 import { subYears } from 'date-fns';
+import VersionInfo from '@/components/VersionInfo';
 
 interface IndexProps {
   region: RegionConfig;
@@ -473,6 +474,7 @@ const Index = ({ region }: IndexProps) => {
             <ImpressumModal />
             <ContactModal />
           </div>
+          <VersionInfo />
         </div>
       </footer>
     </div>

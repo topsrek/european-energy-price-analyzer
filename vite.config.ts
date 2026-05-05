@@ -4,6 +4,10 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import fs from "fs";
 
+const packageJson = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "package.json"), "utf-8")
+) as { version: string };
+
 const devApiFileMap: Record<string, string> = {
   "/api/at_electricity_prices.bin": "at_electricity_prices.bin",
   "/api/at_electricity_prices_backup.bin": "at_electricity_prices_backup.bin",
@@ -12,6 +16,10 @@ const devApiFileMap: Record<string, string> = {
 
 // https://vitejs.dev/config/
 export default defineConfig(() => ({
+  define: {
+    __APP_VERSION__: JSON.stringify(packageJson.version),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   server: {
     host: "::",
     port: 8080,

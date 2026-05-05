@@ -124,6 +124,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       </div>
       
       <div className="flex gap-2 flex-wrap">
+        <Button variant="outline" size="sm" onClick={() => handleQuickSelect(1)}>1 Tag</Button>
         <Button variant="outline" size="sm" onClick={() => handleQuickSelect(7)}>1 Woche</Button>
         <Button variant="outline" size="sm" onClick={() => handleQuickSelect(30)}>1 Monat</Button>
         <Button variant="outline" size="sm" onClick={() => handleQuickSelect(90)}>3 Monate</Button>
