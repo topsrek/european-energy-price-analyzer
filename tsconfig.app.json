@@ -2,7 +2,8 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vitest/globals"],
     "module": "ESNext",
     "skipLibCheck": true,
 
@@ -21,6 +22,7 @@
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": false,
 
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]

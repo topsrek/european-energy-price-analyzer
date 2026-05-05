@@ -230,6 +230,6 @@ export async function fetchOptimizedBinaryPriceData(url: string): Promise<Energy
     return decodeOptimizedBinaryEnergyPrices(buffer);
     
   } catch (error) {
-    throw new Error(`Failed to fetch optimized binary price data: ${error}`);
+    throw new Error(`Failed to fetch optimized binary price data: ${error}`, { cause: error });
   }
 }

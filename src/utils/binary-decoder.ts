@@ -212,6 +212,6 @@ export async function fetchBinaryPriceData(url: string): Promise<EnergyPrice[]> 
     return decodeBinaryEnergyPrices(buffer);
     
   } catch (error) {
-    throw new Error(`Failed to fetch binary price data: ${error}`);
+    throw new Error(`Failed to fetch binary price data: ${error}`, { cause: error });
   }
 }

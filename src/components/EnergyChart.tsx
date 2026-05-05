@@ -213,7 +213,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     };
     
     return reduceDataPoints(internalChartData);
-  }, [energyPrices, smartMeterData, showSmartMeterData, showTotalCost, selectedContract, averaging, showSpotPriceWithTax]);
+  }, [energyPrices, smartMeterData, showSmartMeterData, showTotalCost, selectedContract, showSpotPriceWithTax]);
 
   // Calculate data timespan in days and months
   const dataTimeSpanDays = chartData.length > 0 
@@ -546,7 +546,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       return null;
     }
     
-    const monthElements: JSX.Element[] = [];
+    const monthElements: React.JSX.Element[] = [];
     const processedMonths = new Set<string>();
 
     // Group all data points by month - don't rely on isFirstDataPointOfMonth flag
@@ -634,7 +634,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     if (!shouldShowWeekSeparators || chartData.length === 0) {
       return null;
     }
-    const weekMarkers: JSX.Element[] = [];
+    const weekMarkers: React.JSX.Element[] = [];
     chartData.forEach((item) => { // No index needed as we use item.timestamp
         if (item.isFirstDataPointOfWeek) {
             weekMarkers.push(
@@ -666,7 +666,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     if (!shouldShowDaySeparators || chartData.length <= 1) {
       return null;
     }
-    const dayReferenceAreas: JSX.Element[] = [];
+    const dayReferenceAreas: React.JSX.Element[] = [];
     let isGray = true; // For alternating fill
     const processedDays = new Set<string>(); // Tracks yyyy-MM-dd to ensure each day gets one band
 
