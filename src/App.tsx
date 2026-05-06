@@ -2,6 +2,7 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Navigate, useParams } from 'react-router-dom';
 import Home from './pages/Home';
+import ComparisonPage from './pages/ComparisonPage';
 import Index from './pages/Index';
 import NotFound from './pages/NotFound';
 import { Toaster } from '@/components/ui/toaster';
@@ -23,6 +24,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/compare" element={<ComparisonPage />} />
         <Route path="/:regionCode" element={<RegionRoute />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

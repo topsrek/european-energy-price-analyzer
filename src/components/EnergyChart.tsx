@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { ChartData, EnergyPrice, SmartMeterData, ContractOption } from '@/types/energy-data';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { ComparisonSeries, ContractOption, DataResolution, EnergyPrice, SmartMeterData } from '@/types/energy-data';
 import {
   ResponsiveContainer,
   LineChart,
@@ -12,12 +12,11 @@ import {
   ReferenceLine,
   ReferenceArea
 } from 'recharts';
-import { format, parseISO, getMonth, isMonday, getDate, getDay, differenceInDays, differenceInMonths, getHours, getMinutes, getISOWeek } from 'date-fns';
+import { format, parseISO, getDay, differenceInDays, differenceInMonths, getHours, getISOWeek } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { CheckedState } from "@radix-ui/react-checkbox";
-import { cn } from '@/lib/utils';
 
 // Define the structure for individual data points used in the chart
 interface ExtendedChartDataPoint {
@@ -40,7 +39,8 @@ interface ExtendedChartDataPoint {
 }
 
 interface EnergyChartProps {
-  energyPrices: EnergyPrice[];
+  energyPrices?: EnergyPrice[];
+  comparisonSeries?: ComparisonSeries[];
   smartMeterData?: SmartMeterData[];
   showSmartMeterData: boolean;
   showTotalCost: boolean;
@@ -48,10 +48,17 @@ interface EnergyChartProps {
   averaging: string;
   showZeroLine: boolean;
   showAverageLine: boolean;
+  dataResolution?: DataResolution;
+  yMin?: number | null;
+  yMax?: number | null;
+  cutoffEnabled?: boolean;
+  cutoffValue?: number | null;
+  onCutoffValueChange?: (value: number | null) => void;
 }
 
 const EnergyChart: React.FC<EnergyChartProps> = ({ 
-  energyPrices, 
+  energyPrices = [],
+  comparisonSeries = [],
   smartMeterData, 
   showSmartMeterData,
   showTotalCost,
@@ -59,7 +66,17 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   averaging,
   showZeroLine,
   showAverageLine,
+  dataResolution = 'hourly',
+  yMin = null,
+  yMax = null,
+  cutoffEnabled = false,
+  cutoffValue = null,
+  onCutoffValueChange,
 }) => {
+  const isComparisonChart = comparisonSeries.length > 0;
+  const plotSeries = useMemo(() => (isComparisonChart ? comparisonSeries : []), [comparisonSeries, isComparisonChart]);
+  const referenceEnergyPrices = isComparisonChart ? comparisonSeries[0]?.energyPrices ?? [] : energyPrices;
+  const chartWrapperRef = useRef<HTMLDivElement | null>(null);
   // State for toggling visibility of various lines
   const [showBasePrice, setShowBasePrice] = useState(true);
   const [showNetworkCosts, setShowNetworkCosts] = useState(true);
@@ -70,15 +87,99 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [showMonthSeparators, setShowMonthSeparators] = useState(true);
   const [showDaySeparators, setShowDaySeparators] = useState(false);
   const [showSpotPriceWithTax, setShowSpotPriceWithTax] = useState(false);
-  const priceUnitLabel = energyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'c/kWh';
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | undefined>(undefined);
+  const [isDraggingCutoff, setIsDraggingCutoff] = useState(false);
+  const priceUnitLabel = referenceEnergyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'c/kWh';
+
+  const reduceDataPoints = useCallback((data: ExtendedChartDataPoint[]) => {
+    if (data.length === 0) return data;
+
+    const totalDataPoints = data.length;
+    const intervalFactor = dataResolution === 'interval' ? 4 : 1;
+    const threeMonthsInHours = 90 * 24 * intervalFactor;
+    const oneYearInHours = 365 * 24 * intervalFactor;
+    const fiveYearsInHours = 5 * oneYearInHours;
+    const tenYearsInHours = 10 * oneYearInHours;
+
+    let step = 1;
+
+    if (totalDataPoints > tenYearsInHours) {
+      step = 24 * intervalFactor;
+    } else if (totalDataPoints > fiveYearsInHours) {
+      step = 12 * intervalFactor;
+    } else if (totalDataPoints > oneYearInHours) {
+      step = 3 * intervalFactor;
+    } else if (totalDataPoints > threeMonthsInHours) {
+      step = Math.max(2, intervalFactor);
+    }
+
+    if (step === 1) return data;
+
+    const reducedData = [data[0]];
+    for (let i = step; i < data.length; i += step) {
+      reducedData.push(data[i]);
+    }
+
+    const lastIndex = data.length - 1;
+    if (lastIndex > 0 && lastIndex % step !== 0) {
+      reducedData.push(data[lastIndex]);
+    }
+
+    return reducedData;
+  }, [dataResolution]);
 
   // Prepare chart data, memoized
   const chartData = useMemo(() => {
-    const priceMap = new Map<string, number>();
-    energyPrices.forEach(price => {
-      priceMap.set(price.timestamp, price.price);
-    });
-    
+    if (isComparisonChart) {
+      const rowMap = new Map<string, ExtendedChartDataPoint>();
+
+      plotSeries.forEach((series) => {
+        series.energyPrices.forEach((item) => {
+          const existing = rowMap.get(item.timestamp);
+          const date = parseISO(item.timestamp);
+          if (existing) {
+            existing[series.id] = item.price;
+            return;
+          }
+
+          rowMap.set(item.timestamp, {
+            timestamp: item.timestamp,
+            date,
+            price: item.price,
+            unit: item.unit,
+            [series.id]: item.price,
+          });
+        });
+      });
+
+      const internalChartData = Array.from(rowMap.values()).sort(
+        (left, right) => left.date.getTime() - right.date.getTime()
+      );
+
+      const dayProcessed = new Map<string, boolean>();
+      const weekProcessed = new Map<string, boolean>();
+      const monthProcessed = new Map<string, boolean>();
+
+      internalChartData.forEach((item) => {
+        const date = item.date;
+        const dayKey = format(date, 'yyyy-MM-dd');
+        item.isFirstDataPointOfDay = !dayProcessed.has(dayKey);
+        dayProcessed.set(dayKey, true);
+
+        const weekOfYearKey = format(date, 'yyyy-II');
+        item.isFirstDataPointOfWeek = getDay(date) === 1 && !weekProcessed.has(weekOfYearKey);
+        if (item.isFirstDataPointOfWeek) {
+          weekProcessed.set(weekOfYearKey, true);
+        }
+
+        const monthKey = format(date, 'yyyy-MM');
+        item.isFirstDataPointOfMonth = !monthProcessed.has(monthKey);
+        monthProcessed.set(monthKey, true);
+      });
+
+      return reduceDataPoints(internalChartData);
+    }
+
     const internalChartData: ExtendedChartDataPoint[] = energyPrices.map(item => {
       const date = parseISO(item.timestamp);
       let processedPrice = item.price;
@@ -173,50 +274,19 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         }
       });
     }
-    
-    // Data point reduction for performance optimization
-    const reduceDataPoints = (data: ExtendedChartDataPoint[]) => {
-      if (data.length === 0) return data;
-      
-      const totalDataPoints = data.length;
-      const threeMonthsInHours = 90 * 24; // ~2160 data points for 3 months
-      const oneYearInHours = 365 * 24; // 8760 data points for a year
-      const fiveYearsInHours = 5 * oneYearInHours; // 43800 data points for 5 years
-      const tenYearsInHours = 10 * oneYearInHours; // 87600 data points for 10 years
-      
-      let step = 1; // Default: show all data points
-      
-      if (totalDataPoints > tenYearsInHours) {
-        step = 24; // Show every 24th hour (daily data points)
-      } else if (totalDataPoints > fiveYearsInHours) {
-        step = 12; // Show every 12th hour (twice daily data points)
-      } else if (totalDataPoints > oneYearInHours) {
-        step = 3; // Show every 3rd hour
-      } else if (totalDataPoints > threeMonthsInHours) {
-        step = 2; // Show every 2nd hour for more than 3 months
-      }
-      
-      if (step === 1) return data; // No reduction needed
-      
-      // Always include the first data point
-      const reducedData = [data[0]];
-      
-      // Add every nth data point based on step
-      for (let i = step; i < data.length; i += step) {
-        reducedData.push(data[i]);
-      }
-      
-      // Always include the last data point if it wasn't already included
-      const lastIndex = data.length - 1;
-      if (lastIndex > 0 && (lastIndex % step !== 0)) {
-        reducedData.push(data[lastIndex]);
-      }
-      
-      return reducedData;
-    };
-    
+
     return reduceDataPoints(internalChartData);
-  }, [energyPrices, smartMeterData, showSmartMeterData, showTotalCost, selectedContract, showSpotPriceWithTax]);
+  }, [
+    energyPrices,
+    isComparisonChart,
+    plotSeries,
+    reduceDataPoints,
+    selectedContract,
+    showSmartMeterData,
+    showSpotPriceWithTax,
+    showTotalCost,
+    smartMeterData,
+  ]);
 
   // Calculate data timespan in days and months
   const dataTimeSpanDays = chartData.length > 0 
@@ -228,6 +298,14 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     : 0;
 
   const averagePrice = useMemo(() => {
+    if (isComparisonChart) {
+      const values = comparisonSeries.flatMap((series) => series.energyPrices.map((item) => item.price));
+      if (!values.length) {
+        return null;
+      }
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
     if (!energyPrices.length) {
       return null;
     }
@@ -238,7 +316,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     }, 0);
 
     return total / energyPrices.length;
-  }, [energyPrices, showSpotPriceWithTax]);
+  }, [comparisonSeries, energyPrices, isComparisonChart, showSpotPriceWithTax]);
 
   // Auto-disable highlights based on time span - calculate BEFORE rendering
   const shouldShowDaySeparators = showDaySeparators && dataTimeSpanMonths < 3;
@@ -418,9 +496,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     if (averaging === 'hourly') return 'hour';
     
     // Default based on data length
-    if (energyPrices.length > 720) return 'month';
-    if (energyPrices.length > 168) return 'week';
-    if (energyPrices.length > 24) return 'day';
+    if (referenceEnergyPrices.length > 720) return 'month';
+    if (referenceEnergyPrices.length > 168) return 'week';
+    if (referenceEnergyPrices.length > 24) return 'day';
     return 'hour';
   };
   
@@ -482,6 +560,123 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         return 'Datum';
     }
   };
+
+  const getCutoffBucketLabel = () => {
+    if (averaging === 'monthly') return 'Monate';
+    if (averaging === 'weekly') return 'Wochen';
+    if (averaging === 'daily') return 'Tage';
+    if (averaging === 'daily-cycle') return 'Stundenfenster';
+    return dataResolution === 'interval' ? 'Viertelstunden' : 'Stunden';
+  };
+
+  const comparisonColors = ['#e11d48', '#2563eb', '#0f766e', '#d97706', '#7c3aed', '#475569'];
+
+  const cutoffStats = useMemo(() => {
+    if (!cutoffEnabled || cutoffValue === null) {
+      return [];
+    }
+
+    const buildStats = (label: string, values: number[], color?: string) => {
+      if (!values.length) return null;
+      const above = values.filter((value) => value > cutoffValue).length;
+      const below = values.filter((value) => value < cutoffValue).length;
+      const equal = values.length - above - below;
+      return {
+        label,
+        color,
+        total: values.length,
+        above,
+        below,
+        equal,
+        abovePercent: (above / values.length) * 100,
+        belowPercent: (below / values.length) * 100,
+      };
+    };
+
+    if (isComparisonChart) {
+      return comparisonSeries
+        .map((series) =>
+          buildStats(
+            series.shortLabel ?? series.label,
+            series.energyPrices.map((item) => item.price),
+            series.color
+          )
+        )
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+    }
+
+    const singleStats = buildStats(
+      'Strompreis',
+      energyPrices.map((item) => (showSpotPriceWithTax ? item.price * 1.2 : item.price))
+    );
+
+    return singleStats ? [singleStats] : [];
+  }, [comparisonSeries, cutoffEnabled, cutoffValue, energyPrices, isComparisonChart, showSpotPriceWithTax]);
+
+  const clampTooltipPosition = (state: {
+    chartX?: number;
+    chartY?: number;
+    chartWidth?: number;
+    chartHeight?: number;
+  }) => {
+    const wrapperWidth = chartWrapperRef.current?.clientWidth ?? state.chartWidth ?? 0;
+    const wrapperHeight = chartWrapperRef.current?.clientHeight ?? state.chartHeight ?? 0;
+    const nextX = Math.max(16, Math.min((state.chartX ?? 0) + 16, Math.max(16, wrapperWidth - 180)));
+    const nextY = Math.max(16, Math.min((state.chartY ?? 0) - 12, Math.max(16, wrapperHeight - 96)));
+    return { x: nextX, y: nextY };
+  };
+
+  const extractPriceAxisValue = (state: Record<string, unknown>) => {
+    const axisMap = state.yAxisMap as Record<string, { yAxisId?: string; scale?: { invert?: (value: number) => number } }> | undefined;
+    if (!axisMap) return null;
+
+    const axis =
+      Object.values(axisMap).find((value) => value?.yAxisId === 'price') ??
+      Object.values(axisMap)[0];
+
+    const chartY = typeof state.chartY === 'number' ? state.chartY : null;
+    if (!axis?.scale || typeof axis.scale.invert !== 'function' || chartY === null) {
+      return null;
+    }
+
+    const nextValue = axis.scale.invert(chartY);
+    return Number.isFinite(nextValue) ? nextValue : null;
+  };
+
+  const updateCutoffFromPointer = (state: Record<string, unknown>) => {
+    if (!cutoffEnabled || !onCutoffValueChange) {
+      return;
+    }
+
+    const nextValue = extractPriceAxisValue(state);
+    if (nextValue === null) {
+      return;
+    }
+
+    onCutoffValueChange(Number(nextValue.toFixed(2)));
+  };
+
+  const handleChartMouseMove = (state: Record<string, unknown>) => {
+    const chartX = typeof state.chartX === 'number' ? state.chartX : null;
+    const chartY = typeof state.chartY === 'number' ? state.chartY : null;
+
+    if (chartX !== null && chartY !== null) {
+      setTooltipPosition(clampTooltipPosition(state as { chartX?: number; chartY?: number; chartWidth?: number; chartHeight?: number }));
+    }
+
+    if (isDraggingCutoff) {
+      updateCutoffFromPointer(state);
+    }
+  };
+
+  const handleChartMouseDown = (state: Record<string, unknown>) => {
+    if (!cutoffEnabled) {
+      return;
+    }
+
+    setIsDraggingCutoff(true);
+    updateCutoffFromPointer(state);
+  };
   
   // Custom tooltip formatter
   interface TooltipProps {
@@ -496,7 +691,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   }
   
   const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
-    if (active && payload && payload.length) {
+    if (active && payload && payload.length && label) {
       const date = parseISO(label);
       
       // Format date based on averaging
@@ -525,13 +720,16 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         <div className="bg-card p-3 border border-border rounded-md shadow-md">
           <p className="font-medium text-sm mb-2">{formattedDate}</p>
           {payload.map((entry, index: number) => {
-            if (!entry.value) return null;
+            if (entry.value === null || entry.value === undefined) return null;
             
             const value = entry.value;
             let unit = '';
             let name = entry.name;
             
-            if (entry.dataKey === 'price') {
+            if (isComparisonChart) {
+              unit = priceUnitLabel;
+              name = entry.name;
+            } else if (entry.dataKey === 'price') {
               unit = priceUnitLabel;
               name = showSpotPriceWithTax ? 'Strompreis (inkl. USt.)' : 'Strompreis';
             } else if (entry.dataKey === 'consumption') {
@@ -743,8 +941,29 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   };
 
   return (
-    <div className="space-y-2 md:space-y-4">
-      <div className="w-full h-[400px] md:h-[500px]">
+    <div className="min-w-0 space-y-2 md:space-y-4">
+      <div ref={chartWrapperRef} className="relative h-[400px] min-h-[400px] min-w-0 w-full md:h-[500px]">
+        {cutoffEnabled && cutoffValue !== null && cutoffStats.length > 0 && (
+          <div className="absolute right-2 top-2 z-10 max-w-[240px] rounded-md border bg-background/95 px-3 py-2 text-xs shadow-sm backdrop-blur-sm">
+            <div className="mb-2 font-medium">
+              Lineal bei {cutoffValue.toFixed(2)} {priceUnitLabel}
+            </div>
+            <div className="space-y-1.5 text-muted-foreground">
+              {cutoffStats.map((stat) => (
+                <div key={stat.label}>
+                  <div className="font-medium" style={{ color: stat.color }}>{stat.label}</div>
+                  <div>
+                    {stat.above} {getCutoffBucketLabel()} darüber ({stat.abovePercent.toFixed(1)}%)
+                  </div>
+                  <div>
+                    {stat.below} {getCutoffBucketLabel()} darunter ({stat.belowPercent.toFixed(1)}%)
+                  </div>
+                  {stat.equal > 0 && <div>{stat.equal} genau auf dem Lineal</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={chartData}
@@ -755,6 +974,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               bottom: 20 
             }}
             className="bg-card md:border border-none"
+            onMouseMove={handleChartMouseMove}
+            onMouseDown={handleChartMouseDown}
+            onMouseUp={() => setIsDraggingCutoff(false)}
+            onMouseLeave={() => setIsDraggingCutoff(false)}
           >
             <defs>
               <style type="text/css">
@@ -812,7 +1035,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             
             <YAxis
               yAxisId="price"
-              domain={['auto', 'auto']}
+              domain={[yMin ?? 'auto', yMax ?? 'auto']}
               width={40}
               label={{ 
                 value: priceUnitLabel, 
@@ -835,7 +1058,12 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 label={{ value: '€', angle: 90, position: 'right', offset: 40 }}
               />
             )}
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip
+              content={<CustomTooltip />}
+              position={tooltipPosition}
+              isAnimationActive={false}
+              cursor={{ stroke: 'hsl(var(--border))', strokeOpacity: 0.35 }}
+            />
             {showZeroLine && (
               <ReferenceLine
                 y={0}
@@ -857,20 +1085,49 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 strokeOpacity={0.35}
               />
             )}
-            
-            <Line
-              key="price-line"
-              type="monotone"
-              dataKey="price"
-              name={showSpotPriceWithTax ? "Strompreis (inkl. USt.)" : "Strompreis"}
-              yAxisId="price"
-              stroke="#e53935"
-              strokeWidth={2}
-              dot={energyPrices.length > 100 ? false : {}}
-              activeDot={{ r: 5 }}
-              animationDuration={200}
-            />
-            {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
+            {cutoffEnabled && cutoffValue !== null && (
+              <ReferenceLine
+                y={cutoffValue}
+                yAxisId="price"
+                stroke="hsl(var(--foreground))"
+                strokeWidth={1}
+                strokeDasharray="6 4"
+                strokeOpacity={0.55}
+                ifOverflow="extendDomain"
+              />
+            )}
+
+            {isComparisonChart ? (
+              plotSeries.map((series, index) => (
+                <Line
+                  key={`${series.id}-line`}
+                  type="monotone"
+                  dataKey={series.id}
+                  name={series.label}
+                  yAxisId="price"
+                  stroke={series.color || comparisonColors[index % comparisonColors.length]}
+                  strokeWidth={2}
+                  dot={series.energyPrices.length > 100 ? false : {}}
+                  activeDot={{ r: 4 }}
+                  animationDuration={200}
+                  connectNulls
+                />
+              ))
+            ) : (
+              <Line
+                key="price-line"
+                type="monotone"
+                dataKey="price"
+                name={showSpotPriceWithTax ? "Strompreis (inkl. USt.)" : "Strompreis"}
+                yAxisId="price"
+                stroke="#e53935"
+                strokeWidth={2}
+                dot={energyPrices.length > 100 ? false : {}}
+                activeDot={{ r: 5 }}
+                animationDuration={200}
+              />
+            )}
+            {!isComparisonChart && showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
               <Line
                 key="consumption-line"
                 type="monotone"
@@ -884,7 +1141,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 hide={!showConsumption}
               />
             )}
-            {showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && (
+            {!isComparisonChart && showSmartMeterData && showTotalCost && smartMeterData && smartMeterData.length > 0 && (
               <Line
                 key="cost-line"
                 type="monotone"
@@ -898,7 +1155,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 hide={!showCost}
               />
             )}
-            {selectedContract && (
+            {!isComparisonChart && selectedContract && (
               <Line
                 key="contractEnergyPrice-line"
                 type="monotone"
@@ -913,7 +1170,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 hide={!showBasePrice}
               />
             )}
-            {selectedContract && (
+            {!isComparisonChart && selectedContract && (
               <Line
                 key="contractNetworkCosts-line"
                 type="monotone"
@@ -928,7 +1185,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 hide={!showNetworkCosts}
               />
             )}
-            {selectedContract && (
+            {!isComparisonChart && selectedContract && (
               <Line
                 key="contractTotalPriceTaxed-line"
                 type="monotone"
@@ -977,7 +1234,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       </div>
       )}
       
-      {selectedContract && (
+      {!isComparisonChart && selectedContract && (
         <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
           <div className="text-sm font-medium">{selectedContract.provider} - {selectedContract.name}: </div>
           <div className="flex items-center space-x-2">
@@ -1007,7 +1264,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         </div>
       )}
       
-      {showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
+      {!isComparisonChart && showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
           <div className="text-sm font-medium">Verbrauchsdaten anzeigen:</div>
           <div className="flex items-center space-x-2">
@@ -1032,17 +1289,19 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       )}
       
       {/* Add new tax toggle section */}
-      <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
-        <div className="text-sm font-medium">Preisdarstellung:</div>
-        <div className="flex items-center space-x-2">
-          <Checkbox 
-            id="show-spot-price-with-tax" 
-            checked={showSpotPriceWithTax} 
-            onCheckedChange={handleCheckedChange(setShowSpotPriceWithTax)}
-          />
-          <Label htmlFor="show-spot-price-with-tax" className="text-sm">Strompreis inkl. USt.</Label>
+      {!isComparisonChart && (
+        <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
+          <div className="text-sm font-medium">Preisdarstellung:</div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="show-spot-price-with-tax" 
+              checked={showSpotPriceWithTax} 
+              onCheckedChange={handleCheckedChange(setShowSpotPriceWithTax)}
+            />
+            <Label htmlFor="show-spot-price-with-tax" className="text-sm">Strompreis inkl. USt.</Label>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

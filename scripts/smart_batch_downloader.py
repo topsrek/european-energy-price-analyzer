@@ -261,7 +261,7 @@ class SmartBatchDownloader:
         self.metadata_dir.mkdir(exist_ok=True)
         self.metadata = CountryMetadata(country_code, str(self.metadata_dir))
         
-        self.downloader = EnergyPriceDownloader()  # No longer needs data_dir since we don't save daily files
+        self.downloader = EnergyPriceDownloader(country_code=self.country_code)  # No longer needs data_dir since we don't save daily files
     
     def analyze_existing_data(self) -> dict:
         """Analyze what data already exists in the web file."""

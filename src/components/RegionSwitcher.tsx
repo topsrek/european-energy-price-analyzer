@@ -1,38 +1,23 @@
-import { Check, ChevronDown } from 'lucide-react';
+import { BarChart3, Check, ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuSeparator,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { RegionConfig, regions, saveSelectedRegion } from '@/config/regions';
+import RegionFlag from './RegionFlag';
 
 interface RegionSwitcherProps {
-  currentRegion: RegionConfig;
+  currentRegion?: RegionConfig;
+  isComparison?: boolean;
 }
 
-const flagUrl = (countryCode: string) =>
-  `/flags/${countryCode.toLowerCase()}.svg`;
-
-const Flag = ({ countryCode }: { countryCode: string }) => (
-  <img
-    src={flagUrl(countryCode)}
-    alt=""
-    aria-hidden="true"
-    className="h-4 w-6 shrink-0 rounded-[1px] object-cover"
-    loading="eager"
-    decoding="async"
-  />
-);
-
 const displayCountryName = (region: RegionConfig) => {
-  try {
-    return new Intl.DisplayNames([region.language], { type: 'region' }).of(region.countryCode) ?? region.localName;
-  } catch {
-    return region.localName;
-  }
+  return region.localName;
 };
 
 const secondaryCountryName = (region: RegionConfig, primaryName: string) => {
@@ -40,12 +25,12 @@ const secondaryCountryName = (region: RegionConfig, primaryName: string) => {
   return names[0] ?? region.countryName;
 };
 
-const RegionSwitcher = ({ currentRegion }: RegionSwitcherProps) => {
+const RegionSwitcher = ({ currentRegion, isComparison = false }: RegionSwitcherProps) => {
   const navigate = useNavigate();
   const sortedRegions = [...regions].sort((a, b) =>
-    displayCountryName(a).localeCompare(displayCountryName(b), currentRegion.language)
+    displayCountryName(a).localeCompare(displayCountryName(b), currentRegion?.language ?? 'de')
   );
-  const currentName = displayCountryName(currentRegion);
+  const currentName = currentRegion ? displayCountryName(currentRegion) : 'Regionenvergleich';
 
   const handleRegionSelect = (region: RegionConfig) => {
     saveSelectedRegion(region.code);
@@ -59,14 +44,34 @@ const RegionSwitcher = ({ currentRegion }: RegionSwitcherProps) => {
           variant="outline"
           size="sm"
           className="h-9 gap-1.5 px-2.5"
-          aria-label={`Region: ${currentName}`}
+          aria-label={isComparison ? currentName : `Region: ${currentName}`}
         >
-          <Flag countryCode={currentRegion.countryCode} />
+          {currentRegion ? (
+            <RegionFlag flagCodes={currentRegion.flagCodes} />
+          ) : (
+            <BarChart3 className="h-4 w-4 shrink-0" />
+          )}
           <span className="hidden sm:inline">{currentName}</span>
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuItem
+          onSelect={() => navigate('/compare')}
+          className="flex items-center justify-between gap-3"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <BarChart3 className="h-4 w-4 shrink-0" />
+            <span className="min-w-0">
+              <span className="block truncate font-medium">Regionenvergleich</span>
+              <span className="block truncate text-[10px] leading-3 text-muted-foreground">
+                Mehrere Regionen direkt vergleichen
+              </span>
+            </span>
+          </span>
+          {isComparison && <Check className="h-4 w-4 shrink-0" />}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         {sortedRegions.map((region) => {
           const primaryName = displayCountryName(region);
           const secondaryName = secondaryCountryName(region, primaryName);
@@ -78,13 +83,13 @@ const RegionSwitcher = ({ currentRegion }: RegionSwitcherProps) => {
               className="flex items-center justify-between gap-3"
             >
               <span className="flex min-w-0 items-center gap-2">
-                <Flag countryCode={region.countryCode} />
+                <RegionFlag flagCodes={region.flagCodes} />
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{primaryName}</span>
                   <span className="block truncate text-[10px] leading-3 text-muted-foreground">{secondaryName}</span>
                 </span>
               </span>
-              {region.code === currentRegion.code && <Check className="h-4 w-4 shrink-0" />}
+              {region.code === currentRegion?.code && <Check className="h-4 w-4 shrink-0" />}
             </DropdownMenuItem>
           );
         })}

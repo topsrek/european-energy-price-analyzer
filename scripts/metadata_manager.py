@@ -83,6 +83,7 @@ class CountryMetadata:
         """Get full country name from code."""
         country_names = {
             "AT": "Austria",
+            "DE-LU": "Germany & Luxembourg",
             "DE": "Germany", 
             "FR": "France",
             "CH": "Switzerland",

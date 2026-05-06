@@ -1,4 +1,4 @@
-export type RegionCode = 'at';
+export type RegionCode = 'at' | 'de-lu' | 'fr';
 
 export interface RegionDataFiles {
   hourly: string;
@@ -7,7 +7,9 @@ export interface RegionDataFiles {
 
 export interface RegionConfig {
   code: RegionCode;
-  countryCode: string;
+  marketCode: string;
+  geoCountryCodes: string[];
+  flagCodes: string[];
   path: string;
   appCode: string;
   countryName: string;
@@ -19,6 +21,7 @@ export interface RegionConfig {
   market: string;
   dataStatus: 'available' | 'planned';
   dataFiles: RegionDataFiles;
+  chartColor: string;
 }
 
 export const REGION_STORAGE_KEY = 'eepa.selectedRegion';
@@ -26,7 +29,9 @@ export const REGION_STORAGE_KEY = 'eepa.selectedRegion';
 export const regions: RegionConfig[] = [
   {
     code: 'at',
-    countryCode: 'AT',
+    marketCode: 'AT',
+    geoCountryCodes: ['AT'],
+    flagCodes: ['AT'],
     path: '/at',
     appCode: 'EEPA-AT',
     countryName: 'Austria',
@@ -37,14 +42,59 @@ export const regions: RegionConfig[] = [
     timezone: 'Europe/Vienna',
     market: 'Day-ahead electricity prices',
     dataStatus: 'available',
+    chartColor: '#e11d48',
     dataFiles: {
       hourly: '/api/at_electricity_prices.bin',
       interval: '/api/at_electricity_prices_15min.bin',
     },
   },
+  {
+    code: 'de-lu',
+    marketCode: 'DE-LU',
+    geoCountryCodes: ['DE', 'LU'],
+    flagCodes: ['DE', 'LU'],
+    path: '/de-lu',
+    appCode: 'EEPA-DE-LU',
+    countryName: 'Germany & Luxembourg',
+    localName: 'Deutschland & Luxemburg',
+    title: 'Strompreisrechner Deutschland & Luxemburg',
+    description: 'Historische Day-ahead-Strompreise der gemeinsamen DE-LU-Preiszone analysieren und direkt mit anderen Regionen vergleichen.',
+    language: 'de-DE',
+    timezone: 'Europe/Berlin',
+    market: 'Day-ahead electricity prices',
+    dataStatus: 'available',
+    chartColor: '#2563eb',
+    dataFiles: {
+      hourly: '/api/de-lu_electricity_prices.bin',
+      interval: '/api/de-lu_electricity_prices_15min.bin',
+    },
+  },
+  {
+    code: 'fr',
+    marketCode: 'FR',
+    geoCountryCodes: ['FR'],
+    flagCodes: ['FR'],
+    path: '/fr',
+    appCode: 'EEPA-FR',
+    countryName: 'France',
+    localName: 'France',
+    title: 'Strompreisrechner Frankreich',
+    description: 'Historische Day-ahead-Strompreise in Frankreich analysieren und mit anderen europäischen Regionen vergleichen.',
+    language: 'fr-FR',
+    timezone: 'Europe/Paris',
+    market: 'Day-ahead electricity prices',
+    dataStatus: 'available',
+    chartColor: '#0f766e',
+    dataFiles: {
+      hourly: '/api/fr_electricity_prices.bin',
+      interval: '/api/fr_electricity_prices_15min.bin',
+    },
+  },
 ];
 
-const regionByCountryCode = new Map(regions.map((region) => [region.countryCode, region]));
+const regionByCountryCode = new Map(
+  regions.flatMap((region) => region.geoCountryCodes.map((countryCode) => [countryCode, region] as const))
+);
 
 export const defaultRegion = regions[0];
 
@@ -73,6 +123,8 @@ const countryFromLocale = () => {
 const countryFromTimezone = () => {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (timezone === 'Europe/Vienna') return 'AT';
+  if (timezone === 'Europe/Berlin') return 'DE';
+  if (timezone === 'Europe/Paris') return 'FR';
   return undefined;
 };
 

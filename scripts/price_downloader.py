@@ -110,14 +110,15 @@ class EnergyPriceEncoder:
 
 
 class EnergyPriceDownloader:
-    """Downloads and processes energy price data from Austrian energy charts API."""
+    """Downloads and processes energy price data from energy-charts.info."""
     
     BASE_URL = "https://api.energy-charts.info/price"
     INITIAL_RETRY_DELAY = 61  # seconds
     MAX_RETRIES = 5
     
-    def __init__(self, data_dir: str = None):
+    def __init__(self, country_code: str = "AT", data_dir: str = None):
         # data_dir is optional - only used if saving daily files
+        self.country_code = country_code.upper()
         self.data_dir = Path(data_dir) if data_dir else None
         if self.data_dir:
             self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -131,7 +132,7 @@ class EnergyPriceDownloader:
         """Download price data for a date range with exponential retry."""
         start_str = start_date.strftime("%Y-%m-%d")
         end_str = end_date.strftime("%Y-%m-%d")
-        url = f"{self.BASE_URL}?bzn=AT&start={start_str}&end={end_str}"
+        url = f"{self.BASE_URL}?bzn={self.country_code}&start={start_str}&end={end_str}"
         
         retry_delay = self.INITIAL_RETRY_DELAY
         
@@ -178,7 +179,7 @@ class EnergyPriceDownloader:
     def download_day_data(self, target_date: date) -> Optional[Tuple[List[int], List[float]]]:
         """Download price data for a specific date with exponential retry."""
         date_str = target_date.strftime("%Y-%m-%d")
-        url = f"{self.BASE_URL}?bzn=AT&start={date_str}&end={date_str}"
+        url = f"{self.BASE_URL}?bzn={self.country_code}&start={date_str}&end={date_str}"
         
         retry_delay = self.INITIAL_RETRY_DELAY
         

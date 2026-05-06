@@ -27,7 +27,8 @@ const AppInfoModal = () => {
         <div className="space-y-4 text-sm leading-6 text-foreground">
           <p>
             EEPA macht Day-ahead-Strompreise greifbar: nach Zeitraum, Tageszeit, Wochentag und Marktphase.
-            Die App startet mit Österreich und ist als europäische, länderweise erweiterbare Analyse gedacht.
+            Die App deckt aktuell Österreich, Deutschland & Luxemburg sowie Frankreich ab
+            und ist als europäische, länderweise erweiterbare Analyse gedacht.
           </p>
           <p>
             Ich baue sie, weil Strompreise oft abstrakt wirken. Gute Entscheidungen brauchen sichtbare Muster,

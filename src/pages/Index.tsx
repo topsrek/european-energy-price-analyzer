@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppHeader from '@/components/AppHeader';
+import ControlDisclosure from '@/components/ControlDisclosure';
 import DateRangePicker from '@/components/DateRangePicker';
 import AveragingOptions from '@/components/AveragingOptions';
 import FilterOptions from '@/components/FilterOptions';
@@ -8,7 +9,7 @@ import FileUpload from '@/components/FileUpload';
 import ContractOptions from '@/components/ContractOptions';
 import InfoModal from '@/components/InfoModal';
 import HelpModal from '@/components/HelpModal';
-import { AveragingOption, ContractOption, EnergyPrice, FilterOptions as FilterOptionsType, SmartMeterData } from '@/types/energy-data';
+import { AveragingOption, ContractOption, DataResolution, EnergyPrice, FilterOptions as FilterOptionsType, SmartMeterData } from '@/types/energy-data';
 import { applyFilters, calculateAverage, convertEnergyPriceUnit, filterByDateRange } from '@/utils/data-utils';
 import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowUpRight, Info, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,14 +26,24 @@ import ContactModal from '@/components/ContactModal';
 import { RegionConfig, saveSelectedRegion } from '@/config/regions';
 import VersionInfo from '@/components/VersionInfo';
 import { CheckedState } from '@radix-ui/react-checkbox';
+import {
+  DATA_RESOLUTION_STORAGE_KEY,
+  PRICE_UNIT_STORAGE_KEY,
+  DEFAULT_DATA_RESOLUTION,
+  DEFAULT_PRICE_UNIT,
+  PriceUnit,
+  parseQueryNumber,
+  readInitialDataResolution,
+  readInitialPriceUnit,
+  serializeOptionalNumber,
+  serializeResolutionQueryParam,
+  serializeUnitQueryParam,
+} from '@/utils/analyzer-state';
 import { getQuickRangeDates } from '@/utils/date-range-presets';
 
 interface IndexProps {
   region: RegionConfig;
 }
-
-type DataResolution = 'hourly' | 'interval';
-type PriceUnit = EnergyPrice['unit'];
 
 interface CachedPriceData {
   data: EnergyPrice[];
@@ -39,10 +51,6 @@ interface CachedPriceData {
   latestTimestamp: string;
 }
 
-const DATA_RESOLUTION_STORAGE_KEY = 'eepa.dataResolution';
-const PRICE_UNIT_STORAGE_KEY = 'eepa.priceUnit';
-const DEFAULT_DATA_RESOLUTION: DataResolution = 'hourly';
-const DEFAULT_PRICE_UNIT: PriceUnit = 'cent_kWh';
 const DEFAULT_SHOW_ZERO_LINE = false;
 const DEFAULT_SHOW_AVERAGE_LINE = false;
 
@@ -50,64 +58,6 @@ const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
 
 const getDataBaseUrl = () => import.meta.env.VITE_DATA_BASE_URL ?? '';
-
-const isDataResolution = (value: string | null): value is DataResolution =>
-  value === 'hourly' || value === 'interval';
-
-const isPriceUnit = (value: string | null): value is PriceUnit =>
-  value === 'EUR_MWh' || value === 'cent_kWh';
-
-const parseResolutionQueryParam = (value: string | null): DataResolution | null => {
-  if (value === '15min' || value === 'interval') return 'interval';
-  if (value === 'hourly') return 'hourly';
-  return null;
-};
-
-const serializeResolutionQueryParam = (value: DataResolution) =>
-  value === 'interval' ? '15min' : 'hourly';
-
-const parseUnitQueryParam = (value: string | null): PriceUnit | null => {
-  if (value === 'eurmwh' || value === 'EUR_MWh') return 'EUR_MWh';
-  if (value === 'ckwh' || value === 'cent_kWh') return 'cent_kWh';
-  return null;
-};
-
-const serializeUnitQueryParam = (value: PriceUnit) =>
-  value === 'EUR_MWh' ? 'eurmwh' : 'ckwh';
-
-const readInitialDataResolution = (): DataResolution => {
-  if (typeof window === 'undefined') return DEFAULT_DATA_RESOLUTION;
-
-  const params = new URLSearchParams(window.location.search);
-  const queryValue = parseResolutionQueryParam(params.get('resolution'));
-  if (queryValue) return queryValue;
-
-  try {
-    const storedValue = window.localStorage.getItem(DATA_RESOLUTION_STORAGE_KEY);
-    if (isDataResolution(storedValue)) return storedValue;
-  } catch {
-    // Ignore storage access failures and fall back to defaults.
-  }
-
-  return DEFAULT_DATA_RESOLUTION;
-};
-
-const readInitialPriceUnit = (): PriceUnit => {
-  if (typeof window === 'undefined') return DEFAULT_PRICE_UNIT;
-
-  const params = new URLSearchParams(window.location.search);
-  const queryValue = parseUnitQueryParam(params.get('unit'));
-  if (queryValue) return queryValue;
-
-  try {
-    const storedValue = window.localStorage.getItem(PRICE_UNIT_STORAGE_KEY);
-    if (isPriceUnit(storedValue)) return storedValue;
-  } catch {
-    // Ignore storage access failures and fall back to defaults.
-  }
-
-  return DEFAULT_PRICE_UNIT;
-};
 
 const resolutionLabel = (resolution: DataResolution) =>
   resolution === 'interval' ? '15-Minuten' : 'stündliche';
@@ -132,7 +82,7 @@ const isCachedDataFresh = async (
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        countryCode: region.countryCode,
+        countryCode: region.marketCode,
         resolution,
         latestTimestamp,
       }),
@@ -149,6 +99,7 @@ const isCachedDataFresh = async (
 
 const Index = ({ region }: IndexProps) => {
   const { toast } = useToast();
+  const toastRef = useRef(toast);
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(new Date());
   const [isAveragingEnabled, setIsAveragingEnabled] = useState<boolean>(false);
@@ -174,13 +125,63 @@ const Index = ({ region }: IndexProps) => {
   const [priceUnit, setPriceUnit] = useState<PriceUnit>(readInitialPriceUnit);
   const [showZeroLine, setShowZeroLine] = useState(DEFAULT_SHOW_ZERO_LINE);
   const [showAverageLine, setShowAverageLine] = useState(DEFAULT_SHOW_AVERAGE_LINE);
+  const [yMinInput, setYMinInput] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return window.location.search ? (new URLSearchParams(window.location.search).get('yMin') ?? '') : '';
+  });
+  const [yMaxInput, setYMaxInput] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return window.location.search ? (new URLSearchParams(window.location.search).get('yMax') ?? '') : '';
+  });
+  const [cutoffEnabled, setCutoffEnabled] = useState(false);
+  const [cutoffValue, setCutoffValue] = useState<number | null>(null);
+  const [displayDisclosureOpen, setDisplayDisclosureOpen] = useState(false);
+  const [scaleDisclosureOpen, setScaleDisclosureOpen] = useState(false);
+  const [analysisDisclosureOpen, setAnalysisDisclosureOpen] = useState(false);
   const dataCacheRef = useRef<Partial<Record<DataResolution, CachedPriceData>>>({});
   const hasVisiblePriceDataRef = useRef(false);
+
+  const yMin = parseQueryNumber(yMinInput);
+  const yMax = parseQueryNumber(yMaxInput);
 
   const handleCheckedChange =
     (setter: React.Dispatch<React.SetStateAction<boolean>>) => (checked: CheckedState) => {
       setter(checked === true);
     };
+
+  const displaySummary = [
+    priceUnit === 'EUR_MWh' ? '€/MWh' : 'c/kWh',
+    dataResolution === 'interval' ? '15 Minuten' : 'Stündlich',
+    [
+      showZeroLine ? 'Nulllinie' : null,
+      showAverageLine ? 'Mittelwert' : null,
+    ]
+      .filter(Boolean)
+      .join(', ') || 'ohne Hilfslinien',
+  ].join(' · ');
+
+  const scaleSummary = (() => {
+    const axisSummary =
+      yMin !== null || yMax !== null
+        ? `${yMin !== null ? yMin : 'auto'} bis ${yMax !== null ? yMax : 'auto'}`
+        : 'Auto';
+
+    const cutoffSummary = cutoffEnabled && cutoffValue !== null
+      ? `Lineal ${cutoffValue.toFixed(2)}`
+      : 'kein Lineal';
+
+    return `${axisSummary} · ${cutoffSummary}`;
+  })();
+
+  const activeFilterCount =
+    (filters.months.length < 12 ? 1 : 0) +
+    (filters.weekdays.length < 7 ? 1 : 0) +
+    (filters.hours.length < 24 ? 1 : 0);
+
+  const analysisSummary = [
+    isAveragingEnabled ? averaging : 'Rohdaten',
+    activeFilterCount > 0 ? `${activeFilterCount} Filter` : 'ohne Filter',
+  ].join(' · ');
   
   // Static starter tariff options with clearer naming that includes provider.
   const contractOptions: ContractOption[] = [
@@ -213,6 +214,10 @@ const Index = ({ region }: IndexProps) => {
     document.documentElement.lang = region.language;
     document.title = `${region.title} - ${region.appCode}`;
   }, [region]);
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   useEffect(() => {
     let isMounted = true;
@@ -298,7 +303,7 @@ const Index = ({ region }: IndexProps) => {
             : `Für ${region.countryName} wurde keine aktuelle Preisdatei gefunden.`
         );
 
-        toast({
+        toastRef.current({
           title: 'Keine Preisdaten verfügbar',
           description: `Für ${region.countryName} wurde keine Binärdatei gefunden.`,
           variant: 'destructive'
@@ -327,7 +332,7 @@ const Index = ({ region }: IndexProps) => {
     return () => {
       isMounted = false;
     };
-  }, [region, dataResolution, toast]);
+  }, [region, dataResolution]);
 
   useEffect(() => {
     try {
@@ -340,11 +345,25 @@ const Index = ({ region }: IndexProps) => {
     const params = new URLSearchParams(window.location.search);
     params.set('resolution', serializeResolutionQueryParam(dataResolution));
     params.set('unit', serializeUnitQueryParam(priceUnit));
+    const serializedYMin = serializeOptionalNumber(yMin);
+    const serializedYMax = serializeOptionalNumber(yMax);
+
+    if (serializedYMin === null) {
+      params.delete('yMin');
+    } else {
+      params.set('yMin', serializedYMin);
+    }
+
+    if (serializedYMax === null) {
+      params.delete('yMax');
+    } else {
+      params.set('yMax', serializedYMax);
+    }
 
     const search = params.toString();
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
     window.history.replaceState({}, '', nextUrl);
-  }, [dataResolution, priceUnit]);
+  }, [dataResolution, priceUnit, yMin, yMax]);
   
   // Process data whenever filters or date range changes
   useEffect(() => {
@@ -367,6 +386,17 @@ const Index = ({ region }: IndexProps) => {
     
     setDisplayedEnergyPrices(processedData);
   }, [rawEnergyPrices, priceUnit, startDate, endDate, filters, averaging, isAveragingEnabled]);
+
+  useEffect(() => {
+    if (cutoffValue !== null || !displayedEnergyPrices.length) {
+      return;
+    }
+
+    const average =
+      displayedEnergyPrices.reduce((sum, item) => sum + item.price, 0) /
+      displayedEnergyPrices.length;
+    setCutoffValue(Number(average.toFixed(2)));
+  }, [cutoffValue, displayedEnergyPrices]);
   
   // Handler for averaging toggle
   const handleAveragingToggle = (enabled: boolean) => {
@@ -382,7 +412,7 @@ const Index = ({ region }: IndexProps) => {
   
   return (
     <div className="flex flex-col min-h-screen bg-background">
-      <AppHeader region={region} />
+      <AppHeader title={region.title} region={region} />
       <main className="md:container mx-auto md:pt-4 md:px-4 md:pb-4 pb-2">
         <div className="space-y-0 md:space-y-8">
           <Card className="animate-fade-in md:rounded-lg rounded-none">
@@ -396,14 +426,16 @@ const Index = ({ region }: IndexProps) => {
                 </div>
                 <div className="flex items-center gap-4">
                   <HelpModal />
-                  <InfoModal trigger={
-                    <Button variant="outline" size="sm" className="flex gap-1 items-center md:h-9 h-fit">
-                      <Info className="h-4 w-4" />
-                      <span className="whitespace-normal"> 
-                        Wie funktioniert der österr. Strommarkt?
-                      </span>
-                    </Button>
-                  } />
+                  {region.code === 'at' && (
+                    <InfoModal trigger={
+                      <Button variant="outline" size="sm" className="flex gap-1 items-center md:h-9 h-fit">
+                        <Info className="h-4 w-4" />
+                        <span className="whitespace-normal"> 
+                          Wie funktioniert dieser Strommarkt?
+                        </span>
+                      </Button>
+                    } />
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -425,7 +457,13 @@ const Index = ({ region }: IndexProps) => {
                   <div className="w-full border-t border-border" />
                 </div>
 
-                <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-3 p-2 md:p-2">
+                <ControlDisclosure
+                  title="Anzeige"
+                  summary={displaySummary}
+                  open={displayDisclosureOpen}
+                  onOpenChange={setDisplayDisclosureOpen}
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-3">
                     <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                       <Label className="shrink-0 text-sm font-medium">Einheit:</Label>
                       <div className="flex min-w-0 flex-wrap gap-2">
@@ -472,52 +510,118 @@ const Index = ({ region }: IndexProps) => {
                         </Button>
                       </div>
                     </div>
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-                    <Label className="shrink-0 text-sm font-medium">Hilfslinien:</Label>
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="show-zero-line"
-                          checked={showZeroLine}
-                          onCheckedChange={handleCheckedChange(setShowZeroLine)}
-                        />
-                        <Label htmlFor="show-zero-line" className="text-sm">Zeige Nulllinie</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="show-average-line"
-                          checked={showAverageLine}
-                          onCheckedChange={handleCheckedChange(setShowAverageLine)}
-                        />
-                        <Label htmlFor="show-average-line" className="text-sm">Zeige Mittelwert</Label>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+                      <Label className="shrink-0 text-sm font-medium">Hilfslinien:</Label>
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="show-zero-line"
+                            checked={showZeroLine}
+                            onCheckedChange={handleCheckedChange(setShowZeroLine)}
+                          />
+                          <Label htmlFor="show-zero-line" className="text-sm">Zeige Nulllinie</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="show-average-line"
+                            checked={showAverageLine}
+                            onCheckedChange={handleCheckedChange(setShowAverageLine)}
+                          />
+                          <Label htmlFor="show-average-line" className="text-sm">Zeige Mittelwert</Label>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                </ControlDisclosure>
 
-                <div className="h-4 md:h-6 flex items-center">
-                  <div className="w-full border-t border-border" />
-                </div>
-                
-                {/* Filters & Options */}
-                <div className="flex flex-col gap-4 p-2 md:p-2 xl:flex-row xl:items-start xl:gap-6">
-                  <div className="min-w-0">
-                    <AveragingOptions
-                      selectedOption={averaging}
-                      onChange={setAveraging}
-                      isAveragingEnabled={isAveragingEnabled}
-                      onAveragingToggle={handleAveragingToggle}
-                    />
+                <ControlDisclosure
+                  title="Y-Skala & Lineal"
+                  summary={scaleSummary}
+                  open={scaleDisclosureOpen}
+                  onOpenChange={setScaleDisclosureOpen}
+                >
+                  <div className="flex min-w-0 flex-wrap items-end gap-3">
+                    <div className="w-[120px] max-w-full">
+                      <Label htmlFor="chart-y-min" className="mb-2 block text-sm font-medium">Min Preis</Label>
+                      <Input
+                        id="chart-y-min"
+                        inputMode="decimal"
+                        value={yMinInput}
+                        onChange={(event) => setYMinInput(event.target.value)}
+                        placeholder="auto"
+                      />
+                    </div>
+                    <div className="w-[120px] max-w-full">
+                      <Label htmlFor="chart-y-max" className="mb-2 block text-sm font-medium">Max Preis</Label>
+                      <Input
+                        id="chart-y-max"
+                        inputMode="decimal"
+                        value={yMaxInput}
+                        onChange={(event) => setYMaxInput(event.target.value)}
+                        placeholder="auto"
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setYMinInput('');
+                        setYMaxInput('');
+                      }}
+                    >
+                      Reset Ansicht
+                    </Button>
                   </div>
-                  <div className="min-w-0">
-                    <FilterOptions
-                      filters={filters}
-                      onChange={setFilters}
-                      disabled={!isAveragingEnabled}
-                      averagingOption={isAveragingEnabled ? averaging : 'none'}
-                    />
+                  <div className="mt-4 flex min-w-0 flex-wrap items-end gap-3">
+                    <div className="flex items-center space-x-2 pb-2">
+                      <Checkbox
+                        id="enable-cutoff"
+                        checked={cutoffEnabled}
+                        onCheckedChange={handleCheckedChange(setCutoffEnabled)}
+                      />
+                      <Label htmlFor="enable-cutoff" className="text-sm">Preis-Lineal aktivieren</Label>
+                    </div>
+                    <div className="w-[140px] max-w-full">
+                      <Label htmlFor="cutoff-value" className="mb-2 block text-sm font-medium">Linealpreis</Label>
+                      <Input
+                        id="cutoff-value"
+                        inputMode="decimal"
+                        value={cutoffValue === null ? '' : String(cutoffValue)}
+                        onChange={(event) => {
+                          const nextValue = Number(event.target.value);
+                          setCutoffValue(Number.isFinite(nextValue) ? nextValue : null);
+                        }}
+                        placeholder={priceUnit === 'EUR_MWh' ? '€/MWh' : 'c/kWh'}
+                        disabled={!cutoffEnabled}
+                      />
+                    </div>
                   </div>
-                </div>
+                </ControlDisclosure>
+
+                <ControlDisclosure
+                  title="Durchschnitt & Filter"
+                  summary={analysisSummary}
+                  open={analysisDisclosureOpen}
+                  onOpenChange={setAnalysisDisclosureOpen}
+                >
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:gap-6">
+                    <div className="min-w-0">
+                      <AveragingOptions
+                        selectedOption={averaging}
+                        onChange={setAveraging}
+                        isAveragingEnabled={isAveragingEnabled}
+                        onAveragingToggle={handleAveragingToggle}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <FilterOptions
+                        filters={filters}
+                        onChange={setFilters}
+                        disabled={!isAveragingEnabled}
+                        averagingOption={isAveragingEnabled ? averaging : 'none'}
+                      />
+                    </div>
+                  </div>
+                </ControlDisclosure>
                 
                 {/* Visualization */}
                 <div className="p-0 md:p-2 md:border border-none">
@@ -540,6 +644,12 @@ const Index = ({ region }: IndexProps) => {
                       averaging={isAveragingEnabled ? averaging : 'none'}
                       showZeroLine={showZeroLine}
                       showAverageLine={showAverageLine}
+                      dataResolution={dataResolution}
+                      yMin={yMin}
+                      yMax={yMax}
+                      cutoffEnabled={cutoffEnabled}
+                      cutoffValue={cutoffValue}
+                      onCutoffValueChange={setCutoffValue}
                     />
                   ) : (
                     <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg">

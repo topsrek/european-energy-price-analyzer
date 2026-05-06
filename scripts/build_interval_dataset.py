@@ -36,6 +36,12 @@ BASE_URL = "https://api.energy-charts.info/price"
 FIRST_INTERVAL_DAY = date(2025, 10, 1)
 CHUNK_DAYS = 31
 
+COUNTRY_NAMES = {
+    "AT": "Austria",
+    "DE-LU": "Germany & Luxembourg",
+    "FR": "France",
+}
+
 
 class IntervalPriceDecoder:
     BASE_YEAR = 2000
@@ -186,7 +192,7 @@ def write_metadata(country_code: str, binary_file: Path, records: list[tuple[dat
     metadata = {
         "country": {
             "code": country_code,
-            "name": "Austria",
+            "name": COUNTRY_NAMES.get(country_code, country_code),
         },
         "data_coverage": {
             "total_records": len(records),

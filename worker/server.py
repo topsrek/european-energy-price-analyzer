@@ -12,6 +12,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import subprocess
 import threading
 import time
@@ -32,6 +33,7 @@ DEFAULT_UPDATE_HOUR_LOCAL = 13
 DEFAULT_UPDATE_MINUTE_LOCAL = 7
 DEFAULT_COUNTRIES = "AT"
 MIN_UPDATE_INTERVAL_SECONDS = 6 * 60 * 60
+PUBLIC_BINARY_PATH_RE = re.compile(r"^/[a-z0-9-]+_electricity_prices(?:_backup|_15min)?\.bin$")
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -78,12 +80,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self) -> None:
         path = self.normalized_path()
-        if path in {
-            "/at_electricity_prices.bin",
-            "/at_electricity_prices_backup.bin",
-            "/at_electricity_prices_15min.bin",
-        }:
-            self.send_file(ROOT / "public" / path.lstrip("/"), "application/octet-stream", head_only=True)
+        public_binary = resolve_public_binary_path(path)
+        if public_binary:
+            self.send_file(public_binary, "application/octet-stream", head_only=True)
             return
 
         if path in {"/health", "/geoip", "/data-manifest", "/data-freshness"}:
@@ -116,12 +115,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(load_data_manifest())
             return
 
-        if path in {
-            "/at_electricity_prices.bin",
-            "/at_electricity_prices_backup.bin",
-            "/at_electricity_prices_15min.bin",
-        }:
-            self.send_file(ROOT / "public" / path.lstrip("/"), "application/octet-stream")
+        public_binary = resolve_public_binary_path(path)
+        if public_binary:
+            self.send_file(public_binary, "application/octet-stream")
             return
 
         self.send_static()
@@ -297,6 +293,17 @@ def first_nonempty(*values: Any) -> str | None:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def resolve_public_binary_path(path: str) -> Path | None:
+    if not PUBLIC_BINARY_PATH_RE.match(path):
+        return None
+
+    candidate = ROOT / "public" / path.lstrip("/")
+    if not candidate.exists() or not candidate.is_file():
+        return None
+
+    return candidate
 
 
 def load_data_manifest() -> dict[str, Any]:

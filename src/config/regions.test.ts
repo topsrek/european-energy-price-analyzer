@@ -18,6 +18,8 @@ describe('regions', () => {
   it('resolves known country routes', () => {
     expect(getRegionByCode('at')?.appCode).toBe('EEPA-AT');
     expect(getRegionByCode('AT')?.appCode).toBe('EEPA-AT');
+    expect(getRegionByCode('de-lu')?.appCode).toBe('EEPA-DE-LU');
+    expect(getRegionByCode('fr')?.appCode).toBe('EEPA-FR');
     expect(getRegionByCode('unknown')).toBeUndefined();
   });
 
@@ -29,6 +31,16 @@ describe('regions', () => {
 
   it('falls back to the default region from browser data', () => {
     expect(guessRegionFromBrowser()).toEqual(defaultRegion);
+  });
+
+  it('maps Luxembourg GeoIP to the DE-LU region', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ country_code: 'LU' }),
+    })));
+
+    const detected = await detectRegionFromGeoIp('/geoip.json');
+    expect(detected?.code).toBe('de-lu');
   });
 
   it('detects a region from a configured GeoIP response', async () => {

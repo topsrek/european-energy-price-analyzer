@@ -4,13 +4,15 @@ import Header from './Header';
 import { RegionConfig } from '@/config/regions';
 
 interface AppHeaderProps {
-  region: RegionConfig;
+  title: string;
+  region?: RegionConfig;
+  isComparison?: boolean;
 }
 
-const AppHeader = ({ region }: AppHeaderProps) => {
+const AppHeader = ({ title, region, isComparison = false }: AppHeaderProps) => {
   return (
     <div className="relative w-full bg-background">
-      <Header region={region} />
+      <Header title={title} region={region} isComparison={isComparison} />
     </div>
   );
 };

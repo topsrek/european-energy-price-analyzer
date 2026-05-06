@@ -5,6 +5,16 @@ export interface EnergyPrice {
   unit: 'EUR_MWh' | 'cent_kWh';
 }
 
+export type DataResolution = 'hourly' | 'interval';
+
+export interface ComparisonSeries {
+  id: string;
+  label: string;
+  shortLabel?: string;
+  color: string;
+  energyPrices: EnergyPrice[];
+}
+
 export interface SmartMeterData {
   timestamp: string; // ISO string
   consumption: number; // Consumption in kWh

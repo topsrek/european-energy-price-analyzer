@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, BarChart3 } from 'lucide-react';
+import { ArrowRight, BarChart3, GitCompareArrows } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import RegionFlag from '@/components/RegionFlag';
 import {
   detectRegionFromGeoIp,
   getInitialRegion,
@@ -16,6 +17,10 @@ const Home = () => {
   const navigate = useNavigate();
   const initialRegion = useMemo(() => getInitialRegion(), []);
   const [suggestedRegion, setSuggestedRegion] = useState(initialRegion);
+  const availableRegions = useMemo(
+    () => regions.filter((region) => region.dataStatus === 'available'),
+    []
+  );
 
   useEffect(() => {
     const storedRegion = getStoredRegion();
@@ -57,11 +62,14 @@ const Home = () => {
           <section className="space-y-4">
             <h2 className="text-2xl font-semibold">Choose a country</h2>
             <div className="grid gap-3 md:grid-cols-2">
-              {regions.map((region) => (
+              {availableRegions.map((region) => (
                 <Card key={region.code} className="rounded-lg">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center justify-between text-lg">
-                      {region.localName}
+                      <span className="flex min-w-0 items-center gap-3">
+                        <RegionFlag flagCodes={region.flagCodes} className="h-5 w-7" />
+                        <span className="truncate">{region.localName}</span>
+                      </span>
                       <span className="text-sm font-normal text-muted-foreground">{region.appCode}</span>
                     </CardTitle>
                   </CardHeader>
@@ -86,6 +94,25 @@ const Home = () => {
                   </CardContent>
                 </Card>
               ))}
+              <Card className="rounded-lg">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-3 text-lg">
+                    <GitCompareArrows className="h-5 w-5" />
+                    Regionenvergleich
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Mehrere Stromregionen direkt im selben Chart vergleichen, mit gemeinsamer Einheit, Auflösung und Zeitraum.
+                  </p>
+                  <Button asChild variant="outline" className="w-full">
+                    <Link to="/compare">
+                      Vergleich öffnen
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
             </div>
           </section>
           <aside className="space-y-4">
