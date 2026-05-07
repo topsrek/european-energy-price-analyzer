@@ -10,7 +10,7 @@ import ContractOptions from '@/components/ContractOptions';
 import InfoModal from '@/components/InfoModal';
 import HelpModal from '@/components/HelpModal';
 import { AveragingOption, ContractOption, DataResolution, EnergyPrice, FilterOptions as FilterOptionsType, SmartMeterData } from '@/types/energy-data';
-import { applyFilters, calculateAverage, convertEnergyPriceUnit, filterByDateRange } from '@/utils/data-utils';
+import { applyFilters, calculateAverage, convertEnergyPriceUnit, filterByDateRange, generateDemoSmartMeterData } from '@/utils/data-utils';
 import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -100,14 +100,38 @@ const isCachedDataFresh = async (
 const Index = ({ region }: IndexProps) => {
   const { toast } = useToast();
   const toastRef = useRef(toast);
-  const [startDate, setStartDate] = useState<Date | null>(null);
-  const [endDate, setEndDate] = useState<Date | null>(new Date());
-  const [isAveragingEnabled, setIsAveragingEnabled] = useState<boolean>(false);
-  const [averaging, setAveraging] = useState<AveragingOption>('daily-cycle');
-  const [filters, setFilters] = useState<FilterOptionsType>({
-    months: Array.from({ length: 12 }, (_, i) => i), // All months
-    weekdays: Array.from({ length: 7 }, (_, i) => i), // All days
-    hours: Array.from({ length: 24 }, (_, i) => i), // All hours
+  
+  // Read initial state from URL
+  const initialParams = useMemo(() => {
+    if (typeof window === 'undefined') return new URLSearchParams();
+    return new URLSearchParams(window.location.search);
+  }, []);
+
+  const [startDate, setStartDate] = useState<Date | null>(() => {
+    const start = initialParams.get('start');
+    return start ? new Date(start) : null;
+  });
+  const [endDate, setEndDate] = useState<Date | null>(() => {
+    const end = initialParams.get('end');
+    return end ? new Date(end) : new Date();
+  });
+  const [isAveragingEnabled, setIsAveragingEnabled] = useState<boolean>(() => initialParams.has('avg'));
+  const [averaging, setAveraging] = useState<AveragingOption>(() => (initialParams.get('avg') as AveragingOption) || 'daily-cycle');
+  
+  const [filters, setFilters] = useState<FilterOptionsType>(() => {
+    const f_m = initialParams.get('f_m')?.split(',').map(Number);
+    const f_wd = initialParams.get('f_wd')?.split(',').map(Number);
+    const f_h = initialParams.get('f_h')?.split(',').map(Number);
+    const f_dm = initialParams.get('f_dm')?.split(',').map(Number);
+    const f_w = initialParams.get('f_w')?.split(',').map(Number);
+
+    return {
+      months: f_m || Array.from({ length: 12 }, (_, i) => i),
+      weekdays: f_wd || Array.from({ length: 7 }, (_, i) => i),
+      hours: f_h || Array.from({ length: 24 }, (_, i) => i),
+      daysOfMonth: f_dm || Array.from({ length: 31 }, (_, i) => i + 1),
+      weeksOfYear: f_w || Array.from({ length: 53 }, (_, i) => i + 1),
+    };
   });
   const [rawEnergyPrices, setRawEnergyPrices] = useState<EnergyPrice[]>([]);
   const [displayedEnergyPrices, setDisplayedEnergyPrices] = useState<EnergyPrice[]>([]);
@@ -223,7 +247,7 @@ const Index = ({ region }: IndexProps) => {
     let isMounted = true;
 
     const setDateRangeFromData = (data: EnergyPrice[]) => {
-      if (!data.length) return;
+      if (!data.length || startDate || (endDate && endDate.toDateString() !== new Date().toDateString())) return;
 
       const timestamps = data.map((record) => new Date(record.timestamp).getTime());
       const earliest = new Date(Math.min(...timestamps));
@@ -364,6 +388,29 @@ const Index = ({ region }: IndexProps) => {
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
     window.history.replaceState({}, '', nextUrl);
   }, [dataResolution, priceUnit, yMin, yMax]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (isAveragingEnabled) {
+      params.set('avg', averaging);
+    } else {
+      params.delete('avg');
+    }
+    
+    // Serialize filters
+    if (filters.months.length < 12) params.set('f_m', filters.months.join(',')); else params.delete('f_m');
+    if (filters.weekdays.length < 7) params.set('f_wd', filters.weekdays.join(',')); else params.delete('f_wd');
+    if (filters.hours.length < 24) params.set('f_h', filters.hours.join(',')); else params.delete('f_h');
+    if (filters.daysOfMonth.length < 31) params.set('f_dm', filters.daysOfMonth.join(',')); else params.delete('f_dm');
+    if (filters.weeksOfYear.length < 53) params.set('f_w', filters.weeksOfYear.join(',')); else params.delete('f_w');
+
+    if (startDate) params.set('start', startDate.toISOString().split('T')[0]); else params.delete('start');
+    if (endDate) params.set('end', endDate.toISOString().split('T')[0]); else params.delete('end');
+
+    const search = params.toString();
+    const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }, [isAveragingEnabled, averaging, filters, startDate, endDate]);
   
   // Process data whenever filters or date range changes
   useEffect(() => {
@@ -409,6 +456,18 @@ const Index = ({ region }: IndexProps) => {
     setSmartMeterData(data);
     setShowSmartMeterData(true);
   }, []);
+
+  const handleLoadDemoData = () => {
+    if (rawEnergyPrices.length > 0) {
+      const demoData = generateDemoSmartMeterData(rawEnergyPrices);
+      setSmartMeterData(demoData);
+      setShowSmartMeterData(true);
+      toast({
+        title: 'Demo-Daten geladen',
+        description: 'Ein beispielhaftes Verbrauchsprofil wurde generiert.',
+      });
+    }
+  };
   
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -710,9 +769,15 @@ const Index = ({ region }: IndexProps) => {
                   <div className="p-4">
                     <div className="bg-muted rounded-lg p-4 mb-6 text-center">
                       <h3 className="text-lg font-medium mb-2">Smart Meter Daten Upload</h3>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-muted-foreground mb-4">
                         Diese Funktion wird auf Anfrage implementiert
                       </p>
+                      {/* Demo Mode Button - Hidden for now as per instructions */}
+                      {/* 
+                      <Button onClick={handleLoadDemoData} variant="outline" size="sm">
+                        Demo-Daten laden
+                      </Button>
+                      */}
                     </div>
                     <div className="opacity-50 pointer-events-none">
                       <h3 className="text-lg font-medium mb-4">Smart Meter Daten hochladen</h3>

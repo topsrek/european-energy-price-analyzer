@@ -7,6 +7,7 @@ import Index from './pages/Index';
 import NotFound from './pages/NotFound';
 import { Toaster } from '@/components/ui/toaster';
 import { getRegionByCode } from '@/config/regions';
+import OnboardingTour from '@/components/OnboardingTour';
 
 const RegionRoute = () => {
   const { regionCode } = useParams();
@@ -29,6 +30,7 @@ function App() {
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Toaster />
+      <OnboardingTour />
     </Router>
   );
 }

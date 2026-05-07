@@ -87,3 +87,13 @@ export const parseRegionCodesQueryParam = (
     .map((code) => code.trim().toLowerCase() as RegionCode)
     .filter((code, index, array) => supported.has(code) && array.indexOf(code) === index);
 };
+
+export const serializeCommaSeparatedNumbers = (values: number[]) => values.join(',');
+
+export const parseCommaSeparatedNumbers = (value: string | null): number[] | null => {
+  if (!value) return null;
+  return value
+    .split(',')
+    .map((v) => Number(v.trim()))
+    .filter((v) => !Number.isNaN(v));
+};

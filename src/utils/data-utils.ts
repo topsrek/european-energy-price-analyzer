@@ -114,21 +114,29 @@ export const filterByDateRange = (
   });
 };
 
-// Filter data by month, weekday, hour
+import { format, getHours, getISOWeek, getMonth, getDay, getDate } from 'date-fns';
+
+// ... (keep previous imports and functions)
+
+// Filter data by month, weekday, hour, day of month, week of year
 export const applyFilters = (
   data: EnergyPrice[], 
   filters: FilterOptions
 ): EnergyPrice[] => {
   return data.filter(item => {
     const date = new Date(item.timestamp);
-    const month = date.getMonth();
-    const weekday = date.getDay();
-    const hour = date.getHours();
+    const month = getMonth(date);
+    const weekday = getDay(date);
+    const hour = getHours(date);
+    const dayOfMonth = getDate(date);
+    const weekOfYear = getISOWeek(date);
     
     return (
       filters.months.includes(month) &&
       filters.weekdays.includes(weekday) &&
-      filters.hours.includes(hour)
+      filters.hours.includes(hour) &&
+      (!filters.daysOfMonth || filters.daysOfMonth.length === 0 || filters.daysOfMonth.includes(dayOfMonth)) &&
+      (!filters.weeksOfYear || filters.weeksOfYear.length === 0 || filters.weeksOfYear.includes(weekOfYear))
     );
   });
 };
@@ -254,4 +262,34 @@ export const calculateTotalCost = (
     
     return total + (data.consumption * pricePerKWh);
   }, 0);
+};
+
+export const generateDemoSmartMeterData = (prices: EnergyPrice[]): SmartMeterData[] => {
+  // Generate a plausible consumption profile based on time of day
+  // Morning peak (7-9), Evening peak (17-21)
+  return prices.map(price => {
+    const date = new Date(price.timestamp);
+    const hour = date.getHours();
+    
+    // Base consumption (fridge, standby, etc.)
+    let consumption = 0.1 + Math.random() * 0.05;
+    
+    // Morning peak
+    if (hour >= 7 && hour <= 9) {
+      consumption += 0.3 + Math.random() * 0.4;
+    }
+    // Cooking / Evening peak
+    else if (hour >= 17 && hour <= 21) {
+      consumption += 0.4 + Math.random() * 0.6;
+    }
+    // Night
+    else if (hour >= 23 || hour <= 5) {
+      consumption = 0.05 + Math.random() * 0.05;
+    }
+    
+    return {
+      timestamp: price.timestamp,
+      consumption: Number(consumption.toFixed(3))
+    };
+  });
 };

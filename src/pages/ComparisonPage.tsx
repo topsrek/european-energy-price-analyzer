@@ -113,6 +113,8 @@ const ComparisonPage = () => {
     months: Array.from({ length: 12 }, (_, i) => i),
     weekdays: Array.from({ length: 7 }, (_, i) => i),
     hours: Array.from({ length: 24 }, (_, i) => i),
+    daysOfMonth: Array.from({ length: 31 }, (_, i) => i + 1),
+    weeksOfYear: Array.from({ length: 53 }, (_, i) => i + 1),
   });
   const [isLoadingPriceData, setIsLoadingPriceData] = useState(true);
   const [dataResolution, setDataResolution] = useState<DataResolution>(readInitialDataResolution);
@@ -132,6 +134,7 @@ const ComparisonPage = () => {
   const [displayDisclosureOpen, setDisplayDisclosureOpen] = useState(false);
   const [scaleDisclosureOpen, setScaleDisclosureOpen] = useState(false);
   const [analysisDisclosureOpen, setAnalysisDisclosureOpen] = useState(false);
+  const [showDelta, setShowDelta] = useState(false);
   const [seriesByRegion, setSeriesByRegion] = useState<Partial<Record<RegionCode, EnergyPrice[]>>>({});
   const [seriesErrors, setSeriesErrors] = useState<Partial<Record<RegionCode, string>>>({});
   const [earliestAvailableDate, setEarliestAvailableDate] = useState<Date | null>(null);
@@ -148,7 +151,7 @@ const ComparisonPage = () => {
   );
 
   const displayedSeries = useMemo<ComparisonSeries[]>(() => {
-    return selectedRegions
+    const baseSeries = selectedRegions
       .map((region) => {
         const rawSeries = seriesByRegion[region.code] ?? [];
         if (!rawSeries.length) return null;
@@ -170,7 +173,37 @@ const ComparisonPage = () => {
         return series;
       })
       .filter((series): series is ComparisonSeries => series !== null);
-  }, [averaging, endDate, filters, isAveragingEnabled, priceUnit, selectedRegions, seriesByRegion, startDate]);
+
+    if (showDelta && baseSeries.length >= 2) {
+      const [seriesA, ...others] = baseSeries;
+      
+      return [
+        seriesA,
+        ...others.map(seriesB => {
+          const deltaPrices: EnergyPrice[] = [];
+          const mapA = new Map(seriesA.energyPrices.map(p => [p.timestamp, p.price]));
+          
+          seriesB.energyPrices.forEach(pB => {
+            const pA = mapA.get(pB.timestamp);
+            if (pA !== undefined) {
+              deltaPrices.push({
+                ...pB,
+                price: pB.price - pA
+              });
+            }
+          });
+
+          return {
+            ...seriesB,
+            label: `${seriesB.label} - ${seriesA.shortLabel}`,
+            energyPrices: deltaPrices,
+          };
+        })
+      ];
+    }
+
+    return baseSeries;
+  }, [averaging, endDate, filters, isAveragingEnabled, priceUnit, selectedRegions, seriesByRegion, startDate, showDelta]);
 
   const handleCheckedChange =
     (setter: Dispatch<SetStateAction<boolean>>) => (checked: CheckedState) => {
@@ -476,6 +509,16 @@ const ComparisonPage = () => {
                         />
                         <Label htmlFor="compare-average-line" className="text-sm">Zeige Mittelwert</Label>
                       </div>
+                      {selectedRegionCodes.length >= 2 && (
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="compare-delta"
+                            checked={showDelta}
+                            onCheckedChange={handleCheckedChange(setShowDelta)}
+                          />
+                          <Label htmlFor="compare-delta" className="text-sm font-bold">Differenz-Modus (Δ)</Label>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -34,6 +34,8 @@ export type FilterOptions = {
   months: number[]; // 0-11 (January to December)
   weekdays: number[]; // 0-6 (Sunday to Saturday)
   hours: number[]; // 0-23
+  daysOfMonth: number[]; // 1-31
+  weeksOfYear: number[]; // 1-53
 };
 
 export interface ChartData {
