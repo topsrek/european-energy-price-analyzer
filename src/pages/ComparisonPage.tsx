@@ -104,37 +104,63 @@ const readInitialSelectedRegions = (): RegionCode[] => {
 const ComparisonPage = () => {
   const { toast } = useToast();
   const toastRef = useRef(toast);
-  const [selectedRegionCodes, setSelectedRegionCodes] = useState<RegionCode[]>(readInitialSelectedRegions);
-  const [startDate, setStartDate] = useState<Date | null>(null);
-  const [endDate, setEndDate] = useState<Date | null>(new Date());
-  const [isAveragingEnabled, setIsAveragingEnabled] = useState(false);
-  const [averaging, setAveraging] = useState<AveragingOption>('daily-cycle');
-  const [filters, setFilters] = useState<FilterOptionsType>({
-    months: Array.from({ length: 12 }, (_, i) => i),
-    weekdays: Array.from({ length: 7 }, (_, i) => i),
-    hours: Array.from({ length: 24 }, (_, i) => i),
-    daysOfMonth: Array.from({ length: 31 }, (_, i) => i + 1),
-    weeksOfYear: Array.from({ length: 53 }, (_, i) => i + 1),
+
+  // Read initial state from URL
+  const initialParams = useMemo(() => {
+    if (typeof window === 'undefined') return new URLSearchParams();
+    return new URLSearchParams(window.location.search);
+  }, []);
+
+  const [selectedRegionCodes, setSelectedRegionCodes] = useState<RegionCode[]>(() => {
+    return parseRegionCodesQueryParam(
+      initialParams.get('regions'),
+      availableRegions.map((region) => region.code)
+    ) || availableRegions.map((region) => region.code);
   });
+
+  const [startDate, setStartDate] = useState<Date | null>(() => {
+    const start = initialParams.get('start');
+    return start ? new Date(start) : null;
+  });
+  const [endDate, setEndDate] = useState<Date | null>(() => {
+    const end = initialParams.get('end');
+    return end ? new Date(end) : new Date();
+  });
+  const [isAveragingEnabled, setIsAveragingEnabled] = useState(() => initialParams.has('avg'));
+  const [averaging, setAveraging] = useState<AveragingOption>(() => (initialParams.get('avg') as AveragingOption) || 'daily-cycle');
+  
+  const [filters, setFilters] = useState<FilterOptionsType>(() => {
+    const f_m = initialParams.get('f_m')?.split(',').map(Number);
+    const f_wd = initialParams.get('f_wd')?.split(',').map(Number);
+    const f_h = initialParams.get('f_h')?.split(',').map(Number);
+    const f_dm = initialParams.get('f_dm')?.split(',').map(Number);
+    const f_w = initialParams.get('f_w')?.split(',').map(Number);
+
+    return {
+      months: f_m || Array.from({ length: 12 }, (_, i) => i),
+      weekdays: f_wd || Array.from({ length: 7 }, (_, i) => i),
+      hours: f_h || Array.from({ length: 24 }, (_, i) => i),
+      daysOfMonth: f_dm || Array.from({ length: 31 }, (_, i) => i + 1),
+      weeksOfYear: f_w || Array.from({ length: 53 }, (_, i) => i + 1),
+    };
+  });
+
   const [isLoadingPriceData, setIsLoadingPriceData] = useState(true);
   const [dataResolution, setDataResolution] = useState<DataResolution>(readInitialDataResolution);
   const [priceUnit, setPriceUnit] = useState<PriceUnit>(readInitialPriceUnit);
-  const [showZeroLine, setShowZeroLine] = useState(DEFAULT_SHOW_ZERO_LINE);
-  const [showAverageLine, setShowAverageLine] = useState(DEFAULT_SHOW_AVERAGE_LINE);
-  const [yMinInput, setYMinInput] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    return window.location.search ? (new URLSearchParams(window.location.search).get('yMin') ?? '') : '';
+  const [showZeroLine, setShowZeroLine] = useState(() => initialParams.get('z') === '1');
+  const [showAverageLine, setShowAverageLine] = useState(() => initialParams.get('a') === '1');
+  const [yMinInput, setYMinInput] = useState<string>(() => initialParams.get('yMin') ?? '');
+  const [yMaxInput, setYMaxInput] = useState<string>(() => initialParams.get('yMax') ?? '');
+  const [cutoffEnabled, setCutoffEnabled] = useState(() => initialParams.get('c') === '1');
+  const [cutoffValue, setCutoffValue] = useState<number | null>(() => {
+    const cv = initialParams.get('cv');
+    return cv ? Number(cv) : null;
   });
-  const [yMaxInput, setYMaxInput] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    return window.location.search ? (new URLSearchParams(window.location.search).get('yMax') ?? '') : '';
-  });
-  const [cutoffEnabled, setCutoffEnabled] = useState(false);
-  const [cutoffValue, setCutoffValue] = useState<number | null>(null);
   const [displayDisclosureOpen, setDisplayDisclosureOpen] = useState(false);
   const [scaleDisclosureOpen, setScaleDisclosureOpen] = useState(false);
   const [analysisDisclosureOpen, setAnalysisDisclosureOpen] = useState(false);
-  const [showDelta, setShowDelta] = useState(false);
+  const [showDelta, setShowDelta] = useState(() => initialParams.get('delta') === '1');
   const [seriesByRegion, setSeriesByRegion] = useState<Partial<Record<RegionCode, EnergyPrice[]>>>({});
   const [seriesErrors, setSeriesErrors] = useState<Partial<Record<RegionCode, string>>>({});
   const [earliestAvailableDate, setEarliestAvailableDate] = useState<Date | null>(null);
@@ -275,10 +301,45 @@ const ComparisonPage = () => {
     if (serializedYMax === null) params.delete('yMax');
     else params.set('yMax', serializedYMax);
 
+    // Grid, Cutoff, Delta
+    if (showZeroLine) params.set('z', '1'); else params.delete('z');
+    if (showAverageLine) params.set('a', '1'); else params.delete('a');
+    if (showDelta) params.set('delta', '1'); else params.delete('delta');
+    if (cutoffEnabled) {
+      params.set('c', '1');
+      if (cutoffValue !== null) params.set('cv', cutoffValue.toString());
+    } else {
+      params.delete('c');
+      params.delete('cv');
+    }
+
     const search = params.toString();
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
     window.history.replaceState({}, '', nextUrl);
-  }, [dataResolution, priceUnit, selectedRegionCodes, yMin, yMax]);
+  }, [dataResolution, priceUnit, selectedRegionCodes, yMin, yMax, showZeroLine, showAverageLine, showDelta, cutoffEnabled, cutoffValue]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (isAveragingEnabled) {
+      params.set('avg', averaging);
+    } else {
+      params.delete('avg');
+    }
+    
+    // Serialize filters
+    if (filters.months.length < 12) params.set('f_m', filters.months.join(',')); else params.delete('f_m');
+    if (filters.weekdays.length < 7) params.set('f_wd', filters.weekdays.join(',')); else params.delete('f_wd');
+    if (filters.hours.length < 24) params.set('f_h', filters.hours.join(',')); else params.delete('f_h');
+    if (filters.daysOfMonth.length < 31) params.set('f_dm', filters.daysOfMonth.join(',')); else params.delete('f_dm');
+    if (filters.weeksOfYear.length < 53) params.set('f_w', filters.weeksOfYear.join(',')); else params.delete('f_w');
+
+    if (startDate) params.set('start', startDate.toISOString().split('T')[0]); else params.delete('start');
+    if (endDate) params.set('end', endDate.toISOString().split('T')[0]); else params.delete('end');
+
+    const search = params.toString();
+    const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }, [isAveragingEnabled, averaging, filters, startDate, endDate]);
 
   useEffect(() => {
     let isMounted = true;

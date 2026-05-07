@@ -147,18 +147,21 @@ const Index = ({ region }: IndexProps) => {
   const [dataError, setDataError] = useState<string | null>(null);
   const [dataResolution, setDataResolution] = useState<DataResolution>(readInitialDataResolution);
   const [priceUnit, setPriceUnit] = useState<PriceUnit>(readInitialPriceUnit);
-  const [showZeroLine, setShowZeroLine] = useState(DEFAULT_SHOW_ZERO_LINE);
-  const [showAverageLine, setShowAverageLine] = useState(DEFAULT_SHOW_AVERAGE_LINE);
+  const [showZeroLine, setShowZeroLine] = useState(() => initialParams.get('z') === '1');
+  const [showAverageLine, setShowAverageLine] = useState(() => initialParams.get('a') === '1');
   const [yMinInput, setYMinInput] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
-    return window.location.search ? (new URLSearchParams(window.location.search).get('yMin') ?? '') : '';
+    return initialParams.get('yMin') ?? '';
   });
   const [yMaxInput, setYMaxInput] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
-    return window.location.search ? (new URLSearchParams(window.location.search).get('yMax') ?? '') : '';
+    return initialParams.get('yMax') ?? '';
   });
-  const [cutoffEnabled, setCutoffEnabled] = useState(false);
-  const [cutoffValue, setCutoffValue] = useState<number | null>(null);
+  const [cutoffEnabled, setCutoffEnabled] = useState(() => initialParams.get('c') === '1');
+  const [cutoffValue, setCutoffValue] = useState<number | null>(() => {
+    const cv = initialParams.get('cv');
+    return cv ? Number(cv) : null;
+  });
   const [displayDisclosureOpen, setDisplayDisclosureOpen] = useState(false);
   const [scaleDisclosureOpen, setScaleDisclosureOpen] = useState(false);
   const [analysisDisclosureOpen, setAnalysisDisclosureOpen] = useState(false);
@@ -395,6 +398,17 @@ const Index = ({ region }: IndexProps) => {
       params.set('avg', averaging);
     } else {
       params.delete('avg');
+    }
+    
+    // Grid and Cutoff
+    if (showZeroLine) params.set('z', '1'); else params.delete('z');
+    if (showAverageLine) params.set('a', '1'); else params.delete('a');
+    if (cutoffEnabled) {
+      params.set('c', '1');
+      if (cutoffValue !== null) params.set('cv', cutoffValue.toString());
+    } else {
+      params.delete('c');
+      params.delete('cv');
     }
     
     // Serialize filters
