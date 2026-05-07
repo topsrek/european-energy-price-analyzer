@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { ArrowUpRight, Loader2 } from 'lucide-react';
 import AppHeader from '@/components/AppHeader';
 import ComparisonInfoModal from '@/components/ComparisonInfoModal';
@@ -105,36 +105,53 @@ const ComparisonPage = () => {
   const { toast } = useToast();
   const toastRef = useRef(toast);
 
-  // Read initial state from URL
-  const initialParams = useMemo(() => {
-    if (typeof window === 'undefined') return new URLSearchParams();
-    return new URLSearchParams(window.location.search);
-  }, []);
-
   const [selectedRegionCodes, setSelectedRegionCodes] = useState<RegionCode[]>(() => {
+    if (typeof window === 'undefined') return availableRegions.map((region) => region.code);
+    const params = new URLSearchParams(window.location.search);
     return parseRegionCodesQueryParam(
-      initialParams.get('regions'),
+      params.get('regions'),
       availableRegions.map((region) => region.code)
     ) || availableRegions.map((region) => region.code);
   });
 
   const [startDate, setStartDate] = useState<Date | null>(() => {
-    const start = initialParams.get('start');
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    const start = params.get('start');
     return start ? new Date(start) : null;
   });
   const [endDate, setEndDate] = useState<Date | null>(() => {
-    const end = initialParams.get('end');
+    if (typeof window === 'undefined') return new Date();
+    const params = new URLSearchParams(window.location.search);
+    const end = params.get('end');
     return end ? new Date(end) : new Date();
   });
-  const [isAveragingEnabled, setIsAveragingEnabled] = useState(() => initialParams.has('avg'));
-  const [averaging, setAveraging] = useState<AveragingOption>(() => (initialParams.get('avg') as AveragingOption) || 'daily-cycle');
+  const [isAveragingEnabled, setIsAveragingEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).has('avg');
+  });
+  const [averaging, setAveraging] = useState<AveragingOption>(() => {
+    if (typeof window === 'undefined') return 'daily-cycle';
+    return (new URLSearchParams(window.location.search).get('avg') as AveragingOption) || 'daily-cycle';
+  });
   
   const [filters, setFilters] = useState<FilterOptionsType>(() => {
-    const f_m = initialParams.get('f_m')?.split(',').map(Number);
-    const f_wd = initialParams.get('f_wd')?.split(',').map(Number);
-    const f_h = initialParams.get('f_h')?.split(',').map(Number);
-    const f_dm = initialParams.get('f_dm')?.split(',').map(Number);
-    const f_w = initialParams.get('f_w')?.split(',').map(Number);
+    if (typeof window === 'undefined') {
+      return {
+        months: Array.from({ length: 12 }, (_, i) => i),
+        weekdays: Array.from({ length: 7 }, (_, i) => i),
+        hours: Array.from({ length: 24 }, (_, i) => i),
+        daysOfMonth: Array.from({ length: 31 }, (_, i) => i + 1),
+        weeksOfYear: Array.from({ length: 53 }, (_, i) => i + 1),
+      };
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const f_m = params.get('f_m')?.split(',').map(Number);
+    const f_wd = params.get('f_wd')?.split(',').map(Number);
+    const f_h = params.get('f_h')?.split(',').map(Number);
+    const f_dm = params.get('f_dm')?.split(',').map(Number);
+    const f_w = params.get('f_w')?.split(',').map(Number);
 
     return {
       months: f_m || Array.from({ length: 12 }, (_, i) => i),
@@ -148,19 +165,43 @@ const ComparisonPage = () => {
   const [isLoadingPriceData, setIsLoadingPriceData] = useState(true);
   const [dataResolution, setDataResolution] = useState<DataResolution>(readInitialDataResolution);
   const [priceUnit, setPriceUnit] = useState<PriceUnit>(readInitialPriceUnit);
-  const [showZeroLine, setShowZeroLine] = useState(() => initialParams.get('z') === '1');
-  const [showAverageLine, setShowAverageLine] = useState(() => initialParams.get('a') === '1');
-  const [yMinInput, setYMinInput] = useState<string>(() => initialParams.get('yMin') ?? '');
-  const [yMaxInput, setYMaxInput] = useState<string>(() => initialParams.get('yMax') ?? '');
-  const [cutoffEnabled, setCutoffEnabled] = useState(() => initialParams.get('c') === '1');
+  const [showZeroLine, setShowZeroLine] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('z') === '1';
+  });
+
+  const [showAverageLine, setShowAverageLine] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('a') === '1';
+  });
+
+  const [yMinInput, setYMinInput] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('yMin') ?? '';
+  });
+
+  const [yMaxInput, setYMaxInput] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('yMax') ?? '';
+  });
+
+  const [cutoffEnabled, setCutoffEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('c') === '1';
+  });
+
   const [cutoffValue, setCutoffValue] = useState<number | null>(() => {
-    const cv = initialParams.get('cv');
+    if (typeof window === 'undefined') return null;
+    const cv = new URLSearchParams(window.location.search).get('cv');
     return cv ? Number(cv) : null;
   });
   const [displayDisclosureOpen, setDisplayDisclosureOpen] = useState(false);
   const [scaleDisclosureOpen, setScaleDisclosureOpen] = useState(false);
   const [analysisDisclosureOpen, setAnalysisDisclosureOpen] = useState(false);
-  const [showDelta, setShowDelta] = useState(() => initialParams.get('delta') === '1');
+  const [showDelta, setShowDelta] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('delta') === '1';
+  });
   const [seriesByRegion, setSeriesByRegion] = useState<Partial<Record<RegionCode, EnergyPrice[]>>>({});
   const [seriesErrors, setSeriesErrors] = useState<Partial<Record<RegionCode, string>>>({});
   const [earliestAvailableDate, setEarliestAvailableDate] = useState<Date | null>(null);
