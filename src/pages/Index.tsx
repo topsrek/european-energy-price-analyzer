@@ -862,6 +862,16 @@ const Index = ({ region }: IndexProps) => {
           </div>
           <VersionInfo />
         </div>
+        <div className="container mx-auto px-4 mt-4 flex justify-center gap-6 text-sm">
+          <Link to={`/${regionCode}/faqs`} className="text-primary hover:underline flex items-center gap-1">
+            <Lightbulb className="h-4 w-4" />
+            Wissen & FAQs
+          </Link>
+          <Link to="/compare" className="text-primary hover:underline flex items-center gap-1">
+            <TrendingDown className="h-4 w-4" />
+            Regionen vergleichen
+          </Link>
+        </div>
       </footer>
     </div>
   );
