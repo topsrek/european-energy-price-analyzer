@@ -41,6 +41,7 @@ import {
   serializeUnitQueryParam,
 } from '@/utils/analyzer-state';
 import { getQuickRangeDates } from '@/utils/date-range-presets';
+import { formatLocalDateForQuery } from '@/utils/local-date';
 import { safeStorageSetItem } from '@/lib/safe-storage';
 
 interface IndexProps {
@@ -447,8 +448,8 @@ const Index = ({ region }: IndexProps) => {
     if (filters.daysOfMonth.length < 31) params.set('f_dm', filters.daysOfMonth.join(',')); else params.delete('f_dm');
     if (filters.weeksOfYear.length < 53) params.set('f_w', filters.weeksOfYear.join(',')); else params.delete('f_w');
 
-    if (startDate) params.set('start', startDate.toISOString().split('T')[0]); else params.delete('start');
-    if (endDate) params.set('end', endDate.toISOString().split('T')[0]); else params.delete('end');
+    if (startDate) params.set('start', formatLocalDateForQuery(startDate)); else params.delete('start');
+    if (endDate) params.set('end', formatLocalDateForQuery(endDate)); else params.delete('end');
 
     const search = params.toString();
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
