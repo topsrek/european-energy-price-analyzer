@@ -27,12 +27,18 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST_ROOT = ROOT / "dist"
+DATA_ROOT = ROOT / "data"
+STATE_PATH = DATA_ROOT / "worker-state.json"
 DEFAULT_PORT = 49173
 DEFAULT_UPDATE_TIMEZONE = "Europe/Vienna"
 DEFAULT_UPDATE_HOUR_LOCAL = 13
 DEFAULT_UPDATE_MINUTE_LOCAL = 7
 DEFAULT_COUNTRIES = "AT"
-MIN_UPDATE_INTERVAL_SECONDS = 6 * 60 * 60
+SCHEDULER_POLL_SECONDS = 5 * 60
+DEFAULT_COMMAND_TIMEOUT_SECONDS = 25 * 60
+DEFAULT_COMMAND_RETRIES = 2
+COMMAND_RETRY_DELAYS_SECONDS = (60, 180)
+UPDATE_RETRY_DELAYS_SECONDS = (10 * 60, 20 * 60, 40 * 60, 60 * 60)
 PUBLIC_BINARY_PATH_RE = re.compile(r"^/[a-z0-9-]+_electricity_prices(?:_backup|_15min)?\.bin$")
 
 logging.basicConfig(
@@ -49,6 +55,12 @@ class WorkerState:
         self.last_update_finished_at: str | None = None
         self.last_update_ok: bool | None = None
         self.last_update_message: str | None = None
+        self.last_update_status: str = "idle"
+        self.last_update_reason: str | None = None
+        self.last_successful_update_finished_at: str | None = None
+        self.consecutive_update_failures = 0
+        self.next_retry_not_before: str | None = None
+        self._load()
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
@@ -57,19 +69,88 @@ class WorkerState:
                 "last_update_finished_at": self.last_update_finished_at,
                 "last_update_ok": self.last_update_ok,
                 "last_update_message": self.last_update_message,
+                "last_update_status": self.last_update_status,
+                "last_update_reason": self.last_update_reason,
+                "last_successful_update_finished_at": self.last_successful_update_finished_at,
+                "consecutive_update_failures": self.consecutive_update_failures,
+                "next_retry_not_before": self.next_retry_not_before,
             }
 
-    def mark_started(self) -> None:
+    def mark_started(self, reason: str) -> None:
         with self.lock:
             self.last_update_started_at = now_iso()
             self.last_update_ok = None
             self.last_update_message = "running"
+            self.last_update_status = "running"
+            self.last_update_reason = reason
+            self.next_retry_not_before = None
+            self._persist_locked()
 
-    def mark_finished(self, ok: bool, message: str) -> None:
+    def mark_finished(self, status: str, message: str, retry_after_seconds: int | None = None) -> None:
         with self.lock:
-            self.last_update_finished_at = now_iso()
-            self.last_update_ok = ok
+            finished_at = now_iso()
+            self.last_update_finished_at = finished_at
+            self.last_update_status = status
+            self.last_update_ok = status == "ok"
             self.last_update_message = message
+            if status == "ok":
+                self.last_successful_update_finished_at = finished_at
+                self.consecutive_update_failures = 0
+                self.next_retry_not_before = None
+            else:
+                self.consecutive_update_failures += 1
+                retry_delay = retry_after_seconds or retry_delay_seconds(self.consecutive_update_failures)
+                self.next_retry_not_before = iso_after_seconds(retry_delay)
+            self._persist_locked()
+
+    def is_running(self) -> bool:
+        with self.lock:
+            return self.last_update_status == "running"
+
+    def _load(self) -> None:
+        try:
+            payload = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except json.JSONDecodeError as exc:
+            logger.warning("Ignoring invalid worker state file %s: %s", STATE_PATH, exc)
+            return
+
+        self.last_update_started_at = as_optional_str(payload.get("last_update_started_at"))
+        self.last_update_finished_at = as_optional_str(payload.get("last_update_finished_at"))
+        self.last_update_ok = payload.get("last_update_ok") if isinstance(payload.get("last_update_ok"), bool) else None
+        self.last_update_message = as_optional_str(payload.get("last_update_message"))
+        self.last_update_status = as_optional_str(payload.get("last_update_status")) or "idle"
+        self.last_update_reason = as_optional_str(payload.get("last_update_reason"))
+        self.last_successful_update_finished_at = as_optional_str(payload.get("last_successful_update_finished_at"))
+        consecutive_failures = payload.get("consecutive_update_failures")
+        if isinstance(consecutive_failures, int) and consecutive_failures >= 0:
+            self.consecutive_update_failures = consecutive_failures
+        self.next_retry_not_before = as_optional_str(payload.get("next_retry_not_before"))
+        if self.last_update_status == "running":
+            self.last_update_status = "error"
+            self.last_update_ok = False
+            self.last_update_message = "interrupted by restart"
+
+    def _persist_locked(self) -> None:
+        DATA_ROOT.mkdir(parents=True, exist_ok=True)
+        tmp_path = STATE_PATH.with_suffix(".tmp")
+        payload = {
+            "last_update_started_at": self.last_update_started_at,
+            "last_update_finished_at": self.last_update_finished_at,
+            "last_update_ok": self.last_update_ok,
+            "last_update_message": self.last_update_message,
+            "last_update_status": self.last_update_status,
+            "last_update_reason": self.last_update_reason,
+            "last_successful_update_finished_at": self.last_successful_update_finished_at,
+            "consecutive_update_failures": self.consecutive_update_failures,
+            "next_retry_not_before": self.next_retry_not_before,
+        }
+        tmp_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(STATE_PATH)
 
 
 STATE = WorkerState()
@@ -256,6 +337,14 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def iso_after_seconds(seconds: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).replace(microsecond=0).isoformat()
+
+
+def as_optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 def resolve_geoip(headers: Any) -> dict[str, Any]:
     country = first_nonempty(
         headers.get("CF-IPCountry"),
@@ -348,6 +437,11 @@ def parse_timestamp(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def retry_delay_seconds(failure_count: int) -> int:
+    index = max(0, min(failure_count - 1, len(UPDATE_RETRY_DELAYS_SECONDS) - 1))
+    return UPDATE_RETRY_DELAYS_SECONDS[index]
+
+
 def update_timezone() -> ZoneInfo:
     timezone_name = os.getenv("UPDATE_TIMEZONE", DEFAULT_UPDATE_TIMEZONE)
     try:
@@ -373,33 +467,88 @@ def update_window(country_code: str) -> tuple[date, date]:
     return start_date, target_date
 
 
-def scheduler_loop() -> None:
-    last_run_monotonic = 0.0
-
-    while True:
-        update_hour = int(os.getenv("UPDATE_HOUR_LOCAL", str(DEFAULT_UPDATE_HOUR_LOCAL)))
-        update_minute = int(os.getenv("UPDATE_MINUTE_LOCAL", str(DEFAULT_UPDATE_MINUTE_LOCAL)))
-        now = datetime.now(update_timezone())
-        should_run = (
-            now.hour == update_hour
-            and update_minute <= now.minute < update_minute + 10
-        )
-        enough_time_elapsed = time.monotonic() - last_run_monotonic > MIN_UPDATE_INTERVAL_SECONDS
-
-        if should_run and enough_time_elapsed:
-            last_run_monotonic = time.monotonic()
-            run_update()
-
-        time.sleep(300)
-
-
-def run_update() -> None:
-    STATE.mark_started()
-    countries = [
+def countries_to_update() -> list[str]:
+    return [
         country.strip().upper()
         for country in os.getenv("COUNTRIES", DEFAULT_COUNTRIES).split(",")
         if country.strip()
     ]
+
+
+def expected_latest_date(now: datetime) -> date:
+    update_hour = int(os.getenv("UPDATE_HOUR_LOCAL", str(DEFAULT_UPDATE_HOUR_LOCAL)))
+    update_minute = int(os.getenv("UPDATE_MINUTE_LOCAL", str(DEFAULT_UPDATE_MINUTE_LOCAL)))
+    scheduled_time = now.replace(hour=update_hour, minute=update_minute, second=0, microsecond=0)
+    if now >= scheduled_time:
+        return now.date() + timedelta(days=1)
+    return now.date()
+
+
+def latest_data_date(country_code: str, resolution: str, tz: ZoneInfo) -> date | None:
+    latest_timestamp = get_latest_data_timestamp(country_code, resolution)
+    if not latest_timestamp:
+        return None
+    return parse_timestamp(latest_timestamp).astimezone(tz).date()
+
+
+def stale_country_details(now: datetime) -> list[str]:
+    tz = update_timezone()
+    expected_date = expected_latest_date(now)
+    details: list[str] = []
+
+    for country in countries_to_update():
+        hourly_date = latest_data_date(country, "hourly", tz)
+        interval_date = latest_data_date(country, "interval", tz)
+        if hourly_date is None or hourly_date < expected_date or interval_date is None or interval_date < expected_date:
+            details.append(
+                f"{country}(hourly={hourly_date or 'none'},interval={interval_date or 'none'},expected={expected_date})"
+            )
+
+    return details
+
+
+def next_retry_due(now_utc: datetime) -> bool:
+    snapshot = STATE.snapshot()
+    next_retry = as_optional_str(snapshot.get("next_retry_not_before"))
+    if not next_retry:
+        return True
+    return now_utc >= parse_timestamp(next_retry)
+
+
+def scheduler_loop() -> None:
+    while True:
+        now_local = datetime.now(update_timezone())
+        stale_details = stale_country_details(now_local)
+
+        if stale_details and next_retry_due(datetime.now(timezone.utc)) and not STATE.is_running():
+            expected_date = expected_latest_date(now_local)
+            reason = f"catch-up to {expected_date.isoformat()} for {', '.join(stale_details)}"
+            run_update(reason=reason, expected_date=expected_date)
+
+        time.sleep(SCHEDULER_POLL_SECONDS)
+
+
+def run_command(command: list[str], label: str) -> None:
+    timeout_seconds = int(os.getenv("UPDATE_COMMAND_TIMEOUT_SECONDS", str(DEFAULT_COMMAND_TIMEOUT_SECONDS)))
+    max_attempts = max(1, int(os.getenv("UPDATE_COMMAND_RETRIES", str(DEFAULT_COMMAND_RETRIES))))
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            logger.info("Running %s (attempt %s/%s): %s", label, attempt, max_attempts, " ".join(command))
+            subprocess.run(command, cwd=ROOT, check=True, timeout=timeout_seconds)
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            if attempt >= max_attempts:
+                raise
+
+            retry_delay = COMMAND_RETRY_DELAYS_SECONDS[min(attempt - 1, len(COMMAND_RETRY_DELAYS_SECONDS) - 1)]
+            logger.warning("%s failed on attempt %s/%s: %s. Retrying in %ss.", label, attempt, max_attempts, exc, retry_delay)
+            time.sleep(retry_delay)
+
+
+def run_update(*, reason: str, expected_date: date) -> None:
+    STATE.mark_started(reason)
+    countries = countries_to_update()
 
     try:
         for country in countries:
@@ -419,14 +568,21 @@ def run_update() -> None:
                 end_date.isoformat(),
             ]
             logger.info("Running daily update for %s from %s to %s", country, start_date, end_date)
-            subprocess.run(hourly_command, cwd=ROOT, check=True, timeout=60 * 30)
-            subprocess.run(interval_command, cwd=ROOT, check=True, timeout=60 * 30)
+            run_command(hourly_command, f"{country} hourly refresh")
+            run_command(interval_command, f"{country} interval refresh")
             time.sleep(30)
 
-        STATE.mark_finished(True, f"updated {','.join(countries)}")
+        remaining_stale = stale_country_details(datetime.now(update_timezone()))
+        if remaining_stale:
+            message = f"waiting for upstream data: {', '.join(remaining_stale)}"
+            logger.info("Update completed but data is still behind %s: %s", expected_date, remaining_stale)
+            STATE.mark_finished("pending", message)
+            return
+
+        STATE.mark_finished("ok", f"updated {','.join(countries)}")
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         logger.exception("Daily update failed")
-        STATE.mark_finished(False, str(exc))
+        STATE.mark_finished("error", str(exc))
 
 
 def main() -> None:

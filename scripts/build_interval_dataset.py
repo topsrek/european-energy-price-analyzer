@@ -35,6 +35,8 @@ METADATA_DIR = Path(__file__).parent / "data"
 BASE_URL = "https://api.energy-charts.info/price"
 FIRST_INTERVAL_DAY = date(2025, 10, 1)
 CHUNK_DAYS = 31
+REQUEST_TIMEOUT_SECONDS = 45
+REQUEST_RETRY_DELAYS_SECONDS = (5, 15, 30, 60)
 
 COUNTRY_NAMES = {
     "AT": "Austria",
@@ -120,6 +122,37 @@ def chunk_ranges(start_date: date, end_date: date, chunk_days: int = CHUNK_DAYS)
         current = chunk_end + timedelta(days=1)
 
 
+def fetch_chunk_payload(
+    session: requests.Session,
+    country_code: str,
+    chunk_start: date,
+    chunk_end: date,
+) -> dict:
+    url = f"{BASE_URL}?bzn={country_code}&start={chunk_start.isoformat()}&end={chunk_end.isoformat()}"
+
+    for attempt in range(1, len(REQUEST_RETRY_DELAYS_SECONDS) + 2):
+        try:
+            response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            return response.json()
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            if attempt > len(REQUEST_RETRY_DELAYS_SECONDS):
+                raise RuntimeError(
+                    f"Failed to download interval range {chunk_start} to {chunk_end} after {attempt} attempts"
+                ) from exc
+
+            retry_delay = REQUEST_RETRY_DELAYS_SECONDS[attempt - 1]
+            logger.warning(
+                "Interval download failed for %s to %s on attempt %s: %s. Retrying in %ss.",
+                chunk_start,
+                chunk_end,
+                attempt,
+                exc,
+                retry_delay,
+            )
+            time.sleep(retry_delay)
+
+
 def fetch_interval_records(country_code: str, start_date: date, end_date: date) -> list[tuple[datetime, float]]:
     session = requests.Session()
     session.headers.update(
@@ -134,13 +167,8 @@ def fetch_interval_records(country_code: str, start_date: date, end_date: date) 
     utc_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
 
     for chunk_start, chunk_end in chunk_ranges(start_date, end_date):
-        url = (
-            f"{BASE_URL}?bzn={country_code}&start={chunk_start.isoformat()}&end={chunk_end.isoformat()}"
-        )
         logger.info("Downloading interval range %s to %s", chunk_start, chunk_end)
-        response = session.get(url, timeout=60)
-        response.raise_for_status()
-        payload = response.json()
+        payload = fetch_chunk_payload(session, country_code, chunk_start, chunk_end)
 
         timestamps = payload.get("unix_seconds", [])
         prices = payload.get("price", [])
