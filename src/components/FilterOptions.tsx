@@ -236,6 +236,8 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
                 months: Array.from({ length: 12 }, (_, i) => i),
                 weekdays: Array.from({ length: 7 }, (_, i) => i),
                 hours: Array.from({ length: 24 }, (_, i) => i),
+                daysOfMonth: Array.from({ length: 31 }, (_, i) => i + 1),
+                weeksOfYear: Array.from({ length: 53 }, (_, i) => i + 1),
               })}
               className="text-destructive"
             >

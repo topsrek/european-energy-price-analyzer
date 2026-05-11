@@ -1,3 +1,5 @@
+import { safeStorageGetItem, safeStorageSetItem } from '@/lib/safe-storage';
+
 export type RegionCode = 'at' | 'de-lu' | 'fr';
 
 export interface RegionDataFiles {
@@ -104,11 +106,11 @@ export const getRegionByCode = (code: string | undefined): RegionConfig | undefi
 };
 
 export const saveSelectedRegion = (code: RegionCode) => {
-  localStorage.setItem(REGION_STORAGE_KEY, code);
+  safeStorageSetItem(REGION_STORAGE_KEY, code);
 };
 
 export const getStoredRegion = (): RegionConfig | undefined => {
-  const stored = localStorage.getItem(REGION_STORAGE_KEY);
+  const stored = safeStorageGetItem(REGION_STORAGE_KEY);
   return getRegionByCode(stored ?? undefined);
 };
 

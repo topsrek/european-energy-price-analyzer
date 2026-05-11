@@ -1,5 +1,6 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
+import { safeStorageGetItem, safeStorageSetItem } from '@/lib/safe-storage';
 
 type ThemeProviderProps = {
   children: ReactNode;
@@ -48,19 +49,19 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState(() => {
-    const storedTheme = localStorage.getItem(storageKey);
+    const storedTheme = safeStorageGetItem(storageKey);
     return storedTheme || defaultTheme;
   });
 
   useEffect(() => {
     applyTheme(theme);
-    localStorage.setItem(storageKey, theme);
+    safeStorageSetItem(storageKey, theme);
   }, [theme, storageKey]);
 
   const updateTheme = useCallback((nextTheme: string) => {
     startThemeTransition();
     applyTheme(nextTheme);
-    localStorage.setItem(storageKey, nextTheme);
+    safeStorageSetItem(storageKey, nextTheme);
     setTheme(nextTheme);
   }, [storageKey]);
 

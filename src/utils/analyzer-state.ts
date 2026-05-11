@@ -1,4 +1,5 @@
 import { RegionCode } from '@/config/regions';
+import { safeStorageGetItem } from '@/lib/safe-storage';
 import { DataResolution, EnergyPrice } from '@/types/energy-data';
 
 export type PriceUnit = EnergyPrice['unit'];
@@ -39,12 +40,8 @@ export const readInitialDataResolution = (): DataResolution => {
   const queryValue = parseResolutionQueryParam(params.get('resolution'));
   if (queryValue) return queryValue;
 
-  try {
-    const storedValue = window.localStorage.getItem(DATA_RESOLUTION_STORAGE_KEY);
-    if (isDataResolution(storedValue)) return storedValue;
-  } catch {
-    // Ignore storage access failures and fall back to defaults.
-  }
+  const storedValue = safeStorageGetItem(DATA_RESOLUTION_STORAGE_KEY);
+  if (isDataResolution(storedValue)) return storedValue;
 
   return DEFAULT_DATA_RESOLUTION;
 };
@@ -56,12 +53,8 @@ export const readInitialPriceUnit = (): PriceUnit => {
   const queryValue = parseUnitQueryParam(params.get('unit'));
   if (queryValue) return queryValue;
 
-  try {
-    const storedValue = window.localStorage.getItem(PRICE_UNIT_STORAGE_KEY);
-    if (isPriceUnit(storedValue)) return storedValue;
-  } catch {
-    // Ignore storage access failures and fall back to defaults.
-  }
+  const storedValue = safeStorageGetItem(PRICE_UNIT_STORAGE_KEY);
+  if (isPriceUnit(storedValue)) return storedValue;
 
   return DEFAULT_PRICE_UNIT;
 };

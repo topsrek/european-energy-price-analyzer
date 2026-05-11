@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Loader2 } from 'lucide-react';
 import AppHeader from '@/components/AppHeader';
 import ComparisonInfoModal from '@/components/ComparisonInfoModal';
@@ -35,6 +35,7 @@ import {
   serializeUnitQueryParam,
 } from '@/utils/analyzer-state';
 import { CheckedState } from '@radix-ui/react-checkbox';
+import { safeStorageSetItem } from '@/lib/safe-storage';
 
 interface CachedPriceData {
   data: EnergyPrice[];
@@ -248,7 +249,9 @@ const ComparisonPage = () => {
         seriesA,
         ...others.map(seriesB => {
           const deltaPrices: EnergyPrice[] = [];
-          const mapA = new Map(seriesA.energyPrices.map(p => [p.timestamp, p.price]));
+          const mapA = new Map<string, number>(
+            seriesA.energyPrices.map((p) => [p.timestamp, p.price])
+          );
           
           seriesB.energyPrices.forEach(pB => {
             const pA = mapA.get(pB.timestamp);
@@ -321,12 +324,8 @@ const ComparisonPage = () => {
   }, [endDate, startDate]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(DATA_RESOLUTION_STORAGE_KEY, dataResolution);
-      window.localStorage.setItem(PRICE_UNIT_STORAGE_KEY, priceUnit);
-    } catch {
-      // Ignore storage access failures.
-    }
+    safeStorageSetItem(DATA_RESOLUTION_STORAGE_KEY, dataResolution);
+    safeStorageSetItem(PRICE_UNIT_STORAGE_KEY, priceUnit);
 
     const params = new URLSearchParams(window.location.search);
     params.set('resolution', serializeResolutionQueryParam(dataResolution));

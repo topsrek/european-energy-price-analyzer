@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
 import ControlDisclosure from '@/components/ControlDisclosure';
 import DateRangePicker from '@/components/DateRangePicker';
@@ -19,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowUpRight, Info, Loader2 } from 'lucide-react';
+import { ArrowUpRight, Info, Lightbulb, Loader2, TrendingDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ImpressumModal from '@/components/ImpressumModal';
 import ContactModal from '@/components/ContactModal';
@@ -40,6 +41,7 @@ import {
   serializeUnitQueryParam,
 } from '@/utils/analyzer-state';
 import { getQuickRangeDates } from '@/utils/date-range-presets';
+import { safeStorageSetItem } from '@/lib/safe-storage';
 
 interface IndexProps {
   region: RegionConfig;
@@ -393,12 +395,8 @@ const Index = ({ region }: IndexProps) => {
   }, [region, dataResolution]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(DATA_RESOLUTION_STORAGE_KEY, dataResolution);
-      window.localStorage.setItem(PRICE_UNIT_STORAGE_KEY, priceUnit);
-    } catch {
-      // Ignore storage access failures in private or restricted contexts.
-    }
+    safeStorageSetItem(DATA_RESOLUTION_STORAGE_KEY, dataResolution);
+    safeStorageSetItem(PRICE_UNIT_STORAGE_KEY, priceUnit);
 
     const params = new URLSearchParams(window.location.search);
     params.set('resolution', serializeResolutionQueryParam(dataResolution));
@@ -863,7 +861,7 @@ const Index = ({ region }: IndexProps) => {
           <VersionInfo />
         </div>
         <div className="container mx-auto px-4 mt-4 flex justify-center gap-6 text-sm">
-          <Link to={`/${regionCode}/faqs`} className="text-primary hover:underline flex items-center gap-1">
+          <Link to={`/${region.code}/faqs`} className="text-primary hover:underline flex items-center gap-1">
             <Lightbulb className="h-4 w-4" />
             Wissen & FAQs
           </Link>

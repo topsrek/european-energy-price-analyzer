@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { X, ChevronRight, ChevronLeft, Info } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { safeStorageGetItem, safeStorageSetItem } from '@/lib/safe-storage';
 
 interface Step {
   title: string;
@@ -42,7 +43,7 @@ const OnboardingTour: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0);
 
   useEffect(() => {
-    const hasSeenTour = localStorage.getItem('eepa.hasSeenTour');
+    const hasSeenTour = safeStorageGetItem('eepa.hasSeenTour');
     if (!hasSeenTour) {
       setIsOpen(true);
     }
@@ -50,7 +51,7 @@ const OnboardingTour: React.FC = () => {
 
   const handleClose = () => {
     setIsOpen(false);
-    localStorage.setItem('eepa.hasSeenTour', 'true');
+    safeStorageSetItem('eepa.hasSeenTour', 'true');
   };
 
   const handleNext = () => {
