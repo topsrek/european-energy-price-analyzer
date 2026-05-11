@@ -14,7 +14,7 @@ interface Step {
 const steps: Step[] = [
   {
     title: 'Willkommen bei EEPA!',
-    content: 'Dieser Analyzer hilft dir, die Dynamik des europäischen Strommarktes zu verstehen. Wir visualisieren die sogenannten Spotmarkt-Preise.',
+    content: 'EEPA steht für European Energy Price Analyzer. Dieser Analyzer hilft dir, die Dynamik des europäischen Strommarktes zu verstehen. Wir visualisieren die sogenannten Spotmarkt-Preise.',
   },
   {
     title: 'Was sind Hyperfloater?',
@@ -35,6 +35,10 @@ const steps: Step[] = [
   {
     title: 'Analyse & Durchschnitt',
     content: 'Über "Durchschnitt & Filter" kannst du komplexe Fragen beantworten. Aktiviere den Durchschnitt (z.B. "Tagesverlauf"), um Muster über lange Zeiträume zu erkennen. Mit Filtern kannst du gezielt einzelne Monate, Wochentage oder sogar Kalenderwochen isolieren.',
+  },
+  {
+    title: 'Beispielfrage',
+    content: 'Mit der Durchschnittsberechnung kannst du Fragen beantworten wie: Wie hoch war durchschnittlich der Preis sonntag mittag in den Sommermonaten der letzten Jahre?',
   },
 ];
 

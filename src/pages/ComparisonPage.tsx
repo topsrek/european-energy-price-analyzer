@@ -447,9 +447,10 @@ const ComparisonPage = () => {
         setLatestAvailableDate(latest);
 
         if (!startDateRef.current || !endDateRef.current) {
-          const defaultRange = getQuickRangeDates('1y', latest, earliest);
+          const today = new Date();
+          const defaultRange = getQuickRangeDates('1y', today, earliest);
           setStartDate(defaultRange.startDate);
-          setEndDate(defaultRange.endDate);
+          setEndDate(today);
         }
       }
 
@@ -518,7 +519,6 @@ const ComparisonPage = () => {
                   startDate={startDate}
                   endDate={endDate}
                   minDate={earliestAvailableDate}
-                  maxDate={latestAvailableDate}
                   onStartDateChange={setStartDate}
                   onEndDateChange={setEndDate}
                 />

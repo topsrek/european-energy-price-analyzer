@@ -287,11 +287,11 @@ const Index = ({ region }: IndexProps) => {
 
       const timestamps = data.map((record) => new Date(record.timestamp).getTime());
       const earliest = new Date(Math.min(...timestamps));
-      const latest = new Date(Math.max(...timestamps));
-      const defaultRange = getQuickRangeDates('1y', latest, earliest);
+      const today = new Date();
+      const defaultRange = getQuickRangeDates('1y', today, earliest);
 
       setStartDate(defaultRange.startDate);
-      setEndDate(defaultRange.endDate);
+      setEndDate(today);
     };
 
     const applyPriceData = (cachedData: CachedPriceData, resetDateRange: boolean) => {
@@ -549,7 +549,6 @@ const Index = ({ region }: IndexProps) => {
                     startDate={startDate}
                     endDate={endDate}
                     minDate={earliestAvailableDate}
-                    maxDate={latestAvailableDate}
                     onStartDateChange={setStartDate}
                     onEndDateChange={setEndDate}
                   />
