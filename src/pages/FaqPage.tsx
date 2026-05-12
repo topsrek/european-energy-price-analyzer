@@ -214,8 +214,13 @@ const FaqPage = () => {
       <footer className="mt-auto border-t py-6">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-muted-foreground">
           <p>© {new Date().getFullYear()} European Energy Price Analyzer</p>
-          <div className="flex gap-4">
-            <ImpressumModal />
+          <div className="flex gap-6">
+            <Link to={regionCode ? `/${regionCode}/impressum` : '/impressum'} className="hover:text-primary transition-colors">
+              Impressum
+            </Link>
+            <Link to={regionCode ? `/${regionCode}/privacy` : '/privacy'} className="hover:text-primary transition-colors">
+              Datenschutz
+            </Link>
             <ContactModal />
           </div>
           <VersionInfo />

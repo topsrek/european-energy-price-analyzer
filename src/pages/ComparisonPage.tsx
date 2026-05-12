@@ -752,8 +752,13 @@ const ComparisonPage = () => {
           >
             GitHub<ArrowUpRight className="mb-0.5 ml-1 inline-block h-4 w-4" />
           </a>
-          <div className="flex gap-4">
-            <ImpressumModal />
+          <div className="flex gap-6">
+            <Link to="/impressum" className="text-muted-foreground text-sm hover:text-primary transition-colors">
+              Impressum
+            </Link>
+            <Link to="/privacy" className="text-muted-foreground text-sm hover:text-primary transition-colors">
+              Datenschutz
+            </Link>
             <ContactModal />
           </div>
           <VersionInfo />

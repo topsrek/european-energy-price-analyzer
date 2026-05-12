@@ -121,11 +121,15 @@ const Home = () => {
         </div>
       </main>
 
-      <footer className="p-12 text-center text-xs text-muted-foreground/60 space-y-2 border-t border-border/40">
+      <footer className="p-12 text-center text-xs text-muted-foreground/60 space-y-4 border-t border-border/40 bg-muted/20">
         <p>© {new Date().getFullYear()} European Energy Price Analyzer</p>
         <p>
           Entwickelt von <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="text-primary/70 hover:text-primary transition-colors font-medium">@topsrek</a> in Österreich
         </p>
+        <div className="flex justify-center gap-6 pt-2">
+          <Link to="/impressum" className="hover:text-primary transition-colors">Impressum</Link>
+          <Link to="/privacy" className="hover:text-primary transition-colors">Datenschutz</Link>
+        </div>
       </footer>
     </div>
   );

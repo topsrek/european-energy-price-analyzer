@@ -854,8 +854,13 @@ const Index = ({ region }: IndexProps) => {
           >
             GitHub<ArrowUpRight className="w-4 h-4 inline-block ml-1 mb-0.5" />
           </a>
-          <div className="flex gap-4">
-            <ImpressumModal />
+          <div className="flex gap-6">
+            <Link to={region.code ? `/${region.code}/impressum` : '/impressum'} className="text-muted-foreground text-sm hover:text-primary transition-colors">
+              Impressum
+            </Link>
+            <Link to={region.code ? `/${region.code}/privacy` : '/privacy'} className="text-muted-foreground text-sm hover:text-primary transition-colors">
+              Datenschutz
+            </Link>
             <ContactModal />
           </div>
           <VersionInfo />
