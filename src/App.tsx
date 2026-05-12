@@ -18,7 +18,12 @@ const RegionRoute = () => {
     return <Navigate to="/" replace />;
   }
 
-  return <Index region={region} />;
+  return (
+    <>
+      <Index region={region} />
+      <OnboardingTour />
+    </>
+  );
 };
 
 function App() {
@@ -32,7 +37,6 @@ function App() {
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Toaster />
-      <OnboardingTour />
     </Router>
   );
 }
