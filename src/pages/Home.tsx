@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, GitCompareArrows, Globe, Sparkles } from 'lucide-react';
+import { ArrowRight, GitCompareArrows, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import RegionFlag from '@/components/RegionFlag';
 import {
@@ -41,54 +41,46 @@ const Home = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <main className="flex-1 flex flex-col items-center justify-center p-6 md:p-12 max-w-4xl mx-auto w-full">
         {/* Intro Section */}
-        <div className="text-center space-y-4 mb-12">
-          <div className="inline-flex items-center justify-center p-2 px-4 rounded-full bg-primary/10 text-primary text-sm font-medium mb-2 animate-fade-in">
-            <Sparkles className="h-4 w-4 mr-2" />
-            European Energy Price Analyzer
-          </div>
-          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight mb-4">
-            EEPA
+        <div className="text-center space-y-4 mb-16">
+          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-4">
+            EEPA — European Energy Price Analyzer
           </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Verstehe den europäischen Strommarkt. Analysiere historische Spotmarkt-Preise, 
-            visualisiere Trends und optimiere dein Verbrauchsverhalten.
+          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed italic">
+            "Wie teuer ist der stündliche Strompreis im Sommer zu Mittag?"
+          </p>
+          <p className="text-sm text-muted-foreground/80 max-w-xl mx-auto">
+            Analysiere historische Spotmarkt-Preise, visualisiere Trends und optimiere dein Verbrauchsverhalten.
           </p>
         </div>
 
-        {/* Suggested Region Button - The biggest thing in the center */}
-        <div className="w-full max-w-md mb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        {/* Suggested Region Button */}
+        <div className="w-full max-w-md mb-24">
           <div className="text-center mb-4">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.2em]">Empfohlene Region</span>
           </div>
           <Button 
             asChild 
             variant="default"
-            className="w-full h-28 text-xl md:text-2xl shadow-xl hover:shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 group rounded-3xl"
+            className="w-full h-28 text-xl md:text-2xl shadow-xl hover:shadow-2xl hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 group rounded-3xl"
           >
             <Link to={suggestedRegion.path} onClick={() => handleRegionClick(suggestedRegion.code)}>
               <div className="flex items-center justify-center w-full px-2">
                 <RegionFlag flagCodes={suggestedRegion.flagCodes} className="h-10 w-14 mr-6 shadow-md rounded-sm" />
                 <span className="font-bold">Weiter zu {suggestedRegion.localName}</span>
-                <ArrowRight className="h-8 w-8 ml-6 group-hover:translate-x-2 transition-transform duration-300" />
+                <ArrowRight className="h-8 w-8 ml-6 group-hover:translate-x-1 transition-transform duration-200" />
               </div>
             </Link>
           </Button>
-          <p className="text-center mt-6 text-sm text-muted-foreground/80">
+          <p className="text-center mt-6 text-xs text-muted-foreground/60">
             Wir haben {suggestedRegion.localName} basierend auf deinem Standort vorausgewählt.
           </p>
         </div>
 
         {/* All Regions List */}
-        <div className="w-full max-w-2xl space-y-8 animate-in fade-in duration-1000 delay-300">
-          <div className="flex items-center justify-between border-b border-border/60 pb-4">
-            <h2 className="text-lg font-bold flex items-center gap-3">
-              <Globe className="h-5 w-5 text-primary" />
-              Andere Regionen
-            </h2>
-            <Link to="/compare" className="text-sm font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-2 group">
-              <GitCompareArrows className="h-4 w-4 group-hover:rotate-180 transition-transform duration-500" />
-              Regionen vergleichen
-            </Link>
+        <div className="w-full max-w-2xl space-y-6">
+          <div className="flex items-center gap-3 border-b border-border/60 pb-4">
+            <Globe className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-bold">Alle Regionen</h2>
           </div>
           
           <div className="grid gap-3">
@@ -97,26 +89,47 @@ const Home = () => {
                 key={region.code}
                 to={region.path} 
                 onClick={() => handleRegionClick(region.code)}
-                className="flex items-center justify-between p-5 rounded-2xl border border-border/50 bg-card/50 backdrop-blur-sm hover:bg-accent/40 hover:border-primary/20 transition-all duration-300 group"
+                className="flex items-center justify-between p-4 rounded-2xl border border-border/40 bg-card/30 hover:bg-accent/40 hover:border-primary/20 transition-all duration-200 group"
               >
-                <div className="flex items-center gap-5">
-                  <div className="relative">
-                    <RegionFlag flagCodes={region.flagCodes} className="h-7 w-10 shadow-sm rounded-sm" />
-                    <div className="absolute -inset-1 bg-primary/5 rounded-lg -z-10 blur-sm opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
+                <div className="flex items-center gap-4">
+                  <RegionFlag flagCodes={region.flagCodes} className="h-6 w-9 shadow-sm rounded-sm" />
                   <div>
                     <div className="font-bold group-hover:text-primary transition-colors">{region.localName}</div>
                     <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">{region.appCode}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-6">
-                  <span className="hidden sm:block text-xs font-medium text-muted-foreground/60 uppercase tracking-wider">{region.market}</span>
-                  <div className="h-8 w-8 rounded-full bg-primary/5 flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300">
-                    <ArrowRight className="h-4 w-4" />
+                <div className="flex items-center gap-4">
+                  <span className="hidden sm:block text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">{region.market}</span>
+                  <div className="h-7 w-7 rounded-full bg-primary/5 flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-200">
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </div>
                 </div>
               </Link>
             ))}
+
+            {/* Separator and Comparison Entry */}
+            <div className="pt-4 mt-2 border-t border-border/40">
+              <Link 
+                to="/compare"
+                className="flex items-center justify-between p-4 rounded-2xl border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all duration-200 group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="h-6 w-9 flex items-center justify-center bg-primary/10 rounded-sm">
+                    <GitCompareArrows className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-primary">Regionen vergleichen</div>
+                    <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">MULTI-ZONE COMPARISON</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="hidden sm:block text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">Historical Spot Analysis</span>
+                  <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground transition-all duration-200 group-hover:scale-110">
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </div>
+                </div>
+              </Link>
+            </div>
           </div>
         </div>
       </main>

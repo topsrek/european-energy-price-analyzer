@@ -1,14 +1,19 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import AppHeader from '@/components/AppHeader';
 import { getRegionByCode, defaultRegion } from '@/config/regions';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, Lock, EyeOff, Server, HardDrive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 
 const PrivacyPage = () => {
   const { regionCode } = useParams();
+  const { pathname } = useLocation();
   const region = getRegionByCode(regionCode) || defaultRegion;
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
