@@ -17,11 +17,16 @@ import {
   type QuickRangePresetId,
 } from '@/utils/date-range-presets';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Input } from '@/components/ui/input';
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from '@/components/ui/drawer';
 
 const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
-const DATE_INPUT_VALUE_FORMAT = 'yyyy-MM-dd';
 
 interface DateRangePickerProps {
   startDate: Date | null;
@@ -68,28 +73,6 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       setIsStartDatePickerOpen(false);
     }
   }, [isEndDatePickerOpen]);
-
-  const formatInputValue = (date: Date | null) =>
-    date ? format(startOfDay(date), DATE_INPUT_VALUE_FORMAT) : '';
-
-  const parseInputValue = (value: string): Date | null => {
-    if (!value) {
-      return null;
-    }
-
-    const [year, month, day] = value.split('-').map((part) => Number(part));
-    if (!year || !month || !day) {
-      return null;
-    }
-
-    return startOfDay(new Date(year, month - 1, day));
-  };
-
-  const mobileStartMaxDate = endDate && endDate < latestSelectableDate ? endDate : latestSelectableDate;
-  const mobileEndMinDate =
-    startDate && earliestSelectableDate && startDate < earliestSelectableDate
-      ? earliestSelectableDate
-      : startDate || earliestSelectableDate;
 
   const renderStartCalendar = () => (
     <Calendar
@@ -151,42 +134,28 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
       <div className="flex w-full min-w-0 flex-col gap-2 min-[420px]:flex-row min-[420px]:flex-wrap xl:w-auto">
         {isMobile ? (
-          <div className="grid w-full gap-3 rounded-lg border border-border/80 bg-card p-3 shadow-sm min-[420px]:grid-cols-2">
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Von</span>
-              <div className="relative">
-                <Input
-                  type="date"
-                  value={formatInputValue(startDate)}
-                  min={earliestSelectableDate ? formatInputValue(earliestSelectableDate) : undefined}
-                  max={formatInputValue(mobileStartMaxDate)}
-                  onChange={(event) => onStartDateChange(parseInputValue(event.target.value))}
-                  className="h-11 border-border/80 pr-10 text-base font-medium [color-scheme:light] dark:[color-scheme:dark]"
-                />
-                <CalendarIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Drawer open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+            <DrawerTrigger asChild>
+              <Button
+                variant="outline"
+                className={cn(
+                  "w-full justify-start text-left font-normal min-[420px]:w-[180px]",
+                  !startDate && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {startDate ? format(startDate, 'PPP', { locale: de }) : <span>Von</span>}
+              </Button>
+            </DrawerTrigger>
+            <DrawerContent>
+              <DrawerHeader>
+                <DrawerTitle>Startdatum wählen</DrawerTitle>
+              </DrawerHeader>
+              <div className="mx-auto pb-4">
+                {renderStartCalendar()}
               </div>
-              <span className="text-xs text-muted-foreground">
-                {startDate ? format(startDate, 'PPP', { locale: de }) : 'Startdatum wählen'}
-              </span>
-            </label>
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Bis</span>
-              <div className="relative">
-                <Input
-                  type="date"
-                  value={formatInputValue(endDate)}
-                  min={mobileEndMinDate ? formatInputValue(mobileEndMinDate) : undefined}
-                  max={formatInputValue(latestSelectableDate)}
-                  onChange={(event) => onEndDateChange(parseInputValue(event.target.value))}
-                  className="h-11 border-border/80 pr-10 text-base font-medium [color-scheme:light] dark:[color-scheme:dark]"
-                />
-                <CalendarIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              </div>
-              <span className="text-xs text-muted-foreground">
-                {endDate ? format(endDate, 'PPP', { locale: de }) : 'Enddatum wählen'}
-              </span>
-            </label>
-          </div>
+            </DrawerContent>
+          </Drawer>
         ) : (
           <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
             <PopoverTrigger asChild>
@@ -206,7 +175,31 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             </PopoverContent>
           </Popover>
         )}
-        {!isMobile && (
+
+        {isMobile ? (
+          <Drawer open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+            <DrawerTrigger asChild>
+              <Button
+                variant="outline"
+                className={cn(
+                  "w-full justify-start text-left font-normal min-[420px]:w-[180px]",
+                  !endDate && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {endDate ? format(endDate, 'PPP', { locale: de }) : <span>Bis</span>}
+              </Button>
+            </DrawerTrigger>
+            <DrawerContent>
+              <DrawerHeader>
+                <DrawerTitle>Enddatum wählen</DrawerTitle>
+              </DrawerHeader>
+              <div className="mx-auto pb-4">
+                {renderEndCalendar()}
+              </div>
+            </DrawerContent>
+          </Drawer>
+        ) : (
           <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -227,19 +220,13 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         )}
       </div>
       
-      <div className={cn(
-        "flex w-full min-w-0 items-center gap-2 xl:w-auto",
-        isMobile ? "overflow-x-auto pb-1" : "flex-wrap"
-      )}>
+      <div className="flex w-full min-w-0 flex-wrap items-center gap-2 xl:w-auto">
         {QUICK_RANGE_PRESETS.map((preset) => (
           <Button
             key={preset.id}
             variant="outline"
             size="sm"
-            className={cn(
-              "shrink-0",
-              activePreset === preset.id && SELECTED_OPTION_BUTTON_CLASS
-            )}
+            className={cn(activePreset === preset.id && SELECTED_OPTION_BUTTON_CLASS)}
             aria-pressed={activePreset === preset.id}
             onClick={() => handleQuickSelect(preset.id)}
           >

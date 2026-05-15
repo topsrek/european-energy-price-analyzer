@@ -9,7 +9,7 @@ interface QuickRangePresetDefinition {
 }
 
 export const QUICK_RANGE_PRESETS: QuickRangePresetDefinition[] = [
-  { id: '1d', label: '1 Tag', getStartDate: (endDate) => subDays(endDate, 1) },
+  { id: '1d', label: '1 Tag', getStartDate: (endDate) => endDate },
   { id: '1w', label: '1 Woche', getStartDate: (endDate) => subDays(endDate, 7) },
   { id: '1m', label: '1 Monat', getStartDate: (endDate) => subMonths(endDate, 1) },
   { id: '3m', label: '3 Monate', getStartDate: (endDate) => subMonths(endDate, 3) },

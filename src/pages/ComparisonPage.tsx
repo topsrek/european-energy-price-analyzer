@@ -1,15 +1,14 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ArrowUpRight, Loader2 } from 'lucide-react';
 import AppHeader from '@/components/AppHeader';
 import ComparisonInfoModal from '@/components/ComparisonInfoModal';
-import ControlDisclosure from '@/components/ControlDisclosure';
 import DateRangePicker from '@/components/DateRangePicker';
 import AveragingOptions from '@/components/AveragingOptions';
 import FilterOptions from '@/components/FilterOptions';
 import EnergyChart from '@/components/EnergyChart';
 import ContactModal from '@/components/ContactModal';
-import ImpressumModal from '@/components/ImpressumModal';
 import VersionInfo from '@/components/VersionInfo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,8 +20,8 @@ import { ComparisonSeries, DataResolution, EnergyPrice, FilterOptions as FilterO
 import { RegionCode, regions } from '@/config/regions';
 import { applyFilters, calculateAverage, convertEnergyPriceUnit, filterByDateRange } from '@/utils/data-utils';
 import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
-import { getQuickRangeDates } from '@/utils/date-range-presets';
-import { formatLocalDateForQuery } from '@/utils/local-date';
+import { getActiveQuickRangePreset, getQuickRangeDates } from '@/utils/date-range-presets';
+import { formatLocalDateForQuery, parseLocalDateFromQuery } from '@/utils/local-date';
 import {
   DATA_RESOLUTION_STORAGE_KEY,
   PRICE_UNIT_STORAGE_KEY,
@@ -119,14 +118,12 @@ const ComparisonPage = () => {
   const [startDate, setStartDate] = useState<Date | null>(() => {
     if (typeof window === 'undefined') return null;
     const params = new URLSearchParams(window.location.search);
-    const start = params.get('start');
-    return start ? new Date(start) : null;
+    return parseLocalDateFromQuery(params.get('start'));
   });
   const [endDate, setEndDate] = useState<Date | null>(() => {
     if (typeof window === 'undefined') return new Date();
     const params = new URLSearchParams(window.location.search);
-    const end = params.get('end');
-    return end ? new Date(end) : new Date();
+    return parseLocalDateFromQuery(params.get('end')) ?? new Date();
   });
   const [isAveragingEnabled, setIsAveragingEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -197,9 +194,6 @@ const ComparisonPage = () => {
     const cv = new URLSearchParams(window.location.search).get('cv');
     return cv ? Number(cv) : null;
   });
-  const [displayDisclosureOpen, setDisplayDisclosureOpen] = useState(false);
-  const [scaleDisclosureOpen, setScaleDisclosureOpen] = useState(false);
-  const [analysisDisclosureOpen, setAnalysisDisclosureOpen] = useState(false);
   const [showDelta, setShowDelta] = useState(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).get('delta') === '1';
@@ -281,31 +275,12 @@ const ComparisonPage = () => {
       setter(checked === true);
     };
 
-  const displaySummary = [
-    selectedRegions.length ? `${selectedRegions.length} Regionen` : 'keine Region',
-    priceUnit === 'EUR_MWh' ? '€/MWh' : 'c/kWh',
-    dataResolution === 'interval' ? '15 Minuten' : 'Stündlich',
-    [showZeroLine ? 'Nulllinie' : null, showAverageLine ? 'Mittelwert' : null].filter(Boolean).join(', ') || 'ohne Hilfslinien',
-  ].join(' · ');
-
-  const scaleSummary = (() => {
-    const axisSummary =
-      yMin !== null || yMax !== null
-        ? `${yMin !== null ? yMin : 'auto'} bis ${yMax !== null ? yMax : 'auto'}`
-        : 'Auto';
-    const cutoffSummary = cutoffEnabled && cutoffValue !== null ? `Lineal ${cutoffValue.toFixed(2)}` : 'kein Lineal';
-    return `${axisSummary} · ${cutoffSummary}`;
-  })();
-
-  const activeFilterCount =
-    (filters.months.length < 12 ? 1 : 0) +
-    (filters.weekdays.length < 7 ? 1 : 0) +
-    (filters.hours.length < 24 ? 1 : 0);
-
-  const analysisSummary = [
-    isAveragingEnabled ? averaging : 'Rohdaten',
-    activeFilterCount > 0 ? `${activeFilterCount} Filter` : 'ohne Filter',
-  ].join(' · ');
+  const activeRangePreset = getActiveQuickRangePreset(
+    startDate,
+    endDate,
+    latestAvailableDate,
+    earliestAvailableDate
+  );
   const footerSummary = selectedRegions.length
     ? `${selectedRegions.map((region) => region.appCode).join(', ')} · ${dataResolution === 'interval' ? '15 Minuten' : 'Stündlich'}`
     : 'Keine Region ausgewählt';
@@ -520,17 +495,14 @@ const ComparisonPage = () => {
                   startDate={startDate}
                   endDate={endDate}
                   minDate={earliestAvailableDate}
+                  maxDate={latestAvailableDate}
                   onStartDateChange={setStartDate}
                   onEndDateChange={setEndDate}
                 />
               </div>
 
-              <ControlDisclosure
-                title="Anzeige"
-                summary={displaySummary}
-                open={displayDisclosureOpen}
-                onOpenChange={setDisplayDisclosureOpen}
-              >
+              <div className="space-y-3 border-t border-border px-2 py-3">
+                <h3 className="text-sm font-medium text-foreground">Anzeige</h3>
                 <div className="mb-4 flex min-w-0 flex-wrap gap-2">
                   {availableRegions.map((region) => (
                     <Button
@@ -624,14 +596,10 @@ const ComparisonPage = () => {
                     </div>
                   </div>
                 </div>
-              </ControlDisclosure>
+              </div>
 
-              <ControlDisclosure
-                title="Y-Skala & Lineal"
-                summary={scaleSummary}
-                open={scaleDisclosureOpen}
-                onOpenChange={setScaleDisclosureOpen}
-              >
+              <div className="space-y-4 border-t border-border px-2 py-3">
+                <h3 className="text-sm font-medium text-foreground">Y-Skala & Lineal</h3>
                 <div className="flex min-w-0 flex-wrap items-end gap-3">
                   <div className="w-[120px] max-w-full">
                     <Label htmlFor="compare-y-min" className="mb-2 block text-sm font-medium">Min Preis</Label>
@@ -665,14 +633,10 @@ const ComparisonPage = () => {
                     />
                   </div>
                 </div>
-              </ControlDisclosure>
+              </div>
 
-              <ControlDisclosure
-                title="Durchschnitt & Filter"
-                summary={analysisSummary}
-                open={analysisDisclosureOpen}
-                onOpenChange={setAnalysisDisclosureOpen}
-              >
+              <div className="space-y-4 border-t border-border px-2 py-3">
+                <h3 className="text-sm font-medium text-foreground">Durchschnitt & Filter</h3>
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:gap-6">
                   <div className="min-w-0">
                     <AveragingOptions
@@ -691,7 +655,7 @@ const ComparisonPage = () => {
                     />
                   </div>
                 </div>
-              </ControlDisclosure>
+              </div>
 
               <div className="p-0 md:border md:p-2">
                 {isLoadingPriceData ? (
@@ -713,6 +677,7 @@ const ComparisonPage = () => {
                     cutoffEnabled={cutoffEnabled}
                     cutoffValue={cutoffValue}
                     onCutoffValueChange={setCutoffValue}
+                    activeRangePreset={activeRangePreset}
                   />
                 ) : (
                   <div className="flex h-[400px] items-center justify-center rounded-lg bg-muted px-4 text-center">

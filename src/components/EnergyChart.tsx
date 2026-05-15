@@ -54,6 +54,7 @@ interface EnergyChartProps {
   cutoffEnabled?: boolean;
   cutoffValue?: number | null;
   onCutoffValueChange?: (value: number | null) => void;
+  activeRangePreset?: string | null;
 }
 
 const EnergyChart: React.FC<EnergyChartProps> = ({ 
@@ -72,6 +73,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   cutoffEnabled = false,
   cutoffValue = null,
   onCutoffValueChange,
+  activeRangePreset = null,
 }) => {
   const isComparisonChart = comparisonSeries.length > 0;
   const plotSeries = useMemo(() => (isComparisonChart ? comparisonSeries : []), [comparisonSeries, isComparisonChart]);
@@ -331,6 +333,12 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       setShowWeekSeparators(false);
     }
   }, [dataTimeSpanMonths, showDaySeparators, showWeekSeparators]); // Include all dependencies
+
+  useEffect(() => {
+    if (activeRangePreset === '1w' && dataTimeSpanMonths < 3) {
+      setShowDaySeparators(true);
+    }
+  }, [activeRangePreset, dataTimeSpanMonths]);
 
   // Generate dynamic ticks for XAxis
   const getXAxisTicks = () => {
