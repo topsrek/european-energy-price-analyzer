@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowUpDown, ArrowUpRight, Info, Lightbulb, LineChart, Loader2, SlidersHorizontal, TrendingDown } from 'lucide-react';
+import { ArrowUpDown, ArrowUpRight, CircleHelp, Info, Lightbulb, LineChart, Loader2, SlidersHorizontal, TrendingDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ContactModal from '@/components/ContactModal';
 import { RegionConfig, saveSelectedRegion } from '@/config/regions';
@@ -511,26 +511,24 @@ const Index = ({ region }: IndexProps) => {
         <div className="space-y-0 md:space-y-8">
           <Card className="animate-fade-in md:rounded-lg rounded-none">
             <CardHeader>
-              <div className="flex flex-col md:flex-row md:items-center gap-4 md:justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    Preisanalyse
-                    {isLoadingPriceData && <Loader2 className="h-4 w-4 animate-spin" />}
-                  </CardTitle>
-                </div>
-                <div className="flex items-center gap-4">
-                  <HelpModal />
-                  {region.code === 'at' && (
-                    <InfoModal trigger={
-                      <Button variant="outline" size="sm" className="flex gap-1 items-center md:h-9 h-fit">
-                        <Info className="h-4 w-4" />
-                        <span className="whitespace-normal"> 
-                          Wie funktioniert dieser Strommarkt?
-                        </span>
-                      </Button>
-                    } />
-                  )}
-                </div>
+              <div className="flex items-center justify-end gap-2">
+                {isLoadingPriceData && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                <HelpModal
+                  trigger={
+                    <Button variant="outline" size="sm" className="h-9 gap-2 px-3">
+                      <CircleHelp className="h-4 w-4" />
+                      <span>Hilfe</span>
+                    </Button>
+                  }
+                />
+                {region.code === 'at' && (
+                  <InfoModal trigger={
+                    <Button variant="outline" size="sm" className="h-9 gap-2 px-3">
+                      <Info className="h-4 w-4" />
+                      <span>Der Strommarkt</span>
+                    </Button>
+                  } />
+                )}
               </div>
             </CardHeader>
             <CardContent className="p-0 md:p-2 pt-0 md:border border-none">

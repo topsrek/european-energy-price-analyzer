@@ -17,6 +17,13 @@ describe('date range presets', () => {
     expect(format(startDate, 'yyyy-MM-dd')).toBe('2026-05-04');
   });
 
+  it('builds the six-month preset relative to the selected end day', () => {
+    const endDate = new Date('2026-05-06T21:45:00.000Z');
+    const { startDate } = getQuickRangeDates('6m', endDate);
+
+    expect(format(startDate, 'yyyy-MM-dd')).toBe('2025-11-06');
+  });
+
   it('builds the one-year preset relative to the latest available date', () => {
     const endDate = new Date('2026-05-06T21:45:00.000Z');
     const { startDate } = getQuickRangeDates('1y', endDate);
