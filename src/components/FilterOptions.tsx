@@ -8,7 +8,6 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { FilterOptions, AveragingOption } from '@/types/energy-data';
-import { FilterIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 interface FilterOptionsProps {
@@ -27,6 +26,8 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
   const [isMonthsOpen, setIsMonthsOpen] = useState(false);
   const [isWeekdaysOpen, setIsWeekdaysOpen] = useState(false);
   const [isHoursOpen, setIsHoursOpen] = useState(false);
+  const [isDaysOfMonthOpen, setIsDaysOfMonthOpen] = useState(false);
+  const [isWeeksOfYearOpen, setIsWeeksOfYearOpen] = useState(false);
   
   const monthNames = [
     'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
@@ -38,9 +39,7 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
     'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'
   ];
   
-  // Convert between our display order (Mon-Sun) and JavaScript's day indices (Sun-Sat)
   const displayToJsDay = (displayIndex) => (displayIndex + 1) % 7;
-  const jsDayToDisplay = (jsDay) => (jsDay + 6) % 7;
   
   const toggleMonth = (month: number) => {
     const updatedMonths = filters.months.includes(month)
@@ -77,6 +76,28 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
       hours: updatedHours
     });
   };
+
+  const toggleDayOfMonth = (day: number) => {
+    const updatedDays = filters.daysOfMonth.includes(day)
+      ? filters.daysOfMonth.filter(d => d !== day)
+      : [...filters.daysOfMonth, day];
+
+    onChange({
+      ...filters,
+      daysOfMonth: updatedDays
+    });
+  };
+
+  const toggleWeekOfYear = (week: number) => {
+    const updatedWeeks = filters.weeksOfYear.includes(week)
+      ? filters.weeksOfYear.filter(w => w !== week)
+      : [...filters.weeksOfYear, week];
+
+    onChange({
+      ...filters,
+      weeksOfYear: updatedWeeks
+    });
+  };
   
   const selectAllMonths = () => {
     onChange({
@@ -98,12 +119,28 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
       hours: Array.from({ length: 24 }, (_, i) => i)
     });
   };
+
+  const selectAllDaysOfMonth = () => {
+    onChange({
+      ...filters,
+      daysOfMonth: Array.from({ length: 31 }, (_, i) => i + 1)
+    });
+  };
+
+  const selectAllWeeksOfYear = () => {
+    onChange({
+      ...filters,
+      weeksOfYear: Array.from({ length: 53 }, (_, i) => i + 1)
+    });
+  };
   
   const getFilterCounts = () => {
     return {
       months: 12 - filters.months.length,
       weekdays: 7 - filters.weekdays.length,
       hours: 24 - filters.hours.length,
+      daysOfMonth: 31 - filters.daysOfMonth.length,
+      weeksOfYear: 53 - filters.weeksOfYear.length,
     };
   };
 
@@ -111,9 +148,16 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
   const isMonthsDisabled = disabled || (averagingOption === 'monthly');
   const isWeekdaysDisabled = disabled || (averagingOption === 'daily');
   const isHoursDisabled = disabled || (averagingOption === 'daily-cycle');
+  const isDaysOfMonthDisabled = disabled;
+  const isWeeksOfYearDisabled = disabled;
   
   const filterCounts = getFilterCounts();
-  const hasActiveFilters = filterCounts.months > 0 || filterCounts.weekdays > 0 || filterCounts.hours > 0;
+  const hasActiveFilters =
+    filterCounts.months > 0 ||
+    filterCounts.weekdays > 0 ||
+    filterCounts.hours > 0 ||
+    filterCounts.daysOfMonth > 0 ||
+    filterCounts.weeksOfYear > 0;
   
   return (
     <div className="min-w-0">
@@ -222,6 +266,76 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
                       />
                       <Label htmlFor={`hour-${i}`} className="text-xs whitespace-nowrap">{`${i}:00~${(i+1) % 24}:00`}</Label>
                     </div>
+                  ))}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <Popover open={isDaysOfMonthOpen && !isDaysOfMonthDisabled} onOpenChange={(open) => !isDaysOfMonthDisabled && setIsDaysOfMonthOpen(open)}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isDaysOfMonthDisabled}>
+                Monatstage
+                {!isDaysOfMonthDisabled && filterCounts.daysOfMonth > 0 && (
+                  <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
+                    {31 - filterCounts.daysOfMonth}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium">Monatstage</h4>
+                  <Button variant="ghost" size="sm" onClick={selectAllDaysOfMonth}>
+                    Alle
+                  </Button>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                    <label key={day} className="flex items-center gap-2 rounded-sm px-1 py-1">
+                      <Checkbox
+                        id={`day-of-month-${day}`}
+                        checked={filters.daysOfMonth.includes(day)}
+                        onCheckedChange={() => toggleDayOfMonth(day)}
+                      />
+                      <span className="text-sm">{day}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <Popover open={isWeeksOfYearOpen && !isWeeksOfYearDisabled} onOpenChange={(open) => !isWeeksOfYearDisabled && setIsWeeksOfYearOpen(open)}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-2" disabled={isWeeksOfYearDisabled}>
+                Kalenderwochen
+                {!isWeeksOfYearDisabled && filterCounts.weeksOfYear > 0 && (
+                  <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center">
+                    {53 - filterCounts.weeksOfYear}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium">Kalenderwochen</h4>
+                  <Button variant="ghost" size="sm" onClick={selectAllWeeksOfYear}>
+                    Alle
+                  </Button>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {Array.from({ length: 53 }, (_, index) => index + 1).map((week) => (
+                    <label key={week} className="flex items-center gap-2 rounded-sm px-1 py-1">
+                      <Checkbox
+                        id={`week-of-year-${week}`}
+                        checked={filters.weeksOfYear.includes(week)}
+                        onCheckedChange={() => toggleWeekOfYear(week)}
+                      />
+                      <span className="text-sm">KW {week}</span>
+                    </label>
                   ))}
                 </div>
               </div>

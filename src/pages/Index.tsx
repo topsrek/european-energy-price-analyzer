@@ -5,6 +5,7 @@ import DateRangePicker from '@/components/DateRangePicker';
 import AveragingOptions from '@/components/AveragingOptions';
 import FilterOptions from '@/components/FilterOptions';
 import EnergyChart from '@/components/EnergyChart';
+import ControlMenu from '@/components/ControlMenu';
 import FileUpload from '@/components/FileUpload';
 import ContractOptions from '@/components/ContractOptions';
 import InfoModal from '@/components/InfoModal';
@@ -19,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowUpRight, Info, Lightbulb, Loader2, TrendingDown } from 'lucide-react';
+import { ArrowUpDown, ArrowUpRight, Info, Lightbulb, LineChart, Loader2, SlidersHorizontal, TrendingDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ContactModal from '@/components/ContactModal';
 import { RegionConfig, saveSelectedRegion } from '@/config/regions';
@@ -192,6 +193,7 @@ const Index = ({ region }: IndexProps) => {
     const cv = new URLSearchParams(window.location.search).get('cv');
     return cv ? Number(cv) : null;
   });
+  const [showSpotPriceWithTax, setShowSpotPriceWithTax] = useState(false);
   const dataCacheRef = useRef<Partial<Record<DataResolution, CachedPriceData>>>({});
   const hasVisiblePriceDataRef = useRef(false);
   const startDateRef = useRef<Date | null>(startDate);
@@ -549,135 +551,148 @@ const Index = ({ region }: IndexProps) => {
                   <div className="w-full border-t border-border" />
                 </div>
 
-                <div className="space-y-3 border-t border-border px-2 py-3">
-                  <h3 className="text-sm font-medium text-foreground">Anzeige</h3>
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-3">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-                      <Label className="shrink-0 text-sm font-medium">Einheit:</Label>
-                      <div className="flex min-w-0 flex-wrap gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={priceUnit === 'EUR_MWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                          aria-pressed={priceUnit === 'EUR_MWh'}
-                          onClick={() => setPriceUnit('EUR_MWh')}
-                        >
-                          €/MWh
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={priceUnit === 'cent_kWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                          aria-pressed={priceUnit === 'cent_kWh'}
-                          onClick={() => setPriceUnit('cent_kWh')}
-                        >
-                          c/kWh
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-                      <Label className="shrink-0 text-sm font-medium">Auflösung:</Label>
-                      <div className="flex min-w-0 flex-wrap gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={dataResolution === 'hourly' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                          aria-pressed={dataResolution === 'hourly'}
-                          onClick={() => setDataResolution('hourly')}
-                        >
-                          Stündlich
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={dataResolution === 'interval' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                          aria-pressed={dataResolution === 'interval'}
-                          onClick={() => setDataResolution('interval')}
-                        >
-                          15 Minuten
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-                      <Label className="shrink-0 text-sm font-medium">Hilfslinien:</Label>
-                      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="show-zero-line"
-                            checked={showZeroLine}
-                            onCheckedChange={handleCheckedChange(setShowZeroLine)}
-                          />
-                          <Label htmlFor="show-zero-line" className="text-sm">Zeige Nulllinie</Label>
+                <div className="border-t border-border px-2 py-3">
+                  <div className="flex min-w-0 flex-wrap gap-2">
+                    <ControlMenu label="Anzeige" icon={SlidersHorizontal}>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Einheit</Label>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={priceUnit === 'EUR_MWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                              aria-pressed={priceUnit === 'EUR_MWh'}
+                              onClick={() => setPriceUnit('EUR_MWh')}
+                            >
+                              €/MWh
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={priceUnit === 'cent_kWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                              aria-pressed={priceUnit === 'cent_kWh'}
+                              onClick={() => setPriceUnit('cent_kWh')}
+                            >
+                              c/kWh
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Auflösung</Label>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={dataResolution === 'hourly' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                              aria-pressed={dataResolution === 'hourly'}
+                              onClick={() => setDataResolution('hourly')}
+                            >
+                              Stündlich
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={dataResolution === 'interval' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                              aria-pressed={dataResolution === 'interval'}
+                              onClick={() => setDataResolution('interval')}
+                            >
+                              15 Minuten
+                            </Button>
+                          </div>
                         </div>
                         <div className="flex items-center space-x-2">
                           <Checkbox
-                            id="show-average-line"
-                            checked={showAverageLine}
-                            onCheckedChange={handleCheckedChange(setShowAverageLine)}
+                            id="show-spot-price-with-tax"
+                            checked={showSpotPriceWithTax}
+                            onCheckedChange={handleCheckedChange(setShowSpotPriceWithTax)}
                           />
-                          <Label htmlFor="show-average-line" className="text-sm">Zeige Mittelwert</Label>
+                          <Label htmlFor="show-spot-price-with-tax" className="text-sm">Strompreis inkl. USt.</Label>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                </div>
+                    </ControlMenu>
 
-                <div className="space-y-4 border-t border-border px-2 py-3">
-                  <h3 className="text-sm font-medium text-foreground">Y-Skala & Lineal</h3>
-                  <div className="flex min-w-0 flex-wrap items-end gap-3">
-                    <div className="w-[120px] max-w-full">
-                      <Label htmlFor="chart-y-min" className="mb-2 block text-sm font-medium">Min Preis</Label>
-                      <Input
-                        id="chart-y-min"
-                        inputMode="decimal"
-                        value={yMinInput}
-                        onChange={(event) => setYMinInput(event.target.value)}
-                        placeholder="auto"
-                      />
-                    </div>
-                    <div className="w-[120px] max-w-full">
-                      <Label htmlFor="chart-y-max" className="mb-2 block text-sm font-medium">Max Preis</Label>
-                      <Input
-                        id="chart-y-max"
-                        inputMode="decimal"
-                        value={yMaxInput}
-                        onChange={(event) => setYMaxInput(event.target.value)}
-                        placeholder="auto"
-                      />
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setYMinInput('');
-                        setYMaxInput('');
-                      }}
-                    >
-                      Reset Ansicht
-                    </Button>
-                  </div>
-                  <div className="mt-4 flex min-w-0 flex-wrap items-end gap-3">
-                    <div className="flex items-center space-x-2 pb-2">
-                      <Checkbox
-                        id="enable-cutoff"
-                        checked={cutoffEnabled}
-                        onCheckedChange={handleCheckedChange(setCutoffEnabled)}
-                      />
-                      <Label htmlFor="enable-cutoff" className="text-sm">Preis-Lineal aktivieren</Label>
-                    </div>
-                    <div className="w-[140px] max-w-full">
-                      <Label htmlFor="cutoff-value" className="mb-2 block text-sm font-medium">Linealpreis</Label>
-                      <Input
-                        id="cutoff-value"
-                        inputMode="decimal"
-                        value={cutoffValue === null ? '' : String(cutoffValue)}
-                        onChange={(event) => {
-                          const nextValue = Number(event.target.value);
-                          setCutoffValue(Number.isFinite(nextValue) ? nextValue : null);
-                        }}
-                        placeholder={priceUnit === 'EUR_MWh' ? '€/MWh' : 'c/kWh'}
-                        disabled={!cutoffEnabled}
-                      />
-                    </div>
+                    <ControlMenu label="Linien" icon={LineChart}>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="show-zero-line"
+                              checked={showZeroLine}
+                              onCheckedChange={handleCheckedChange(setShowZeroLine)}
+                            />
+                            <Label htmlFor="show-zero-line" className="text-sm">Nulllinie</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="show-average-line"
+                              checked={showAverageLine}
+                              onCheckedChange={handleCheckedChange(setShowAverageLine)}
+                            />
+                            <Label htmlFor="show-average-line" className="text-sm">Mittelwert</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="enable-cutoff"
+                              checked={cutoffEnabled}
+                              onCheckedChange={handleCheckedChange(setCutoffEnabled)}
+                            />
+                            <Label htmlFor="enable-cutoff" className="text-sm">Preis-Lineal</Label>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="cutoff-value" className="text-sm font-medium">Linealpreis</Label>
+                          <Input
+                            id="cutoff-value"
+                            inputMode="decimal"
+                            value={cutoffValue === null ? '' : String(cutoffValue)}
+                            onChange={(event) => {
+                              const nextValue = Number(event.target.value);
+                              setCutoffValue(Number.isFinite(nextValue) ? nextValue : null);
+                            }}
+                            placeholder={priceUnit === 'EUR_MWh' ? '€/MWh' : 'c/kWh'}
+                            disabled={!cutoffEnabled}
+                          />
+                        </div>
+                      </div>
+                    </ControlMenu>
+
+                    <ControlMenu label="Y-Skala" icon={ArrowUpDown}>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <Label htmlFor="chart-y-min" className="mb-2 block text-sm font-medium">Min Preis</Label>
+                            <Input
+                              id="chart-y-min"
+                              inputMode="decimal"
+                              value={yMinInput}
+                              onChange={(event) => setYMinInput(event.target.value)}
+                              placeholder="auto"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="chart-y-max" className="mb-2 block text-sm font-medium">Max Preis</Label>
+                            <Input
+                              id="chart-y-max"
+                              inputMode="decimal"
+                              value={yMaxInput}
+                              onChange={(event) => setYMaxInput(event.target.value)}
+                              placeholder="auto"
+                            />
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setYMinInput('');
+                            setYMaxInput('');
+                          }}
+                        >
+                          Reset Ansicht
+                        </Button>
+                      </div>
+                    </ControlMenu>
                   </div>
                 </div>
 
@@ -731,6 +746,7 @@ const Index = ({ region }: IndexProps) => {
                       cutoffValue={cutoffValue}
                       onCutoffValueChange={setCutoffValue}
                       activeRangePreset={activeRangePreset}
+                      showSpotPriceWithTax={showSpotPriceWithTax}
                     />
                   ) : (
                     <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg">

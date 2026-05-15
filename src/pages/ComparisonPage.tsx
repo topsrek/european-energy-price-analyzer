@@ -8,6 +8,7 @@ import DateRangePicker from '@/components/DateRangePicker';
 import AveragingOptions from '@/components/AveragingOptions';
 import FilterOptions from '@/components/FilterOptions';
 import EnergyChart from '@/components/EnergyChart';
+import ControlMenu from '@/components/ControlMenu';
 import ContactModal from '@/components/ContactModal';
 import VersionInfo from '@/components/VersionInfo';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { ArrowUpDown, LineChart, SlidersHorizontal } from 'lucide-react';
 import { ComparisonSeries, DataResolution, EnergyPrice, FilterOptions as FilterOptionsType, AveragingOption } from '@/types/energy-data';
 import { RegionCode, regions } from '@/config/regions';
 import { applyFilters, calculateAverage, convertEnergyPriceUnit, filterByDateRange } from '@/utils/data-utils';
@@ -106,14 +108,7 @@ const ComparisonPage = () => {
   const { toast } = useToast();
   const toastRef = useRef(toast);
 
-  const [selectedRegionCodes, setSelectedRegionCodes] = useState<RegionCode[]>(() => {
-    if (typeof window === 'undefined') return availableRegions.map((region) => region.code);
-    const params = new URLSearchParams(window.location.search);
-    return parseRegionCodesQueryParam(
-      params.get('regions'),
-      availableRegions.map((region) => region.code)
-    ) || availableRegions.map((region) => region.code);
-  });
+  const [selectedRegionCodes, setSelectedRegionCodes] = useState<RegionCode[]>(readInitialSelectedRegions);
 
   const [startDate, setStartDate] = useState<Date | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -501,8 +496,7 @@ const ComparisonPage = () => {
                 />
               </div>
 
-              <div className="space-y-3 border-t border-border px-2 py-3">
-                <h3 className="text-sm font-medium text-foreground">Anzeige</h3>
+              <div className="border-t border-border px-2 py-3">
                 <div className="mb-4 flex min-w-0 flex-wrap gap-2">
                   {availableRegions.map((region) => (
                     <Button
@@ -517,71 +511,54 @@ const ComparisonPage = () => {
                     </Button>
                   ))}
                 </div>
-                <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-3">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-                    <Label className="shrink-0 text-sm font-medium">Einheit:</Label>
-                    <div className="flex min-w-0 flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={priceUnit === 'EUR_MWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                        aria-pressed={priceUnit === 'EUR_MWh'}
-                        onClick={() => setPriceUnit('EUR_MWh')}
-                      >
-                        €/MWh
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={priceUnit === 'cent_kWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                        aria-pressed={priceUnit === 'cent_kWh'}
-                        onClick={() => setPriceUnit('cent_kWh')}
-                      >
-                        c/kWh
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-                    <Label className="shrink-0 text-sm font-medium">Auflösung:</Label>
-                    <div className="flex min-w-0 flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={dataResolution === 'hourly' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                        aria-pressed={dataResolution === 'hourly'}
-                        onClick={() => setDataResolution('hourly')}
-                      >
-                        Stündlich
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={dataResolution === 'interval' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
-                        aria-pressed={dataResolution === 'interval'}
-                        onClick={() => setDataResolution('interval')}
-                      >
-                        15 Minuten
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-                    <Label className="shrink-0 text-sm font-medium">Hilfslinien:</Label>
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="compare-zero-line"
-                          checked={showZeroLine}
-                          onCheckedChange={handleCheckedChange(setShowZeroLine)}
-                        />
-                        <Label htmlFor="compare-zero-line" className="text-sm">Zeige Nulllinie</Label>
+                <div className="flex min-w-0 flex-wrap gap-2">
+                  <ControlMenu label="Anzeige" icon={SlidersHorizontal}>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Einheit</Label>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={priceUnit === 'EUR_MWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                            aria-pressed={priceUnit === 'EUR_MWh'}
+                            onClick={() => setPriceUnit('EUR_MWh')}
+                          >
+                            €/MWh
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={priceUnit === 'cent_kWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                            aria-pressed={priceUnit === 'cent_kWh'}
+                            onClick={() => setPriceUnit('cent_kWh')}
+                          >
+                            c/kWh
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="compare-average-line"
-                          checked={showAverageLine}
-                          onCheckedChange={handleCheckedChange(setShowAverageLine)}
-                        />
-                        <Label htmlFor="compare-average-line" className="text-sm">Zeige Mittelwert</Label>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Auflösung</Label>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={dataResolution === 'hourly' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                            aria-pressed={dataResolution === 'hourly'}
+                            onClick={() => setDataResolution('hourly')}
+                          >
+                            Stündlich
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={dataResolution === 'interval' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
+                            aria-pressed={dataResolution === 'interval'}
+                            onClick={() => setDataResolution('interval')}
+                          >
+                            15 Minuten
+                          </Button>
+                        </div>
                       </div>
                       {selectedRegionCodes.length >= 2 && (
                         <div className="flex items-center space-x-2">
@@ -590,48 +567,74 @@ const ComparisonPage = () => {
                             checked={showDelta}
                             onCheckedChange={handleCheckedChange(setShowDelta)}
                           />
-                          <Label htmlFor="compare-delta" className="text-sm font-bold">Differenz-Modus (Δ)</Label>
+                          <Label htmlFor="compare-delta" className="text-sm">Differenz-Modus</Label>
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
-              </div>
+                  </ControlMenu>
 
-              <div className="space-y-4 border-t border-border px-2 py-3">
-                <h3 className="text-sm font-medium text-foreground">Y-Skala & Lineal</h3>
-                <div className="flex min-w-0 flex-wrap items-end gap-3">
-                  <div className="w-[120px] max-w-full">
-                    <Label htmlFor="compare-y-min" className="mb-2 block text-sm font-medium">Min Preis</Label>
-                    <Input id="compare-y-min" inputMode="decimal" value={yMinInput} onChange={(event) => setYMinInput(event.target.value)} placeholder="auto" />
-                  </div>
-                  <div className="w-[120px] max-w-full">
-                    <Label htmlFor="compare-y-max" className="mb-2 block text-sm font-medium">Max Preis</Label>
-                    <Input id="compare-y-max" inputMode="decimal" value={yMaxInput} onChange={(event) => setYMaxInput(event.target.value)} placeholder="auto" />
-                  </div>
-                  <Button variant="outline" onClick={() => { setYMinInput(''); setYMaxInput(''); }}>
-                    Reset Ansicht
-                  </Button>
-                </div>
-                <div className="mt-4 flex min-w-0 flex-wrap items-end gap-3">
-                  <div className="flex items-center space-x-2 pb-2">
-                    <Checkbox id="compare-enable-cutoff" checked={cutoffEnabled} onCheckedChange={handleCheckedChange(setCutoffEnabled)} />
-                    <Label htmlFor="compare-enable-cutoff" className="text-sm">Preis-Lineal aktivieren</Label>
-                  </div>
-                  <div className="w-[140px] max-w-full">
-                    <Label htmlFor="compare-cutoff-value" className="mb-2 block text-sm font-medium">Linealpreis</Label>
-                    <Input
-                      id="compare-cutoff-value"
-                      inputMode="decimal"
-                      value={cutoffValue === null ? '' : String(cutoffValue)}
-                      onChange={(event) => {
-                        const nextValue = Number(event.target.value);
-                        setCutoffValue(Number.isFinite(nextValue) ? nextValue : null);
-                      }}
-                      placeholder={priceUnit === 'EUR_MWh' ? '€/MWh' : 'c/kWh'}
-                      disabled={!cutoffEnabled}
-                    />
-                  </div>
+                  <ControlMenu label="Linien" icon={LineChart}>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="compare-zero-line"
+                            checked={showZeroLine}
+                            onCheckedChange={handleCheckedChange(setShowZeroLine)}
+                          />
+                          <Label htmlFor="compare-zero-line" className="text-sm">Nulllinie</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="compare-average-line"
+                            checked={showAverageLine}
+                            onCheckedChange={handleCheckedChange(setShowAverageLine)}
+                          />
+                          <Label htmlFor="compare-average-line" className="text-sm">Mittelwert</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="compare-enable-cutoff"
+                            checked={cutoffEnabled}
+                            onCheckedChange={handleCheckedChange(setCutoffEnabled)}
+                          />
+                          <Label htmlFor="compare-enable-cutoff" className="text-sm">Preis-Lineal</Label>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="compare-cutoff-value" className="text-sm font-medium">Linealpreis</Label>
+                        <Input
+                          id="compare-cutoff-value"
+                          inputMode="decimal"
+                          value={cutoffValue === null ? '' : String(cutoffValue)}
+                          onChange={(event) => {
+                            const nextValue = Number(event.target.value);
+                            setCutoffValue(Number.isFinite(nextValue) ? nextValue : null);
+                          }}
+                          placeholder={priceUnit === 'EUR_MWh' ? '€/MWh' : 'c/kWh'}
+                          disabled={!cutoffEnabled}
+                        />
+                      </div>
+                    </div>
+                  </ControlMenu>
+
+                  <ControlMenu label="Y-Skala" icon={ArrowUpDown}>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <Label htmlFor="compare-y-min" className="mb-2 block text-sm font-medium">Min Preis</Label>
+                          <Input id="compare-y-min" inputMode="decimal" value={yMinInput} onChange={(event) => setYMinInput(event.target.value)} placeholder="auto" />
+                        </div>
+                        <div>
+                          <Label htmlFor="compare-y-max" className="mb-2 block text-sm font-medium">Max Preis</Label>
+                          <Input id="compare-y-max" inputMode="decimal" value={yMaxInput} onChange={(event) => setYMaxInput(event.target.value)} placeholder="auto" />
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => { setYMinInput(''); setYMaxInput(''); }}>
+                        Reset Ansicht
+                      </Button>
+                    </div>
+                  </ControlMenu>
                 </div>
               </div>
 

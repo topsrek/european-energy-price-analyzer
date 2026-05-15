@@ -12,11 +12,13 @@ import {
   ReferenceLine,
   ReferenceArea
 } from 'recharts';
-import { format, parseISO, getDay, differenceInDays, differenceInMonths, getHours, getISOWeek } from 'date-fns';
+import { format, parseISO, getDay, differenceInDays, differenceInMonths, getHours, getISOWeek, getQuarter } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { CheckedState } from "@radix-ui/react-checkbox";
+import { CalendarRange } from 'lucide-react';
+import ControlMenu from '@/components/ControlMenu';
 
 // Define the structure for individual data points used in the chart
 interface ExtendedChartDataPoint {
@@ -55,6 +57,7 @@ interface EnergyChartProps {
   cutoffValue?: number | null;
   onCutoffValueChange?: (value: number | null) => void;
   activeRangePreset?: string | null;
+  showSpotPriceWithTax?: boolean;
 }
 
 const EnergyChart: React.FC<EnergyChartProps> = ({ 
@@ -74,6 +77,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   cutoffValue = null,
   onCutoffValueChange,
   activeRangePreset = null,
+  showSpotPriceWithTax: controlledShowSpotPriceWithTax,
 }) => {
   const isComparisonChart = comparisonSeries.length > 0;
   const plotSeries = useMemo(() => (isComparisonChart ? comparisonSeries : []), [comparisonSeries, isComparisonChart]);
@@ -88,9 +92,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [showWeekSeparators, setShowWeekSeparators] = useState(true);
   const [showMonthSeparators, setShowMonthSeparators] = useState(true);
   const [showDaySeparators, setShowDaySeparators] = useState(false);
-  const [showSpotPriceWithTax, setShowSpotPriceWithTax] = useState(false);
+  const [showQuarterSeparators, setShowQuarterSeparators] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | undefined>(undefined);
   const [isDraggingCutoff, setIsDraggingCutoff] = useState(false);
+  const showSpotPriceWithTax = controlledShowSpotPriceWithTax ?? false;
   const priceUnitLabel = referenceEnergyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'c/kWh';
 
   const reduceDataPoints = useCallback((data: ExtendedChartDataPoint[]) => {
@@ -323,6 +328,12 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   // Auto-disable highlights based on time span - calculate BEFORE rendering
   const shouldShowDaySeparators = showDaySeparators && dataTimeSpanMonths < 3;
   const shouldShowWeekSeparators = showWeekSeparators && dataTimeSpanMonths < 6;
+  const hasMultipleQuarters = useMemo(() => {
+    const quarterKeys = new Set(
+      chartData.map((item) => `${item.date.getFullYear()}-Q${getQuarter(item.date)}`)
+    );
+    return quarterKeys.size > 1;
+  }, [chartData]);
   
   // Auto-update state when timespan changes (but only when needed to avoid loops)
   useEffect(() => {
@@ -333,6 +344,12 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       setShowWeekSeparators(false);
     }
   }, [dataTimeSpanMonths, showDaySeparators, showWeekSeparators]); // Include all dependencies
+
+  useEffect(() => {
+    if (!hasMultipleQuarters && showQuarterSeparators) {
+      setShowQuarterSeparators(false);
+    }
+  }, [hasMultipleQuarters, showQuarterSeparators]);
 
   useEffect(() => {
     if (activeRangePreset === '1w' && dataTimeSpanMonths < 3) {
@@ -866,6 +883,85 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     return <>{monthElements}</>; 
   };
 
+  const renderQuarterBands = () => {
+    if (!showQuarterSeparators || !hasMultipleQuarters || chartData.length === 0) {
+      return null;
+    }
+
+    const quarterElements: React.JSX.Element[] = [];
+    const quarterGroups = new Map<string, ExtendedChartDataPoint[]>();
+
+    chartData.forEach((dataPoint) => {
+      const quarterKey = `${format(dataPoint.date, 'yyyy')}-Q${getQuarter(dataPoint.date)}`;
+      if (!quarterGroups.has(quarterKey)) {
+        quarterGroups.set(quarterKey, []);
+      }
+      quarterGroups.get(quarterKey)!.push(dataPoint);
+    });
+
+    const sortedQuarterKeys = Array.from(quarterGroups.keys()).sort();
+
+    sortedQuarterKeys.forEach((quarterKey, index) => {
+      const quarterDataPoints = quarterGroups.get(quarterKey);
+      if (!quarterDataPoints?.length) {
+        return;
+      }
+
+      const firstPoint = quarterDataPoints[0];
+      const lastPoint = quarterDataPoints[quarterDataPoints.length - 1];
+      const quarterLabel = `Q${getQuarter(firstPoint.date)} ${format(firstPoint.date, 'yyyy')}`;
+      const middlePoint = quarterDataPoints[Math.floor(quarterDataPoints.length / 2)];
+
+      quarterElements.push(
+        <ReferenceLine
+          key={`quarter-marker-${quarterKey}`}
+          x={firstPoint.timestamp}
+          yAxisId="price"
+          stroke="var(--week-marker-color)"
+          strokeWidth={2}
+          strokeOpacity={0.35}
+          ifOverflow="hidden"
+        />
+      );
+
+      if (index % 2 === 0) {
+        quarterElements.push(
+          <ReferenceArea
+            key={`quarter-area-${quarterKey}`}
+            x1={firstPoint.timestamp}
+            x2={lastPoint.timestamp}
+            yAxisId="price"
+            fill="var(--day-band-fill-color)"
+            fillOpacity={0.08}
+            ifOverflow="hidden"
+          />
+        );
+      }
+
+      quarterElements.push(
+        <ReferenceLine
+          key={`quarter-label-${quarterKey}`}
+          x={middlePoint.timestamp}
+          yAxisId="price"
+          stroke="transparent"
+          strokeWidth={0}
+          ifOverflow="hidden"
+          label={{
+            value: quarterLabel,
+            position: 'insideTop',
+            fill: 'var(--month-label-color)',
+            fontSize: 11,
+            fontWeight: 'bold',
+            offset: 26,
+            textAnchor: 'middle',
+          }}
+        />
+      );
+    });
+
+    return <>{quarterElements}</>;
+  };
+
   // Renamed from renderWeekBands and uses ReferenceLine for week markers
   const renderWeekMarkers = () => {
     if (!shouldShowWeekSeparators || chartData.length === 0) {
@@ -1026,7 +1122,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               wrapperStyle={{ paddingTop: '0px', paddingBottom: '10px' }}
             />
             
-            {/* Background bands for months, weeks, days */}
+            {/* Background bands for quarters, months, weeks, days */}
+            {renderQuarterBands()}
             {renderMonthBands()}
             {renderWeekMarkers()}
             {renderDayBands()}
@@ -1213,33 +1310,59 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       </div>
 
       {chartData.length > 0 && (
-      <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
-        <div className="text-sm font-medium">Zeitraum-Highlights:</div>
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="show-day-separators" 
-              checked={shouldShowDaySeparators} 
-              onCheckedChange={handleCheckedChange(setShowDaySeparators)}
-            />
-            <Label htmlFor="show-day-separators" className="text-sm">Tage</Label>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="show-week-separators" 
-              checked={shouldShowWeekSeparators} 
-              onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
-            />
-            <Label htmlFor="show-week-separators" className="text-sm">Wochen</Label>
-          </div>
-        <div className="flex items-center space-x-2">
-          <Checkbox 
-            id="show-month-separators" 
-            checked={showMonthSeparators} 
-            onCheckedChange={handleCheckedChange(setShowMonthSeparators)}
-          />
-          <Label htmlFor="show-month-separators" className="text-sm">Monate</Label>
+        <div className="flex flex-wrap items-start gap-2 px-2">
+          <ControlMenu
+            label="Zeitraum-Highlights"
+            icon={CalendarRange}
+            contentClassName="w-72"
+          >
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Markierungen</div>
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="show-day-separators"
+                      checked={shouldShowDaySeparators}
+                      onCheckedChange={handleCheckedChange(setShowDaySeparators)}
+                    />
+                    <Label htmlFor="show-day-separators" className="text-sm">Tage</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="show-week-separators"
+                      checked={shouldShowWeekSeparators}
+                      onCheckedChange={handleCheckedChange(setShowWeekSeparators)}
+                    />
+                    <Label htmlFor="show-week-separators" className="text-sm">Wochen</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="show-month-separators"
+                      checked={showMonthSeparators}
+                      onCheckedChange={handleCheckedChange(setShowMonthSeparators)}
+                    />
+                    <Label htmlFor="show-month-separators" className="text-sm">Monate</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="show-quarter-separators"
+                      checked={showQuarterSeparators}
+                      disabled={!hasMultipleQuarters}
+                      onCheckedChange={handleCheckedChange(setShowQuarterSeparators)}
+                    />
+                    <Label htmlFor="show-quarter-separators" className="text-sm">Quartale</Label>
+                  </div>
+                </div>
+              </div>
+              {!hasMultipleQuarters && (
+                <p className="text-xs text-muted-foreground">
+                  Quartalsmarkierungen sind erst sinnvoll, wenn der Zeitraum mehr als ein Quartal umfasst.
+                </p>
+              )}
+            </div>
+          </ControlMenu>
         </div>
-      </div>
       )}
       
       {!isComparisonChart && selectedContract && (
@@ -1293,21 +1416,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               <Label htmlFor="show-cost" className="text-sm">Kosten</Label>
             </div>
           )}
-        </div>
-      )}
-      
-      {/* Add new tax toggle section */}
-      {!isComparisonChart && (
-        <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
-          <div className="text-sm font-medium">Preisdarstellung:</div>
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="show-spot-price-with-tax" 
-              checked={showSpotPriceWithTax} 
-              onCheckedChange={handleCheckedChange(setShowSpotPriceWithTax)}
-            />
-            <Label htmlFor="show-spot-price-with-tax" className="text-sm">Strompreis inkl. USt.</Label>
-          </div>
         </div>
       )}
     </div>

@@ -24,6 +24,7 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from '@/components/ui/drawer';
+import type { DateRange } from 'react-day-picker';
 
 const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
@@ -45,14 +46,17 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onStartDateChange,
   onEndDateChange,
 }) => {
-  const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
-  const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
   const isMobile = useIsMobile();
   const latestSelectableDate = useMemo(
     () => startOfDay(maxDate ?? new Date()),
     [maxDate]
   );
   const earliestSelectableDate = minDate ?? null;
+  const [draftRange, setDraftRange] = useState<DateRange | undefined>(() => ({
+    from: startDate ?? undefined,
+    to: endDate ?? undefined,
+  }));
 
   const activePreset = useMemo(
     () =>
@@ -63,158 +67,114 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const handleQuickSelect = (presetId: QuickRangePresetId) => {
     const range = getQuickRangeDates(presetId, latestSelectableDate, earliestSelectableDate);
 
+    setDraftRange({
+      from: range.startDate,
+      to: range.endDate,
+    });
     onStartDateChange(range.startDate);
     onEndDateChange(range.endDate);
+    setIsPickerOpen(false);
   };
 
   useEffect(() => {
-    // Close start date picker if end date picker is opened via start date selection
-    if (isEndDatePickerOpen) {
-      setIsStartDatePickerOpen(false);
+    if (!isPickerOpen) {
+      setDraftRange({
+        from: startDate ?? undefined,
+        to: endDate ?? undefined,
+      });
     }
-  }, [isEndDatePickerOpen]);
+  }, [endDate, isPickerOpen, startDate]);
 
-  const renderStartCalendar = () => (
+  const handleRangeSelect = (range: DateRange | undefined) => {
+    setDraftRange(range);
+
+    if (!range?.from) {
+      onStartDateChange(null);
+      onEndDateChange(null);
+      return;
+    }
+
+    if (range.to) {
+      onStartDateChange(startOfDay(range.from));
+      onEndDateChange(startOfDay(range.to));
+      setIsPickerOpen(false);
+    }
+  };
+
+  const formatRangeLabel = () => {
+    if (!startDate && !endDate) {
+      return 'Zeitraum wählen';
+    }
+
+    if (startDate && endDate) {
+      if (format(startDate, 'yyyy-MM-dd') === format(endDate, 'yyyy-MM-dd')) {
+        return format(startDate, 'PPP', { locale: de });
+      }
+
+      return `${format(startDate, 'P', { locale: de })} - ${format(endDate, 'P', { locale: de })}`;
+    }
+
+    return format(startDate ?? endDate ?? latestSelectableDate, 'PPP', { locale: de });
+  };
+
+  const renderRangeCalendar = () => (
     <Calendar
-      mode="single"
-      selected={startDate || undefined}
-      onSelect={(date) => {
-        if (!date && startDate) {
-          setIsStartDatePickerOpen(false);
-          setIsEndDatePickerOpen(true);
-          return;
-        }
-
-        onStartDateChange(date);
-        if (date) {
-          setIsStartDatePickerOpen(false);
-          setIsEndDatePickerOpen(true);
-        }
-      }}
+      mode="range"
+      selected={draftRange}
+      onSelect={handleRangeSelect}
       disabled={(date) =>
         date > latestSelectableDate ||
-        (earliestSelectableDate ? date < earliestSelectableDate : false) ||
-        (endDate ? date > endDate : false)
+        (earliestSelectableDate ? date < earliestSelectableDate : false)
       }
       initialFocus
-      defaultMonth={startDate || endDate || latestSelectableDate}
+      defaultMonth={draftRange?.from || startDate || endDate || latestSelectableDate}
       numberOfMonths={isMobile ? 1 : 2}
-      className={cn("p-3 pointer-events-auto")}
-    />
-  );
-
-  const renderEndCalendar = () => (
-    <Calendar
-      mode="single"
-      selected={endDate || undefined}
-      onSelect={(date) => {
-        if (!date && endDate) {
-          setIsEndDatePickerOpen(false);
-          return;
-        }
-
-        onEndDateChange(date);
-        if (date) {
-          setIsEndDatePickerOpen(false);
-        }
-      }}
-      disabled={(date) =>
-        date > latestSelectableDate ||
-        (earliestSelectableDate ? date < earliestSelectableDate : false) ||
-        (startDate ? date < startDate : false)
-      }
-      initialFocus
-      defaultMonth={endDate || startDate || latestSelectableDate}
-      numberOfMonths={isMobile ? 1 : 2}
-      className={cn("p-3 pointer-events-auto")}
+      className={cn("pointer-events-auto")}
     />
   );
 
   return (
     <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-      <div className="flex w-full min-w-0 flex-col gap-2 min-[420px]:flex-row min-[420px]:flex-wrap xl:w-auto">
+      <div className="flex w-full min-w-0 xl:w-auto">
         {isMobile ? (
-          <Drawer open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+          <Drawer open={isPickerOpen} onOpenChange={setIsPickerOpen}>
             <DrawerTrigger asChild>
               <Button
                 variant="outline"
                 className={cn(
-                  "w-full justify-start text-left font-normal min-[420px]:w-[180px]",
-                  !startDate && "text-muted-foreground"
+                  "h-11 w-full justify-start text-left font-normal",
+                  !startDate && !endDate && "text-muted-foreground"
                 )}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {startDate ? format(startDate, 'PPP', { locale: de }) : <span>Von</span>}
+                {formatRangeLabel()}
               </Button>
             </DrawerTrigger>
             <DrawerContent>
               <DrawerHeader>
-                <DrawerTitle>Startdatum wählen</DrawerTitle>
+                <DrawerTitle>Zeitraum wählen</DrawerTitle>
               </DrawerHeader>
               <div className="mx-auto pb-4">
-                {renderStartCalendar()}
+                {renderRangeCalendar()}
               </div>
             </DrawerContent>
           </Drawer>
         ) : (
-          <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+          <Popover open={isPickerOpen} onOpenChange={setIsPickerOpen}>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
                 className={cn(
-                  "w-full justify-start text-left font-normal min-[420px]:w-[180px]",
-                  !startDate && "text-muted-foreground"
+                  "h-11 w-full justify-start text-left font-normal xl:min-w-[280px]",
+                  !startDate && !endDate && "text-muted-foreground"
                 )}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {startDate ? format(startDate, 'PPP', { locale: de }) : <span>Von</span>}
+                {formatRangeLabel()}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
-              {renderStartCalendar()}
-            </PopoverContent>
-          </Popover>
-        )}
-
-        {isMobile ? (
-          <Drawer open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
-            <DrawerTrigger asChild>
-              <Button
-                variant="outline"
-                className={cn(
-                  "w-full justify-start text-left font-normal min-[420px]:w-[180px]",
-                  !endDate && "text-muted-foreground"
-                )}
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {endDate ? format(endDate, 'PPP', { locale: de }) : <span>Bis</span>}
-              </Button>
-            </DrawerTrigger>
-            <DrawerContent>
-              <DrawerHeader>
-                <DrawerTitle>Enddatum wählen</DrawerTitle>
-              </DrawerHeader>
-              <div className="mx-auto pb-4">
-                {renderEndCalendar()}
-              </div>
-            </DrawerContent>
-          </Drawer>
-        ) : (
-          <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className={cn(
-                  "w-full justify-start text-left font-normal min-[420px]:w-[180px]",
-                  !endDate && "text-muted-foreground"
-                )}
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {endDate ? format(endDate, 'PPP', { locale: de }) : <span>Bis</span>}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              {renderEndCalendar()}
+              {renderRangeCalendar()}
             </PopoverContent>
           </Popover>
         )}
