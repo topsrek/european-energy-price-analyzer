@@ -105,11 +105,25 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
       months: Array.from({ length: 12 }, (_, i) => i)
     });
   };
+
+  const clearAllMonths = () => {
+    onChange({
+      ...filters,
+      months: []
+    });
+  };
   
   const selectAllWeekdays = () => {
     onChange({
       ...filters,
       weekdays: Array.from({ length: 7 }, (_, i) => i)
+    });
+  };
+
+  const clearAllWeekdays = () => {
+    onChange({
+      ...filters,
+      weekdays: []
     });
   };
   
@@ -120,6 +134,13 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
     });
   };
 
+  const clearAllHours = () => {
+    onChange({
+      ...filters,
+      hours: []
+    });
+  };
+
   const selectAllDaysOfMonth = () => {
     onChange({
       ...filters,
@@ -127,10 +148,24 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
     });
   };
 
+  const clearAllDaysOfMonth = () => {
+    onChange({
+      ...filters,
+      daysOfMonth: []
+    });
+  };
+
   const selectAllWeeksOfYear = () => {
     onChange({
       ...filters,
       weeksOfYear: Array.from({ length: 53 }, (_, i) => i + 1)
+    });
+  };
+
+  const clearAllWeeksOfYear = () => {
+    onChange({
+      ...filters,
+      weeksOfYear: []
     });
   };
   
@@ -179,9 +214,14 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="font-medium">Monate</h4>
-                  <Button variant="ghost" size="sm" onClick={selectAllMonths}>
-                    Alle
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={selectAllMonths}>
+                      Alle
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={clearAllMonths}>
+                      Keine
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {monthNames.map((month, i) => (
@@ -214,9 +254,14 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="font-medium">Wochentage</h4>
-                  <Button variant="ghost" size="sm" onClick={selectAllWeekdays}>
-                    Alle
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={selectAllWeekdays}>
+                      Alle
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={clearAllWeekdays}>
+                      Keine
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   {weekdayNames.map((day, displayIndex) => {
@@ -252,9 +297,14 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="font-medium">Stunden</h4>
-                  <Button variant="ghost" size="sm" onClick={selectAllHours}>
-                    Alle
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={selectAllHours}>
+                      Alle
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={clearAllHours}>
+                      Keine
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   {Array.from({ length: 24 }, (_, i) => (
@@ -287,9 +337,14 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="font-medium">Monatstage</h4>
-                  <Button variant="ghost" size="sm" onClick={selectAllDaysOfMonth}>
-                    Alle
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={selectAllDaysOfMonth}>
+                      Alle
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={clearAllDaysOfMonth}>
+                      Keine
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
@@ -322,9 +377,14 @@ const FilterOptionsComponent: React.FC<FilterOptionsProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="font-medium">Kalenderwochen</h4>
-                  <Button variant="ghost" size="sm" onClick={selectAllWeeksOfYear}>
-                    Alle
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={selectAllWeeksOfYear}>
+                      Alle
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={clearAllWeeksOfYear}>
+                      Keine
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   {Array.from({ length: 53 }, (_, index) => index + 1).map((week) => (
