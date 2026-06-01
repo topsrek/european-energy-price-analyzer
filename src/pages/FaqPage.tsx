@@ -9,7 +9,6 @@ import { Search, ExternalLink, ArrowLeft, Lightbulb, TrendingDown, Info } from '
 import { Button } from '@/components/ui/button';
 import VersionInfo from '@/components/VersionInfo';
 import ContactModal from '@/components/ContactModal';
-import ImpressumModal from '@/components/ImpressumModal';
 
 interface FAQEntry {
   id: string;

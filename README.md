@@ -40,26 +40,33 @@ Selection order on `/`:
 
 The GeoIP endpoint must return one of these fields: `country_code`, `countryCode`, or `country`.
 
-## Data Architecture Target
+## Data Architecture
 
-The recommended deployment architecture is:
+The recommended Coolify deployment architecture is:
 
-- Static frontend container.
-- Separate data-worker container in the same Coolify project.
+- One app container that serves the built frontend and the data API.
 - Worker downloads country datasets daily.
 - Worker writes versioned country artifacts such as `data/at/manifest.json` and the efficient price data file.
-- Frontend fetches only the selected country dataset.
+- Frontend fetches only the selected country dataset through same-origin `/api/...` paths.
 - Smart meter files stay client-side and are never uploaded.
 
 ## Deployment
 
-The included Dockerfile builds the Vite app and serves it with nginx. It is suitable for Coolify deployment at `eepa.topsrek.top`.
+The included Dockerfile builds the Vite app, copies the static build into the Python worker image, and serves both the frontend and API on port `49173`. It is suitable for Coolify deployment at `eepa.topsrek.top`.
+
+For the current LXC layout:
+
+- Coolify/app LXC: `192.168.1.21`
+- Coolify service URL for Nginx Proxy Manager: `http://192.168.1.21:49173`
+- Coolify/NPM LXC: `192.168.1.20`
+
+Leave `VITE_DATA_BASE_URL` unset for this deployment so the browser uses same-origin `/api/...` requests through the public domain. Only set it if the API is intentionally hosted on a different public origin.
 
 Build locally:
 
 ```sh
 docker build -t european-energy-price-analyzer .
-docker run --rm -p 8080:80 european-energy-price-analyzer
+docker run --rm -p 49173:49173 european-energy-price-analyzer
 ```
 
 ## Branding Note
