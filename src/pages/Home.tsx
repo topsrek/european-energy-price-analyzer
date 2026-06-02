@@ -5,14 +5,14 @@ import { Button } from '@/components/ui/button';
 import RegionFlag from '@/components/RegionFlag';
 import {
   detectRegionFromGeoIp,
-  getInitialRegion,
+  guessRegionFromBrowser,
   RegionCode,
   regions,
   saveSelectedRegion,
 } from '@/config/regions';
 
 const Home = () => {
-  const initialRegion = useMemo(() => getInitialRegion(), []);
+  const initialRegion = useMemo(() => guessRegionFromBrowser(), []);
   const [suggestedRegion, setSuggestedRegion] = useState(initialRegion);
   const availableRegions = useMemo(
     () => regions.filter((region) => region.dataStatus === 'available'),
@@ -43,16 +43,21 @@ const Home = () => {
         {/* Intro Section */}
         <div className="text-center space-y-6 mb-16">
           <div className="space-y-2">
-            <h1 className="text-6xl md:text-8xl font-black tracking-tighter">
+            <h1 className="home-title-logo text-6xl md:text-8xl">
               EEPA
             </h1>
-            <p className="text-sm md:text-base text-muted-foreground font-medium tracking-[0.1em] uppercase">
-              (European Energy Price Analyzer)
+            <p className="text-sm md:text-base text-muted-foreground font-medium tracking-normal">
+              European Energy Price Analyzer
             </p>
           </div>
 
-          <div className="relative inline-block mt-8">
-            <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 md:px-10 shadow-sm relative z-10">
+          <p className="text-sm md:text-base text-muted-foreground/80 max-w-xl mx-auto pt-4 leading-relaxed">
+            Mit EEPA findest du Antworten auf komplexe Fragen zum Strommarkt.
+            Analysiere historische Daten, erkenne Preismuster und optimiere deine Energienutzung.
+          </p>
+
+          <div className="comic-speech-bubble relative inline-block mt-4">
+            <div className="comic-speech-bubble__body relative z-10 p-6 md:px-10">
               <div className="flex items-start gap-3">
                 <MessageSquare className="h-5 w-5 text-primary mt-1 shrink-0" />
                 <p className="text-lg md:text-xl font-semibold leading-snug">
@@ -60,14 +65,7 @@ const Home = () => {
                 </p>
               </div>
             </div>
-            {/* Speech bubble tail */}
-            <div className="absolute -bottom-2 left-12 w-4 h-4 bg-primary/5 border-r border-b border-primary/20 rotate-45 z-0" />
           </div>
-
-          <p className="text-sm md:text-base text-muted-foreground/80 max-w-xl mx-auto pt-4 leading-relaxed">
-            Mit EEPA findest du Antworten auf komplexe Fragen zum Strommarkt. 
-            Analysiere historische Daten, erkenne Preismuster und optimiere deine Energienutzung.
-          </p>
         </div>
 
         {/* Region Selection List */}
@@ -84,6 +82,7 @@ const Home = () => {
               <Link 
                 to={suggestedRegion.path} 
                 onClick={() => handleRegionClick(suggestedRegion.code)}
+                aria-label={`Empfohlene Region öffnen: ${suggestedRegion.localName}`}
                 className="flex items-center justify-between p-6 rounded-3xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all duration-200 group shadow-md"
               >
                 <div className="flex items-center gap-5">

@@ -13,12 +13,19 @@ test('Austria route loads the committed real hourly dataset', async ({ page }) =
   expect(Number(response.headers()['content-length'])).toBeGreaterThan(100_000);
 });
 
-test('home uses stored country preference before browser guessing', async ({ page }) => {
+test('home recommendation ignores the previously selected region', async ({ page }) => {
+  await page.route('**/api/geoip', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ country_code: 'DE' }),
+    });
+  });
+
   await page.addInitScript(() => {
-    localStorage.setItem('eepa.selectedRegion', 'at');
+    localStorage.setItem('eepa.selectedRegion', 'fr');
   });
 
   await page.goto('/');
 
-  await expect(page).toHaveURL(/\/at$/);
+  await expect(page.getByRole('link', { name: /Empfohlene Region öffnen: Deutschland & Luxemburg/ })).toBeVisible();
 });
