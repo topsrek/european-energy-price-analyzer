@@ -274,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
-            fresh = parse_timestamp(client_latest) >= parse_timestamp(server_latest)
+            fresh = is_client_data_fresh(client_latest, server_latest)
             self.send_json(
                 {
                     "fresh": fresh,
@@ -435,6 +435,10 @@ def parse_timestamp(value: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def is_client_data_fresh(client_latest: str, server_latest: str) -> bool:
+    return parse_timestamp(server_latest) <= parse_timestamp(client_latest)
 
 
 def retry_delay_seconds(failure_count: int) -> int:
