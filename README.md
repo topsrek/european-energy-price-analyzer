@@ -42,17 +42,17 @@ The GeoIP endpoint must return one of these fields: `country_code`, `countryCode
 
 ## Data Architecture
 
-The recommended Coolify deployment architecture is:
+The Coolify deployment architecture is:
 
-- One app container that serves the built frontend and the data API.
-- Worker downloads country datasets daily.
-- Worker writes versioned country artifacts such as `data/at/manifest.json` and the efficient price data file.
+- One app container, `eepa-app`, serves the built frontend and the data API.
+- The same app runs the daily dataset updater.
+- The updater writes versioned country artifacts such as `data/at/manifest.json` and the efficient price data file.
 - Frontend fetches only the selected country dataset through same-origin `/api/...` paths.
 - Smart meter files stay client-side and are never uploaded.
 
 ## Deployment
 
-The included Dockerfile builds the Vite app, copies the static build into the Python worker image, and serves both the frontend and API on port `49173`. It is suitable for Coolify deployment at `eepa.topsrek.top`.
+The included Dockerfile builds the Vite app, copies the static build into the Python app image, and serves the frontend, API, and daily updater from one Coolify application on port `49173`. It is suitable for Coolify deployment at `eepa.topsrek.top`.
 
 For the current LXC layout:
 
@@ -61,6 +61,51 @@ For the current LXC layout:
 - Coolify/NPM LXC: `192.168.1.20`
 
 Leave `VITE_DATA_BASE_URL` unset for this deployment so the browser uses same-origin `/api/...` requests through the public domain. Only set it if the API is intentionally hosted on a different public origin.
+
+### Private Coolify Redeploy
+
+Coolify is not exposed publicly on port `8000`, so GitHub webhooks cannot reach it directly. For this project, trigger redeploys from a Tailscale-connected machine after the Git push succeeds.
+
+Create the system-wide secret file for the Tailscale Coolify host:
+
+```sh
+mkdir -p ~/.secrets
+chmod 700 ~/.secrets
+install -m 600 /dev/null ~/.secrets/coolify1.env
+```
+
+Add these values:
+
+```sh
+COOLIFY_BASE_URL=http://coolify1:8000
+COOLIFY_API_TOKEN=replace-with-coolify-api-token
+```
+
+Coolify API tokens should include permission to list applications and deploy resources. The script uses Coolify's Bearer-token API authentication and keeps the token outside this repository.
+
+If the token can deploy but cannot list applications, set the UUID explicitly:
+
+```sh
+COOLIFY_RESOURCE_UUID=nmu27zox7uqup1wngzgf0ie9
+```
+
+Trigger a redeploy:
+
+```sh
+scripts/coolify-redeploy.sh
+```
+
+The script defaults to the `eepa-app` Coolify UUID. If the default is removed, it discovers this application's Coolify UUID by calling:
+
+```text
+GET http://coolify1:8000/api/v1/applications
+```
+
+It matches the current GitHub repository and branch, then calls:
+
+```text
+GET http://coolify1:8000/api/v1/deploy?uuid=<application-uuid>&force=false
+```
 
 Build locally:
 
