@@ -575,7 +575,8 @@ const Index = ({ region }: IndexProps) => {
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-sm font-medium">Auflösung</Label>
+                          <Label className="text-sm font-medium">Marktprodukt</Label>
+                          <p className="text-xs text-muted-foreground">Stunden- und Viertelstundenmarkt sind getrennte Marktdaten.</p>
                           <div className="flex flex-wrap gap-2">
                             <Button
                               variant="outline"
@@ -584,7 +585,7 @@ const Index = ({ region }: IndexProps) => {
                               aria-pressed={dataResolution === 'hourly'}
                               onClick={() => setDataResolution('hourly')}
                             >
-                              Stündlich
+                              Stundenmarkt · 60 Min.
                             </Button>
                             <Button
                               variant="outline"
@@ -593,7 +594,7 @@ const Index = ({ region }: IndexProps) => {
                               aria-pressed={dataResolution === 'interval'}
                               onClick={() => setDataResolution('interval')}
                             >
-                              15 Minuten
+                              Viertelstundenmarkt · 15 Min.
                             </Button>
                           </div>
                         </div>

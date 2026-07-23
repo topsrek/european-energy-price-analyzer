@@ -17,13 +17,13 @@
     --primary: 89 13% 31%;
     --primary-foreground: 33 36% 96%;
 
-    --secondary: 27 52% 49%;
+    --secondary: 27 60% 45%;
     --secondary-foreground: 33 36% 96%;
 
     --muted: 75 19% 88%;
     --muted-foreground: 82 8% 43%;
 
-    --accent: 29 51% 91%;
+    --accent: 29 64% 83%;
     --accent-foreground: 104 10% 21%;
 
     --destructive: 0 84.2% 60.2%;
@@ -44,9 +44,9 @@
     --sidebar-border: 30 25% 80%;
     --sidebar-ring: 89 13% 31%;
 
-    --month-band-fill-color: #cccccc;
-    --week-marker-color: rgba(140, 140, 140, 0.75);
-    --day-band-fill-color: #bbbbbb;
+    --month-band-fill-color: #b8844f;
+    --week-marker-color: rgba(142, 81, 44, 0.88);
+    --day-band-fill-color: #9a693b;
     --month-label-color: #333333;
     --week-label-color: #444444;
   }
@@ -64,13 +64,13 @@
     --primary: 78 14% 77%;
     --primary-foreground: 100 8% 9%;
 
-    --secondary: 27 52% 49%;
+    --secondary: 27 60% 52%;
     --secondary-foreground: 33 36% 96%;
 
     --muted: 72 10% 20%;
     --muted-foreground: 35 18% 70%;
 
-    --accent: 27 42% 22%;
+    --accent: 27 52% 30%;
     --accent-foreground: 33 36% 96%;
 
     --destructive: 0 62.8% 30.6%;
@@ -89,9 +89,9 @@
     --sidebar-border: 70 8% 28%;
     --sidebar-ring: 78 14% 77%;
 
-    --month-band-fill-color: #444444;
-    --week-marker-color: rgba(130, 130, 130, 0.75);
-    --day-band-fill-color: #666666;
+    --month-band-fill-color: #8d673f;
+    --week-marker-color: rgba(204, 150, 92, 0.9);
+    --day-band-fill-color: #77502d;
     --month-label-color: #eeeeee;
     --week-label-color: #cccccc;
   }

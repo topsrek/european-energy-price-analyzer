@@ -138,6 +138,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const renderRangeCalendar = () => (
     <Calendar
       mode="range"
+      locale={de}
+      weekStartsOn={1}
       selected={draftRange}
       onSelect={handleRangeSelect}
       disabled={(date) =>

@@ -117,6 +117,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [copiedFormat, setCopiedFormat] = useState<'excel' | 'markdown' | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | undefined>(undefined);
   const [isDraggingCutoff, setIsDraggingCutoff] = useState(false);
+  const [isCutoffHover, setIsCutoffHover] = useState(false);
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const zoomRangeRef = useRef<ZoomRange | null>(null);
@@ -694,22 +695,15 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const canShowMonthSeparators = averaging !== 'monthly' && averaging !== 'daily-cycle';
   const shouldShowDaySeparators = showDaySeparators && canShowDaySeparators;
   const shouldShowWeekSeparators = showWeekSeparators && canShowWeekSeparators;
+  const shouldShowMonthSeparators = showMonthSeparators && canShowMonthSeparators;
   const hasMultipleQuarters = useMemo(() => {
     const quarterKeys = new Set(
       visibleChartData.map((item) => `${item.date.getFullYear()}-Q${getQuarter(item.date)}`)
     );
     return quarterKeys.size > 1;
   }, [visibleChartData]);
-
-  useEffect(() => {
-    if (!canShowDaySeparators && showDaySeparators) setShowDaySeparators(false);
-    if (!canShowWeekSeparators && showWeekSeparators) setShowWeekSeparators(false);
-    if (!canShowMonthSeparators && showMonthSeparators) setShowMonthSeparators(false);
-  }, [canShowDaySeparators, canShowMonthSeparators, canShowWeekSeparators, showDaySeparators, showMonthSeparators, showWeekSeparators]);
-
-  useEffect(() => {
-    if (!hasMultipleQuarters && showQuarterSeparators) setShowQuarterSeparators(false);
-  }, [hasMultipleQuarters, showQuarterSeparators]);
+  const canShowQuarterSeparators = averaging !== 'daily-cycle' && hasMultipleQuarters;
+  const shouldShowQuarterSeparators = showQuarterSeparators && canShowQuarterSeparators;
 
   useEffect(() => {
     if (activeRangePreset === '1w' && canShowDaySeparators) setShowDaySeparators(true);
@@ -1097,14 +1091,14 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     return { x: nextX, y: nextY };
   };
 
-  const extractPriceAxisValue = (state: Record<string, unknown>) => {
-    const axisMap = state.yAxisMap as Record<string, { yAxisId?: string; scale?: { invert?: (value: number) => number } }> | undefined;
+  const getPriceAxis = (state: Record<string, unknown>) => {
+    const axisMap = state.yAxisMap as Record<string, { yAxisId?: string; scale?: ((value: number) => number) & { invert?: (value: number) => number } }> | undefined;
     if (!axisMap) return null;
+    return Object.values(axisMap).find((value) => value?.yAxisId === 'price') ?? Object.values(axisMap)[0] ?? null;
+  };
 
-    const axis =
-      Object.values(axisMap).find((value) => value?.yAxisId === 'price') ??
-      Object.values(axisMap)[0];
-
+  const extractPriceAxisValue = (state: Record<string, unknown>) => {
+    const axis = getPriceAxis(state);
     const chartY = typeof state.chartY === 'number' ? state.chartY : null;
     if (!axis?.scale || typeof axis.scale.invert !== 'function' || chartY === null) {
       return null;
@@ -1127,6 +1121,14 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     onCutoffValueChange(Number(nextValue.toFixed(2)));
   };
 
+  const isPointerNearCutoff = (state: Record<string, unknown>) => {
+    if (!cutoffEnabled || cutoffValue === null || isZoomedRef.current) return false;
+    const chartY = typeof state.chartY === 'number' ? state.chartY : null;
+    const axis = getPriceAxis(state);
+    const cutoffY = axis?.scale?.(cutoffValue);
+    return chartY !== null && typeof cutoffY === 'number' && Math.abs(chartY - cutoffY) <= 10;
+  };
+
   const handleChartMouseMove = (state: Record<string, unknown>) => {
     const chartX = typeof state.chartX === 'number' ? state.chartX : null;
     const chartY = typeof state.chartY === 'number' ? state.chartY : null;
@@ -1135,16 +1137,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       setTooltipPosition(clampTooltipPosition(state as { chartX?: number; chartY?: number; chartWidth?: number; chartHeight?: number }));
     }
 
-    if (isDraggingCutoff) {
-      updateCutoffFromPointer(state);
-    }
+    const nearCutoff = isPointerNearCutoff(state);
+    setIsCutoffHover(nearCutoff);
+    if (isDraggingCutoff) updateCutoffFromPointer(state);
   };
 
   const handleChartMouseDown = (state: Record<string, unknown>) => {
-    if (!cutoffEnabled || isZoomedRef.current) {
-      return;
-    }
-
+    if (!isPointerNearCutoff(state)) return;
     setIsDraggingCutoff(true);
     updateCutoffFromPointer(state);
   };
@@ -1272,7 +1271,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
 
   // Simplified renderMonthBands function - avoiding NaN errors
   const renderMonthBands = () => {
-    if (!showMonthSeparators || !canShowMonthSeparators || visibleChartData.length === 0) {
+    if (!shouldShowMonthSeparators || visibleChartData.length === 0) {
       return null;
     }
 
@@ -1360,7 +1359,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   };
 
   const renderQuarterBands = () => {
-    if (!showQuarterSeparators || !hasMultipleQuarters || visibleChartData.length === 0) {
+    if (!shouldShowQuarterSeparators || visibleChartData.length === 0) {
       return null;
     }
 
@@ -1524,7 +1523,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     <div className="min-w-0 space-y-2 md:space-y-4">
       <div
         ref={chartWrapperRef}
-        className={`relative h-[400px] min-h-[400px] min-w-0 w-full md:h-[500px] ${isZoomed ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
+        className={`relative h-[400px] min-h-[400px] min-w-0 w-full md:h-[500px] ${isDraggingCutoff ? 'cursor-grabbing' : isCutoffHover ? 'cursor-grab' : isZoomed ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
         style={{ touchAction: isZoomed ? 'none' : 'pan-y' }}
       >
         {cutoffEnabled && cutoffValue !== null && cutoffStats.length > 0 && (
@@ -1561,7 +1560,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             onMouseMove={handleChartMouseMove}
             onMouseDown={handleChartMouseDown}
             onMouseUp={() => setIsDraggingCutoff(false)}
-            onMouseLeave={() => setIsDraggingCutoff(false)}
+            onMouseLeave={() => { setIsDraggingCutoff(false); setIsCutoffHover(false); }}
           >
             <defs>
               <style type="text/css">
@@ -1621,7 +1620,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <YAxis
               yAxisId="price"
               domain={priceAxisDomain}
-              width={40}
+              width={54}
+              tickFormatter={(value) => Number(value).toFixed(2)}
               label={{
                 value: priceUnitLabel,
                 angle: -90,
@@ -1840,15 +1840,15 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 <span>Preisliste</span>
               </Button>
               <Dialog open={isPriceListOpen} onOpenChange={setIsPriceListOpen}>
-                <DialogContent className="max-h-[85vh] max-w-2xl overflow-hidden">
+                <DialogContent className="max-h-[85vh] max-w-lg overflow-hidden">
                   <DialogHeader>
                     <DialogTitle>Sichtbare Preise</DialogTitle>
                     <DialogDescription>Die Liste folgt dem sichtbaren Diagrammausschnitt und kann als Excel- oder Markdown-Tabelle kopiert werden.</DialogDescription>
                   </DialogHeader>
                   <div className="max-h-[52vh] overflow-auto rounded-md border">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-background"><tr><th className="p-2 text-left">Zeitraum</th><th className="p-2 text-right">{priceListHeader}</th></tr></thead>
-                      <tbody>{priceListRows.map((row, index) => <tr key={`price-row-${index}`} className="border-t"><td className="p-2">{row.date}</td><td className="p-2 text-right tabular-nums">{row.price}</td></tr>)}</tbody>
+                    <table className="w-auto min-w-[22rem] text-sm">
+                      <thead className="sticky top-0 bg-background"><tr><th className="p-2 text-left">Zeitraum</th><th className="px-2 py-2 pl-6 text-left">{priceListHeader}</th></tr></thead>
+                      <tbody>{priceListRows.map((row, index) => <tr key={`price-row-${index}`} className="border-t"><td className="p-2">{row.date}</td><td className="px-2 py-2 pl-6 text-left tabular-nums">{row.price}</td></tr>)}</tbody>
                     </table>
                   </div>
                   <DialogFooter>
@@ -1889,7 +1889,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                   <div className="flex items-center space-x-2">
                     <Checkbox
                       id="show-month-separators"
-                      checked={showMonthSeparators && canShowMonthSeparators}
+                      checked={shouldShowMonthSeparators}
                       disabled={!canShowMonthSeparators}
                       onCheckedChange={handleCheckedChange(setShowMonthSeparators)}
                     />
@@ -1898,11 +1898,11 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                   <div className="flex items-center space-x-2">
                     <Checkbox
                       id="show-quarter-separators"
-                      checked={showQuarterSeparators}
-                      disabled={!hasMultipleQuarters}
+                      checked={shouldShowQuarterSeparators}
+                      disabled={!canShowQuarterSeparators}
                       onCheckedChange={handleCheckedChange(setShowQuarterSeparators)}
                     />
-                    <Label htmlFor="show-quarter-separators" className="text-sm">Quartale</Label>
+                    <Label htmlFor="show-quarter-separators" className={!canShowQuarterSeparators ? 'text-sm text-muted-foreground' : 'text-sm'}>Quartale</Label>
                   </div>
                 </div>
               </div>
