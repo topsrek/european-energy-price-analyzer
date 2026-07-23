@@ -117,7 +117,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [copiedFormat, setCopiedFormat] = useState<'excel' | 'markdown' | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | undefined>(undefined);
   const [isDraggingCutoff, setIsDraggingCutoff] = useState(false);
-  const [isCutoffHover, setIsCutoffHover] = useState(false);
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const zoomRangeRef = useRef<ZoomRange | null>(null);
@@ -1121,17 +1120,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     onCutoffValueChange(Number(nextValue.toFixed(2)));
   };
 
-  const isPointerNearCutoff = (state: Record<string, unknown>) => {
-    if (!cutoffEnabled || cutoffValue === null || isZoomedRef.current) return false;
-    const chartY = typeof state.chartY === 'number' ? state.chartY : null;
-    const pointerValue = extractPriceAxisValue(state);
-    const axis = getPriceAxis(state);
-    if (chartY === null || pointerValue === null || !axis?.scale?.invert) return false;
-
-    const valueAtThreshold = axis.scale.invert(chartY + 10);
-    return Number.isFinite(valueAtThreshold) && Math.abs(pointerValue - cutoffValue) <= Math.abs(valueAtThreshold - pointerValue);
-  };
-
   const handleChartMouseMove = (state: Record<string, unknown>) => {
     const chartX = typeof state.chartX === 'number' ? state.chartX : null;
     const chartY = typeof state.chartY === 'number' ? state.chartY : null;
@@ -1140,15 +1128,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       setTooltipPosition(clampTooltipPosition(state as { chartX?: number; chartY?: number; chartWidth?: number; chartHeight?: number }));
     }
 
-    const nearCutoff = isPointerNearCutoff(state);
-    setIsCutoffHover(nearCutoff);
     if (isDraggingCutoff) updateCutoffFromPointer(state);
-  };
-
-  const handleChartMouseDown = (state: Record<string, unknown>) => {
-    if (!isPointerNearCutoff(state)) return;
-    setIsDraggingCutoff(true);
-    updateCutoffFromPointer(state);
   };
 
   // Custom tooltip formatter
@@ -1315,6 +1295,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           strokeWidth={2}
           strokeOpacity={0.6}
           ifOverflow="hidden"
+          style={{ pointerEvents: 'none' }}
         />
       );
 
@@ -1329,6 +1310,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             fill="var(--month-band-fill-color)"
             fillOpacity={0.3}
             ifOverflow="hidden"
+          style={{ pointerEvents: 'none' }}
           />
         );
       }
@@ -1344,6 +1326,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             stroke="transparent"
             strokeWidth={0}
             ifOverflow="hidden"
+          style={{ pointerEvents: 'none' }}
             label={{
               value: monthName,
               position: 'insideTop',
@@ -1399,6 +1382,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           strokeWidth={2}
           strokeOpacity={0.35}
           ifOverflow="hidden"
+          style={{ pointerEvents: 'none' }}
         />
       );
 
@@ -1412,6 +1396,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             fill="var(--day-band-fill-color)"
             fillOpacity={0.08}
             ifOverflow="hidden"
+          style={{ pointerEvents: 'none' }}
           />
         );
       }
@@ -1424,6 +1409,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           stroke="transparent"
           strokeWidth={0}
           ifOverflow="hidden"
+          style={{ pointerEvents: 'none' }}
           label={{
             value: quarterLabel,
             position: 'insideTop',
@@ -1458,6 +1444,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                     strokeDasharray="4 4"
                     strokeOpacity={0.75}
                     ifOverflow="hidden"
+          style={{ pointerEvents: 'none' }}
                     label={{
                         value: `KW ${getISOWeek(item.date)}`,
                         position: 'insideTop',
@@ -1510,6 +1497,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                             fill="var(--day-band-fill-color)"
                             fillOpacity={0.15}
                             ifOverflow="hidden"
+          style={{ pointerEvents: 'none' }}
                         />
                     );
                 }
@@ -1526,7 +1514,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     <div className="min-w-0 space-y-2 md:space-y-4">
       <div
         ref={chartWrapperRef}
-        className={`relative h-[400px] min-h-[400px] min-w-0 w-full md:h-[500px] ${isDraggingCutoff ? 'cursor-grabbing' : isCutoffHover ? 'cursor-grab' : isZoomed ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
+        className={`relative h-[400px] min-h-[400px] min-w-0 w-full md:h-[500px] ${isDraggingCutoff ? 'cursor-grabbing' : isZoomed ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
         style={{ touchAction: isZoomed ? 'none' : 'pan-y' }}
       >
         {cutoffEnabled && cutoffValue !== null && cutoffStats.length > 0 && (
@@ -1561,9 +1549,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             }}
             className="bg-card md:border border-none"
             onMouseMove={handleChartMouseMove}
-            onMouseDown={handleChartMouseDown}
             onMouseUp={() => setIsDraggingCutoff(false)}
-            onMouseLeave={() => { setIsDraggingCutoff(false); setIsCutoffHover(false); }}
+            onMouseLeave={() => setIsDraggingCutoff(false)}
           >
             <defs>
               <style type="text/css">
@@ -1604,7 +1591,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               wrapperStyle={{ paddingTop: '0px', paddingBottom: '10px' }}
             />
 
-            {/* Background bands for quarters, months, weeks, days */}
+            {/* Zeitraum-Highlights sind rein visuell und fangen keine Mausereignisse ab. */}
             {renderQuarterBands()}
             {renderMonthBands()}
             {renderWeekMarkers()}
@@ -1684,6 +1671,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 strokeDasharray="6 4"
                 strokeOpacity={0.55}
                 ifOverflow="extendDomain"
+                style={{ pointerEvents: 'none' }}
               />
             )}
 
@@ -1788,6 +1776,21 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 dot={false}
                 animationDuration={200}
                 hide={!showWithTaxes}
+              />
+            )}
+            {cutoffEnabled && cutoffValue !== null && !isZoomed && (
+              <ReferenceLine
+                y={cutoffValue}
+                yAxisId="price"
+                stroke="transparent"
+                strokeWidth={18}
+                ifOverflow="extendDomain"
+                zIndex={500}
+                style={{ cursor: isDraggingCutoff ? 'grabbing' : 'grab' }}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                  setIsDraggingCutoff(true);
+                }}
               />
             )}
           </LineChart>
