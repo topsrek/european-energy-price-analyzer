@@ -51,6 +51,7 @@ interface ExtendedChartDataPoint {
 
 interface EnergyChartProps {
   energyPrices?: EnergyPrice[];
+  averageEnergyPrices?: EnergyPrice[];
   comparisonSeries?: ComparisonSeries[];
   smartMeterData?: SmartMeterData[];
   showSmartMeterData: boolean;
@@ -80,6 +81,7 @@ const COMPARISON_COLORS = ['#e11d48', '#2563eb', '#0f766e', '#d97706', '#7c3aed'
 
 const EnergyChart: React.FC<EnergyChartProps> = ({
   energyPrices = [],
+  averageEnergyPrices = energyPrices,
   comparisonSeries = [],
   smartMeterData,
   showSmartMeterData,
@@ -618,9 +620,30 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
 
   const visibleStart = visibleChartData[0]?.date.getTime() ?? Number.NEGATIVE_INFINITY;
   const visibleEnd = visibleChartData[visibleChartData.length - 1]?.date.getTime() ?? Number.POSITIVE_INFINITY;
-  const isInVisibleRange = useCallback((timestamp: string) =>
-    averaging === 'daily-cycle' || (parseISO(timestamp).getTime() >= visibleStart && parseISO(timestamp).getTime() <= visibleEnd),
-  [averaging, visibleEnd, visibleStart]);
+  const getAveragingBucketKey = useCallback((date: Date) => {
+    if (averaging === 'monthly') return `${date.getFullYear()}-${date.getMonth() + 1}`;
+    if (averaging === 'daily') return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+    if (averaging === 'weekly') {
+      const weekStart = new Date(date);
+      weekStart.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+      weekStart.setHours(0, 0, 0, 0);
+      return weekStart.toISOString().slice(0, 10);
+    }
+    if (averaging === 'hourly') return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}`;
+    return date.toISOString();
+  }, [averaging]);
+  const visibleBucketKeys = useMemo(
+    () => new Set(visibleChartData.map((item) => getAveragingBucketKey(item.date))),
+    [getAveragingBucketKey, visibleChartData]
+  );
+  const isInVisibleRange = useCallback((timestamp: string) => {
+    if (averaging === 'daily-cycle') return true;
+    if (averaging === 'none') {
+      const time = parseISO(timestamp).getTime();
+      return time >= visibleStart && time <= visibleEnd;
+    }
+    return visibleBucketKeys.has(getAveragingBucketKey(parseISO(timestamp)));
+  }, [averaging, getAveragingBucketKey, visibleBucketKeys, visibleEnd, visibleStart]);
 
   const averageSummaries = useMemo(() => {
     // ponytail: display point reduction never changes aggregate calculations.
@@ -643,7 +666,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         .filter((item): item is NonNullable<typeof item> => item !== null);
     }
 
-    const values = energyPrices
+    const values = averageEnergyPrices
       .filter((item) => isInVisibleRange(item.timestamp))
       .map((item) => showSpotPriceWithTax ? item.price * 1.2 : item.price);
 
@@ -655,7 +678,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       color: '#8E512C',
       value: values.reduce((sum, value) => sum + value, 0) / values.length,
     }];
-  }, [energyPrices, isComparisonChart, isInVisibleRange, plotSeries, showSpotPriceWithTax]);
+  }, [averageEnergyPrices, isComparisonChart, isInVisibleRange, plotSeries, showSpotPriceWithTax]);
 
   const averagePrice = useMemo(() => {
     const values = averageSummaries.map((item) => item.value);

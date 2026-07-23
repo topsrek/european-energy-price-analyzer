@@ -150,6 +150,7 @@ const Index = ({ region }: IndexProps) => {
   });
   const [rawEnergyPrices, setRawEnergyPrices] = useState<EnergyPrice[]>([]);
   const [displayedEnergyPrices, setDisplayedEnergyPrices] = useState<EnergyPrice[]>([]);
+  const [filteredEnergyPrices, setFilteredEnergyPrices] = useState<EnergyPrice[]>([]);
   const [earliestAvailableDate, setEarliestAvailableDate] = useState<Date | null>(null);
   const [latestAvailableDate, setLatestAvailableDate] = useState<Date | null>(null);
   const [smartMeterData, setSmartMeterData] = useState<SmartMeterData[] | undefined>(undefined);
@@ -449,8 +450,11 @@ const Index = ({ region }: IndexProps) => {
   
   // Process data whenever filters or date range changes
   useEffect(() => {
-    if (!rawEnergyPrices.length) return;
-    
+    if (!rawEnergyPrices.length) {
+      setFilteredEnergyPrices([]);
+      return;
+    }
+
     const convertedEnergyPrices = convertEnergyPriceUnit(rawEnergyPrices, priceUnit);
 
     // Apply date range filter
@@ -461,12 +465,8 @@ const Index = ({ region }: IndexProps) => {
       filteredData = applyFilters(filteredData, filters);
     }
     
-    // Apply averaging if enabled
-    const processedData = isAveragingEnabled ? 
-      calculateAverage(filteredData, averaging) : 
-      filteredData;
-    
-    setDisplayedEnergyPrices(processedData);
+    setFilteredEnergyPrices(filteredData);
+    setDisplayedEnergyPrices(isAveragingEnabled ? calculateAverage(filteredData, averaging) : filteredData);
   }, [rawEnergyPrices, priceUnit, startDate, endDate, filters, averaging, isAveragingEnabled]);
 
   useEffect(() => {
@@ -728,6 +728,7 @@ const Index = ({ region }: IndexProps) => {
                   ) : displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 
                       energyPrices={displayedEnergyPrices}
+                      averageEnergyPrices={filteredEnergyPrices}
                       smartMeterData={smartMeterData}
                       showSmartMeterData={showSmartMeterData}
                       showTotalCost={showTotalCost}
