@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { useParams, Link, Navigate } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
 import { getRegionByCode } from '@/config/regions';
@@ -115,13 +115,12 @@ const FaqPage = () => {
     },
   ];
 
-  const filteredFaqs = useMemo(() => {
-    return faqs.filter(
-      (faq) =>
-        faq.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        faq.category.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [searchQuery, regionCode]);
+  const normalizedSearchQuery = searchQuery.toLowerCase();
+  const filteredFaqs = faqs.filter(
+    (faq) =>
+      faq.question.toLowerCase().includes(normalizedSearchQuery) ||
+      faq.category.toLowerCase().includes(normalizedSearchQuery)
+  );
 
   return (
     <div className="flex flex-col min-h-screen bg-background">

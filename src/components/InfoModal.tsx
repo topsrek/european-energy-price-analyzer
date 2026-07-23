@@ -46,7 +46,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
               </p>
               
               <h4 className="text-md font-medium mt-4">Netzbetreiber vs. Stromanbieter</h4>
-              <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg space-y-3">
+              <div className="bg-primary/10 dark:bg-primary/15 p-4 rounded-lg space-y-3">
                 <div>
                   <strong>Netzbetreiber</strong>: Sind für die Strominfrastruktur und den Transport des Stroms 
                   zu Ihrem Haus zuständig. In Wien ist das "Wiener Netze". Die Netzgebühren sind reguliert und 
@@ -56,7 +56,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                   <strong>Stromanbieter</strong>: Verkaufen den Strom an Endkunden. Beispiele sind Wien Energie, 
                   Verbund, oder EVN. Sie konkurrieren um Kunden und bieten verschiedene Tarife an.
                 </div>
-                <div className="text-sm text-muted-foreground mt-2 p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded">
+                <div className="text-sm text-muted-foreground mt-2 p-2 bg-accent dark:bg-accent rounded">
                   <strong>Wichtig:</strong> Manchmal haben Netzbetreiber und Stromanbieter den gleichen Namen 
                   (z.B. "EVN" ist sowohl Netzbetreiber als auch Stromanbieter), sind aber rechtlich 
                   getrennte Unternehmen. Viele dieser Unternehmen operieren mit staatlicher Beteiligung.
@@ -79,7 +79,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                   href={`https://newtransparency.entsoe.eu/market/energyPrices?appState=%7B%22sa%22%3A%5B%22BZN%7C10YAT-APG------L%22%5D%2C%22st%22%3A%22BZN%22%2C%22mm%22%3Atrue%2C%22ma%22%3Afalse%2C%22sp%22%3A%22HALF%22%2C%22dt%22%3A%22CHART%22%2C%22df%22%3A%22${new Date().toISOString().split('T')[0]}%22%2C%22tz%22%3A%22CET%22%7D`}
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm mt-1"
+                  className="inline-flex items-center gap-1 text-primary hover:text-secondary text-sm mt-1"
                 >
                   ENTSO-E Transparenz-Plattform <ExternalLink className="h-3 w-3" />
                 </a>
@@ -91,7 +91,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
               
               <h4 className="text-md font-medium mt-4">Europäische Ebene</h4>
               <div className="space-y-3">
-                <div className="border-l-4 border-blue-500 pl-4">
+                <div className="border-l-4 border-primary pl-4">
                   <strong>ENTSO-E (European Network of Transmission System Operators)</strong>
                   <p className="text-sm text-muted-foreground mt-1">
                     Vereinigt alle Übertragungsnetzbetreiber Europas. Koordiniert den grenzüberschreitenden 
@@ -100,7 +100,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                   </p>
                 </div>
                 
-                <div className="border-l-4 border-green-500 pl-4">
+                <div className="border-l-4 border-primary pl-4">
                   <strong>EPEX Spot</strong>
                   <p className="text-sm text-muted-foreground mt-1">
                     Die europäische Strombörse, an der täglich die Strompreise für den nächsten Tag festgelegt werden. 
@@ -120,7 +120,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                   </p>
                 </div>
                 
-                <div className="border-l-4 border-purple-500 pl-4">
+                <div className="border-l-4 border-muted-foreground pl-4">
                   <strong>Regionale Netzbetreiber</strong>
                   <p className="text-sm text-muted-foreground mt-1">
                     Betreiben die regionalen Stromnetze (Mittel- und Niederspannung). Beispiele: Wiener Netze, 
@@ -128,7 +128,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                   </p>
                 </div>
                 
-                <div className="border-l-4 border-orange-500 pl-4">
+                <div className="border-l-4 border-secondary pl-4">
                   <strong>Energieversorger</strong>
                   <p className="text-sm text-muted-foreground mt-1">
                     Verkaufen Strom an Endkunden. Große Anbieter wie Verbund, Wien Energie, EVN sind oft 
@@ -137,7 +137,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                 </div>
               </div>
               
-              <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-950/20 rounded-lg">
+              <div className="mt-4 p-3 bg-accent/70 dark:bg-accent rounded-lg">
                 <h5 className="font-medium">Staatliche Beteiligung</h5>
                 <p className="text-sm text-muted-foreground mt-1">
                   Viele Akteure im österreichischen Strommarkt haben eine staatliche Beteiligung:
@@ -151,7 +151,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
               </div>
               
               <h4 className="text-md font-medium mt-4">Europäische Marktkopplung</h4>
-              <div className="bg-purple-50 dark:bg-purple-950/20 p-4 rounded-lg">
+              <div className="bg-muted dark:bg-muted p-4 rounded-lg">
                 <p className="text-sm text-muted-foreground">
                   Durch die europäische Marktkopplung sind die Strommärkte der EU-Länder miteinander verbunden. 
                   Dies führt zu einer Angleichung der Preise und erhöht die Versorgungssicherheit. Österreich 
@@ -200,7 +200,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
               </ul>
               
               <h4 className="text-md font-medium mt-4">Großhandelspreise vs. Endkundenpreise</h4>
-              <div className="bg-orange-50 dark:bg-orange-950/20 p-4 rounded-lg space-y-3">
+              <div className="bg-secondary/10 dark:bg-secondary/15 p-4 rounded-lg space-y-3">
                 <div>
                   <strong>Day-Ahead Auktionspreise 2024 (Großhandel):</strong>
                   <table className="min-w-full mt-2 text-sm">
@@ -215,22 +215,22 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                       <tr>
                         <td className="py-1">Österreich</td>
                         <td>81.54</td>
-                        <td className="text-green-600 font-medium">8.15</td>
+                        <td className="text-primary font-medium">8.15</td>
                       </tr>
                       <tr>
                         <td className="py-1">Deutschland</td>
                         <td>78.51</td>
-                        <td className="text-green-600 font-medium">7.85</td>
+                        <td className="text-primary font-medium">7.85</td>
                       </tr>
                       <tr>
                         <td className="py-1">Frankreich</td>
                         <td>58.02</td>
-                        <td className="text-green-600 font-medium">5.80</td>
+                        <td className="text-primary font-medium">5.80</td>
                       </tr>
                       <tr>
                         <td className="py-1">Norwegen</td>
                         <td>42.04</td>
-                        <td className="text-green-600 font-medium">4.20</td>
+                        <td className="text-primary font-medium">4.20</td>
                       </tr>
                     </tbody>
                   </table>
@@ -253,12 +253,12 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
               <p className="text-sm">
                 <strong>Typischer Gesamtpreis für Haushaltskunden:</strong> 20–25 Cent/kWh (inkl. Preisbremse); Neuverträge ohne Bremse liegen oft bei 25–32 Cent/kWh.
               </p>
-              <div className="text-xs text-muted-foreground mt-1 p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded">
+              <div className="text-xs text-muted-foreground mt-1 p-2 bg-accent dark:bg-accent rounded">
                 Der Großhandelspreis macht nur etwa 25-40% des Endkundenpreises aus!
               </div>
               
               <h4 className="text-md font-medium mt-4">Merit Order und Preisbildung</h4>
-              <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg space-y-2">
+              <div className="bg-primary/10 dark:bg-primary/15 p-4 rounded-lg space-y-2">
                 <p className="text-sm">
                   <strong>Merit Order Prinzip:</strong> Kraftwerke werden nach ihren Grenzkosten der Reihe nach zugeschaltet:
                 </p>
@@ -276,7 +276,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
               
               <h4 className="text-md font-medium mt-4">Besondere Phänomene</h4>
               <div className="space-y-3">
-                <div className="border-l-4 border-green-500 pl-4">
+                <div className="border-l-4 border-primary pl-4">
                   <strong>Negative Strompreise</strong>
                   <p className="text-sm text-muted-foreground mt-1">
                     Wenn viel Wind- und Solarstrom produziert wird, aber wenig Nachfrage herrscht, können die Preise 
@@ -285,7 +285,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                   </p>
                 </div>
                 
-                <div className="border-l-4 border-orange-500 pl-4">
+                <div className="border-l-4 border-secondary pl-4">
                   <strong>Preisvolatilität</strong>
                   <p className="text-sm text-muted-foreground mt-1">
                     Strompreise schwanken stark: von negativen Werten bis über 500 €/MWh bei Knappheit. 
@@ -371,7 +371,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
               </ul>
               
               <h4 className="text-md font-medium mt-4">Smart Meter und dynamische Tarife</h4>
-              <div className="bg-cyan-50 dark:bg-cyan-950/20 p-4 rounded-lg space-y-2">
+              <div className="bg-muted dark:bg-muted p-4 rounded-lg space-y-2">
                 <p className="text-sm">
                   <strong>Smart Meter</strong> ermöglichen es, den Stromverbrauch stundengenau zu messen. 
                   Dies eröffnet neue Tarifmodelle:
@@ -390,7 +390,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
             <TabsContent value="environment" className="space-y-4">
               <h3 className="text-lg font-semibold">CO₂-Emissionen und Umweltauswirkungen</h3>
               
-              <div className="bg-green-50 dark:bg-green-950/20 p-4 rounded-lg">
+              <div className="bg-primary/10 dark:bg-primary/15 p-4 rounded-lg">
                 <h4 className="text-md font-medium">Österreichs Strommix</h4>
                 <p className="text-sm text-muted-foreground mt-1">
                   Österreich hat einen der saubersten Stromixe in Europa mit einem hohen Anteil an erneuerbaren Energien:
@@ -418,7 +418,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                   href="https://app.electricitymaps.com/zone/AT/all/yearly"
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm mt-1"
+                  className="inline-flex items-center gap-1 text-primary hover:text-secondary text-sm mt-1"
                 >
                   Electricity Maps - Jahresvergleich aller Länder <ExternalLink className="h-3 w-3" />
                 </a>
@@ -436,22 +436,22 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                 <tbody>
                   <tr>
                     <td className="py-1">Norwegen</td>
-                    <td className="text-green-600 font-medium">30 g/kWh</td>
+                    <td className="text-primary font-medium">30 g/kWh</td>
                     <td className="text-xs">Wasserkraft</td>
                   </tr>
                   <tr>
                     <td className="py-1">Frankreich</td>
-                    <td className="text-green-600 font-medium">33 g/kWh</td>
+                    <td className="text-primary font-medium">33 g/kWh</td>
                     <td className="text-xs">Kernkraft</td>
                   </tr>
                   <tr>
                     <td className="py-1">Österreich</td>
-                    <td className="text-blue-600 font-medium">124 g/kWh</td>
+                    <td className="text-primary font-medium">124 g/kWh</td>
                     <td className="text-xs">Wasserkraft, Wind</td>
                   </tr>
                   <tr>
                     <td className="py-1">Deutschland</td>
-                    <td className="text-orange-600 font-medium">334 g/kWh</td>
+                    <td className="text-secondary font-medium">334 g/kWh</td>
                     <td className="text-xs">Gas, Kohle, Wind</td>
                   </tr>
                   <tr>
@@ -467,10 +467,10 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                 </tbody>
               </table>
               <p className="text-xs text-muted-foreground mt-2">
-                Quelle: <a href="https://app.electricitymaps.com/zone/AT/all/yearly" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">Electricity Maps 2024</a>
+                Quelle: <a href="https://app.electricitymaps.com/zone/AT/all/yearly" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-secondary">Electricity Maps 2024</a>
               </p>
               
-              <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+              <div className="mt-4 p-3 bg-primary/10 dark:bg-primary/15 rounded-lg">
                 <h5 className="font-medium">Warum schwankt die CO₂-Intensität?</h5>
                 <ul className="text-sm text-muted-foreground mt-2 list-disc list-inside">
                   <li>Tageszeit: Nachts weniger Solarstrom, mehr Wasserkraft</li>
@@ -492,7 +492,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ trigger }) => {
                   href="https://www.energy-charts.info/charts/price_average/chart.htm?l=de&c=ALL&interval=year"
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm mt-1"
+                  className="inline-flex items-center gap-1 text-primary hover:text-secondary text-sm mt-1"
                 >
                   Energy Charts - Internationale Preisvergleiche <ExternalLink className="h-3 w-3" />
                 </a>

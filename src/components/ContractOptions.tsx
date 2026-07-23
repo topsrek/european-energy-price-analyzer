@@ -135,8 +135,8 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
           {!isSpot ? (
             <>
               {/* Tariff Costs Section */}
-              <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg space-y-3">
-                <h4 className="font-semibold text-blue-800 dark:text-blue-200 text-sm">Nettostromkosten</h4>
+              <div className="bg-primary/10 dark:bg-primary/15 p-4 rounded-lg space-y-3">
+                <h4 className="font-semibold text-primary text-sm">Nettostromkosten</h4>
                 
                 <div className="grid grid-cols-2 gap-y-2 text-sm">
                   <span className="text-muted-foreground">Arbeitspreis:</span>
@@ -180,8 +180,8 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                   
                   {calculatedTariff.rabatte?.total !== 0 && (
                     <>
-                      <span className="text-green-600">Rabatte:</span>
-                      <span className="text-right font-medium text-green-600">{safeToFixed(calculatedTariff.rabatte?.total)} €</span>
+                      <span className="text-primary">Rabatte:</span>
+                      <span className="text-right font-medium text-primary">{safeToFixed(calculatedTariff.rabatte?.total)} €</span>
                     </>
                   )}
                 </div>
@@ -195,7 +195,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                     <span className="text-right">{safeToFixed(calculatedTariff.calculated.tax_amount)} €</span>
                     
                     <span className="font-semibold">Brutto:</span>
-                    <span className="text-right font-bold text-blue-700 dark:text-blue-300">{safeToFixed(calculatedTariff.calculated.energiekosten_incl_tax)} €</span>
+                    <span className="text-right font-bold text-primary">{safeToFixed(calculatedTariff.calculated.energiekosten_incl_tax)} €</span>
                   </div>
                 </div>
               </div>
@@ -212,13 +212,13 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                   <span className="text-right">{safeToFixed(totalTaxAmount)} €</span>
                   
                   <span className="font-bold text-lg">Gesamt brutto:</span>
-                  <span className="text-right font-bold text-lg text-green-700 dark:text-green-400">{safeToFixed(totalCostsInclTax)} €</span>
+                  <span className="text-right font-bold text-lg text-primary">{safeToFixed(totalCostsInclTax)} €</span>
                 </div>
               </div>
             </>
           ) : (
-            <div className="bg-orange-50 dark:bg-orange-950/20 p-4 rounded-lg space-y-3">
-              <h4 className="font-semibold text-orange-800 dark:text-orange-200 text-sm">Spot Tarif</h4>
+            <div className="bg-secondary/10 dark:bg-secondary/15 p-4 rounded-lg space-y-3">
+              <h4 className="font-semibold text-secondary text-sm">Spot Tarif</h4>
               
               <div className="grid grid-cols-2 gap-y-2 text-sm">
                 <span className="text-muted-foreground">Grundgebühr:</span>
@@ -231,7 +231,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 <span className="text-right font-medium">{safeToFixed(calculatedTariff.calculated?.arbeitspreis_total)} € / Jahr</span>
               </div>
               
-              <div className="text-xs text-orange-600 dark:text-orange-400 mt-2 p-2 bg-orange-100 dark:bg-orange-900/30 rounded">
+              <div className="text-xs text-secondary mt-2 p-2 bg-secondary/15 dark:bg-secondary/20 rounded">
                 + aktueller Spotpreis + Netzkosten + Steuern
               </div>
             </div>

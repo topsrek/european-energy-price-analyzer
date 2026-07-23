@@ -510,7 +510,7 @@ const Index = ({ region }: IndexProps) => {
       <main className="md:container mx-auto md:pt-4 md:px-4 md:pb-4 pb-2">
         <div className="space-y-0 md:space-y-8">
           <Card className="animate-fade-in md:rounded-lg rounded-none">
-            <CardHeader>
+            <CardHeader className="px-6 pb-1 pt-3 md:pt-4">
               <div className="flex items-center justify-end gap-2">
                 {isLoadingPriceData && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                 <HelpModal
@@ -545,9 +545,7 @@ const Index = ({ region }: IndexProps) => {
                   />
                 </div>
                 
-                <div className="h-4 md:h-6 flex items-center">
-                  <div className="w-full border-t border-border" />
-                </div>
+                <div className="h-2 md:h-3" />
 
                 <div className="border-t border-border px-2 py-3">
                   <div className="flex min-w-0 flex-wrap gap-2">

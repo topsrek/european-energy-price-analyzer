@@ -64,12 +64,12 @@ export default {
 					ring: 'hsl(var(--sidebar-ring))'
 				},
 				energy: {
-					primary: '#1a73e8',
-					secondary: '#34a853',
-					accent: '#fbbc05',
-					muted: '#f1f3f4',
-					price: '#e53935',
-					usage: '#4285f4',
+					primary: '#4F5A45',
+					secondary: '#B8733A',
+					accent: '#F1E2D4',
+					muted: '#E3E6DA',
+					price: '#8E512C',
+					usage: '#7A8370',
 				}
 			},
 			borderRadius: {
