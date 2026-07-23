@@ -1124,9 +1124,12 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const isPointerNearCutoff = (state: Record<string, unknown>) => {
     if (!cutoffEnabled || cutoffValue === null || isZoomedRef.current) return false;
     const chartY = typeof state.chartY === 'number' ? state.chartY : null;
+    const pointerValue = extractPriceAxisValue(state);
     const axis = getPriceAxis(state);
-    const cutoffY = axis?.scale?.(cutoffValue);
-    return chartY !== null && typeof cutoffY === 'number' && Math.abs(chartY - cutoffY) <= 10;
+    if (chartY === null || pointerValue === null || !axis?.scale?.invert) return false;
+
+    const valueAtThreshold = axis.scale.invert(chartY + 10);
+    return Number.isFinite(valueAtThreshold) && Math.abs(pointerValue - cutoffValue) <= Math.abs(valueAtThreshold - pointerValue);
   };
 
   const handleChartMouseMove = (state: Record<string, unknown>) => {
