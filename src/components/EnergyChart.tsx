@@ -1110,36 +1110,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     return { x: nextX, y: nextY };
   };
 
-  const getPriceAxis = (state: Record<string, unknown>) => {
-    const axisMap = state.yAxisMap as Record<string, { yAxisId?: string; scale?: ((value: number) => number) & { invert?: (value: number) => number } }> | undefined;
-    if (!axisMap) return null;
-    return Object.values(axisMap).find((value) => value?.yAxisId === 'price') ?? Object.values(axisMap)[0] ?? null;
-  };
-
-  const extractPriceAxisValue = (state: Record<string, unknown>) => {
-    const axis = getPriceAxis(state);
-    const chartY = typeof state.chartY === 'number' ? state.chartY : null;
-    if (!axis?.scale || typeof axis.scale.invert !== 'function' || chartY === null) {
-      return null;
-    }
-
-    const nextValue = axis.scale.invert(chartY);
-    return Number.isFinite(nextValue) ? nextValue : null;
-  };
-
-  const updateCutoffFromPointer = (state: Record<string, unknown>) => {
-    if (!cutoffEnabled || !onCutoffValueChange) {
-      return;
-    }
-
-    const nextValue = extractPriceAxisValue(state);
-    if (nextValue === null) {
-      return;
-    }
-
-    onCutoffValueChange(Number(nextValue.toFixed(2)));
-  };
-
   const handleChartMouseMove = (state: Record<string, unknown>) => {
     const chartX = typeof state.chartX === 'number' ? state.chartX : null;
     const chartY = typeof state.chartY === 'number' ? state.chartY : null;
@@ -1148,7 +1118,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       setTooltipPosition(clampTooltipPosition(state as { chartX?: number; chartY?: number; chartWidth?: number; chartHeight?: number }));
     }
 
-    if (isDraggingCutoff) updateCutoffFromPointer(state);
   };
 
   // Custom tooltip formatter
@@ -1570,7 +1539,6 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             className="bg-card md:border border-none"
             onMouseMove={handleChartMouseMove}
             onMouseUp={() => setIsDraggingCutoff(false)}
-            onMouseLeave={() => setIsDraggingCutoff(false)}
           >
             <defs>
               <style type="text/css">
@@ -1809,7 +1777,28 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 style={{ cursor: isDraggingCutoff ? 'grabbing' : 'grab' }}
                 onMouseDown={(event) => {
                   event.stopPropagation();
+                  const wrapper = chartWrapperRef.current;
+                  const [domainMin, domainMax] = priceAxisDomain;
+                  if (!wrapper || !onCutoffValueChange || typeof domainMin !== 'number' || typeof domainMax !== 'number') {
+                    return;
+                  }
+
+                  const startY = event.clientY;
+                  const startValue = cutoffValue;
+                  // ponytail: fixed chart chrome is 106px; derive bounds only if the layout becomes variable.
+                  const plotHeight = Math.max(1, wrapper.clientHeight - 106);
+                  const move = (pointerEvent: MouseEvent) => {
+                    const nextValue = startValue - ((pointerEvent.clientY - startY) / plotHeight) * (domainMax - domainMin);
+                    onCutoffValueChange(Number(nextValue.toFixed(2)));
+                  };
+                  const stop = () => {
+                    setIsDraggingCutoff(false);
+                    window.removeEventListener('mousemove', move);
+                  };
+
                   setIsDraggingCutoff(true);
+                  window.addEventListener('mousemove', move);
+                  window.addEventListener('mouseup', stop, { once: true });
                 }}
               />
             )}
