@@ -121,6 +121,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [isPanning, setIsPanning] = useState(false);
   const zoomRangeRef = useRef<ZoomRange | null>(null);
   const isZoomedRef = useRef(false);
+  const pendingWheelRef = useRef<{ clientX: number; deltaY: number } | null>(null);
+  const wheelFrameRef = useRef<number | null>(null);
   const showSpotPriceWithTax = controlledShowSpotPriceWithTax ?? false;
   const priceUnitLabel = referenceEnergyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'c/kWh';
 
@@ -451,13 +453,31 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       }
 
       event.preventDefault();
-      zoomAtClientX(event.clientX, event.deltaY > 0 ? 1.22 : 0.82);
+      // ponytail: only the latest wheel input matters before the next paint.
+      pendingWheelRef.current = { clientX: event.clientX, deltaY: event.deltaY };
+      if (wheelFrameRef.current !== null) {
+        return;
+      }
+
+      wheelFrameRef.current = requestAnimationFrame(() => {
+        wheelFrameRef.current = null;
+        const latestWheel = pendingWheelRef.current;
+        pendingWheelRef.current = null;
+        if (latestWheel) {
+          zoomAtClientX(latestWheel.clientX, latestWheel.deltaY > 0 ? 1.22 : 0.82);
+        }
+      });
     };
 
     wrapper.addEventListener('wheel', handleWheel, { passive: false });
 
     return () => {
       wrapper.removeEventListener('wheel', handleWheel);
+      if (wheelFrameRef.current !== null) {
+        cancelAnimationFrame(wheelFrameRef.current);
+        wheelFrameRef.current = null;
+      }
+      pendingWheelRef.current = null;
     };
   }, [chartData.length, minVisiblePoints, zoomAtClientX]);
 
