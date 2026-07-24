@@ -183,6 +183,15 @@ const Index = ({ region }: IndexProps) => {
     if (typeof window === 'undefined') return '';
     return new URLSearchParams(window.location.search).get('yMax') ?? '';
   });
+  const [isYMinAuto, setIsYMinAuto] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return !new URLSearchParams(window.location.search).has('yMin');
+  });
+  const [isYMaxAuto, setIsYMaxAuto] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return !new URLSearchParams(window.location.search).has('yMax');
+  });
+  const [autoYDomain, setAutoYDomain] = useState<[number, number] | null>(null);
 
   const [cutoffEnabled, setCutoffEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -200,8 +209,16 @@ const Index = ({ region }: IndexProps) => {
   const startDateRef = useRef<Date | null>(startDate);
   const endDateRef = useRef<Date | null>(endDate);
 
-  const yMin = parseQueryNumber(yMinInput);
-  const yMax = parseQueryNumber(yMaxInput);
+  const yMin = isYMinAuto ? null : parseQueryNumber(yMinInput);
+  const yMax = isYMaxAuto ? null : parseQueryNumber(yMaxInput);
+  const handleAutoYDomainChange = useCallback((domain: [number, number]) => {
+    setAutoYDomain((current) => current?.[0] === domain[0] && current[1] === domain[1] ? current : domain);
+  }, []);
+
+  useEffect(() => {
+    if (isYMinAuto && autoYDomain) setYMinInput(autoYDomain[0].toFixed(2));
+    if (isYMaxAuto && autoYDomain) setYMaxInput(autoYDomain[1].toFixed(2));
+  }, [autoYDomain, isYMaxAuto, isYMinAuto]);
 
   const handleCheckedChange =
     (setter: React.Dispatch<React.SetStateAction<boolean>>) => (checked: CheckedState) => {
@@ -658,32 +675,32 @@ const Index = ({ region }: IndexProps) => {
                       <div className="space-y-4">
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <div>
-                            <Label htmlFor="chart-y-min" className="mb-2 block text-sm font-medium">Min Preis</Label>
-                            <Input
-                              id="chart-y-min"
-                              inputMode="decimal"
-                              value={yMinInput}
-                              onChange={(event) => setYMinInput(event.target.value)}
-                              placeholder="auto"
-                            />
+                            <div className="mb-2 flex items-center justify-between">
+                              <Label htmlFor="chart-y-min" className="text-sm font-medium">Min Preis</Label>
+                              <div className="flex items-center gap-2">
+                                <Checkbox id="chart-y-min-auto" checked={isYMinAuto} onCheckedChange={(checked) => setIsYMinAuto(checked === true)} />
+                                <Label htmlFor="chart-y-min-auto" className="text-xs">Auto</Label>
+                              </div>
+                            </div>
+                            <Input id="chart-y-min" inputMode="decimal" value={yMinInput} onChange={(event) => setYMinInput(event.target.value)} disabled={isYMinAuto} />
                           </div>
                           <div>
-                            <Label htmlFor="chart-y-max" className="mb-2 block text-sm font-medium">Max Preis</Label>
-                            <Input
-                              id="chart-y-max"
-                              inputMode="decimal"
-                              value={yMaxInput}
-                              onChange={(event) => setYMaxInput(event.target.value)}
-                              placeholder="auto"
-                            />
+                            <div className="mb-2 flex items-center justify-between">
+                              <Label htmlFor="chart-y-max" className="text-sm font-medium">Max Preis</Label>
+                              <div className="flex items-center gap-2">
+                                <Checkbox id="chart-y-max-auto" checked={isYMaxAuto} onCheckedChange={(checked) => setIsYMaxAuto(checked === true)} />
+                                <Label htmlFor="chart-y-max-auto" className="text-xs">Auto</Label>
+                              </div>
+                            </div>
+                            <Input id="chart-y-max" inputMode="decimal" value={yMaxInput} onChange={(event) => setYMaxInput(event.target.value)} disabled={isYMaxAuto} />
                           </div>
                         </div>
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            setYMinInput('');
-                            setYMaxInput('');
+                            setIsYMinAuto(true);
+                            setIsYMaxAuto(true);
                           }}
                         >
                           Reset Ansicht
@@ -740,6 +757,7 @@ const Index = ({ region }: IndexProps) => {
                       dataResolution={dataResolution}
                       yMin={yMin}
                       yMax={yMax}
+                      onAutoYDomainChange={handleAutoYDomainChange}
                       cutoffEnabled={cutoffEnabled}
                       cutoffValue={cutoffValue}
                       onCutoffValueChange={setCutoffValue}

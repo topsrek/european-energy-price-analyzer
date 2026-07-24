@@ -63,6 +63,7 @@ interface EnergyChartProps {
   dataResolution?: DataResolution;
   yMin?: number | null;
   yMax?: number | null;
+  onAutoYDomainChange?: (domain: [number, number]) => void;
   cutoffEnabled?: boolean;
   cutoffValue?: number | null;
   onCutoffValueChange?: (value: number | null) => void;
@@ -93,6 +94,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   dataResolution = 'hourly',
   yMin = null,
   yMax = null,
+  onAutoYDomainChange,
   cutoffEnabled = false,
   cutoffValue = null,
   onCutoffValueChange,
@@ -1024,7 +1026,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     return [min - padding, max + padding] as [number, number];
   }, [priceUnitLabel]);
 
-  const priceAxisDomain = useMemo(() => {
+  const autoPriceAxisDomain = useMemo(() => {
     const values: number[] = [];
 
     visibleChartData.forEach((item) => {
@@ -1041,24 +1043,15 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         }
 
         if (selectedContract) {
-          if (showBasePrice && typeof item.contractEnergyPrice === 'number') {
-            values.push(item.contractEnergyPrice);
-          }
-          if (showNetworkCosts && typeof item.contractNetworkCosts === 'number') {
-            values.push(item.contractNetworkCosts);
-          }
-          if (showWithTaxes && typeof item.contractTotalPriceTaxed === 'number') {
-            values.push(item.contractTotalPriceTaxed);
-          }
+          if (showBasePrice && typeof item.contractEnergyPrice === 'number') values.push(item.contractEnergyPrice);
+          if (showNetworkCosts && typeof item.contractNetworkCosts === 'number') values.push(item.contractNetworkCosts);
+          if (showWithTaxes && typeof item.contractTotalPriceTaxed === 'number') values.push(item.contractTotalPriceTaxed);
         }
       }
     });
 
-    if (showZeroLine) {
-      values.push(0);
-    }
-    const [autoMin, autoMax] = buildPaddedDomain(values);
-    return [yMin ?? autoMin, yMax ?? autoMax] as [number | 'auto', number | 'auto'];
+    if (showZeroLine) values.push(0);
+    return buildPaddedDomain(values);
   }, [
     buildPaddedDomain,
     isComparisonChart,
@@ -1069,9 +1062,19 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     showWithTaxes,
     showZeroLine,
     visibleChartData,
-    yMax,
-    yMin,
   ]);
+
+  const priceAxisDomain = [
+    yMin ?? autoPriceAxisDomain[0],
+    yMax ?? autoPriceAxisDomain[1],
+  ] as [number | 'auto', number | 'auto'];
+
+  useEffect(() => {
+    const [min, max] = autoPriceAxisDomain;
+    if (typeof min === 'number' && typeof max === 'number') {
+      onAutoYDomainChange?.([min, max]);
+    }
+  }, [autoPriceAxisDomain, onAutoYDomainChange]);
 
   const consumptionAxisDomain = useMemo(() => {
     return buildPaddedDomain(
