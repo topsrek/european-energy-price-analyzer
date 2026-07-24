@@ -1057,16 +1057,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     if (showZeroLine) {
       values.push(0);
     }
-    if (cutoffEnabled && cutoffValue !== null) {
-      values.push(cutoffValue);
-    }
-
     const [autoMin, autoMax] = buildPaddedDomain(values);
     return [yMin ?? autoMin, yMax ?? autoMax] as [number | 'auto', number | 'auto'];
   }, [
     buildPaddedDomain,
-    cutoffEnabled,
-    cutoffValue,
     isComparisonChart,
     plotSeries,
     selectedContract,
@@ -1658,7 +1652,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 strokeWidth={1}
                 strokeDasharray="6 4"
                 strokeOpacity={0.55}
-                ifOverflow="extendDomain"
+                ifOverflow="hidden"
                 style={{ pointerEvents: 'none' }}
               />
             )}
@@ -1772,7 +1766,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 yAxisId="price"
                 stroke="transparent"
                 strokeWidth={18}
-                ifOverflow="extendDomain"
+                ifOverflow="hidden"
                 zIndex={500}
                 style={{ cursor: isDraggingCutoff ? 'grabbing' : 'grab' }}
                 onMouseDown={(event) => {
