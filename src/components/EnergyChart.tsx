@@ -1595,6 +1595,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             <YAxis
               yAxisId="price"
               domain={priceAxisDomain}
+              allowDataOverflow
               width={54}
               tickFormatter={(value) => Number(value).toFixed(2)}
               label={{
