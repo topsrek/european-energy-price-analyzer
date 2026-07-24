@@ -61,7 +61,7 @@ export const readInitialPriceUnit = (): PriceUnit => {
 
 export const parseQueryNumber = (value: string | null): number | null => {
   if (!value) return null;
-  const parsed = Number(value);
+  const parsed = Number(value.trim().replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : null;
 };
 

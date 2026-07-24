@@ -1631,7 +1631,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 strokeWidth={1}
                 strokeDasharray="4 4"
                 strokeOpacity={0.45}
-                ifOverflow="extendDomain"
+                ifOverflow="hidden"
               />
             )}
             {showAverageLine && averagePrice !== null && Number.isFinite(averagePrice) && (
