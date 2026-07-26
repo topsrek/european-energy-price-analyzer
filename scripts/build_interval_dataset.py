@@ -21,7 +21,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from smart_batch_downloader import OptimizedEnergyPriceEncoder
+from smart_batch_downloader import OptimizedEnergyPriceEncoder, trim_to_utc_midnight_start
 
 logging.basicConfig(
     level=logging.INFO,
@@ -272,6 +272,8 @@ def write_binary(binary_file: Path, records: list[tuple[datetime, float]]) -> No
         logger.warning("No interval records available; leaving artifact unchanged")
         return
 
+    records = trim_to_utc_midnight_start(records)
+
     gaps = find_gaps(records, timedelta(minutes=15))
     if gaps:
         for earlier, later in gaps[:10]:
@@ -314,6 +316,9 @@ def main() -> int:
     if not merged_records:
         logger.warning("No merged interval records available")
         return 0
+
+    # Align once, here, so the artifact and the metadata describe the same series.
+    merged_records = trim_to_utc_midnight_start(merged_records)
 
     write_binary(binary_file, merged_records)
     write_metadata(country_code, binary_file, merged_records)

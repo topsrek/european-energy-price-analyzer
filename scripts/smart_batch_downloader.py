@@ -143,6 +143,26 @@ class OptimizedEnergyPriceEncoder:
         
         return bytes(self.buffer)
 
+def trim_to_utc_midnight_start(records):
+    """Drop leading records until the series begins exactly at UTC midnight.
+
+    The header stores only a date, and the decoder rebuilds timestamps starting at
+    that date's UTC midnight. A series that starts mid-day therefore reads back
+    shifted by the offset, so the invariant has to hold before encoding. Upstream
+    serves local days, so a fetch can legitimately begin at 22:00Z the day before.
+    """
+    for index, (timestamp, _) in enumerate(records):
+        if (timestamp.hour, timestamp.minute, timestamp.second, timestamp.microsecond) == (0, 0, 0, 0):
+            if index:
+                logger.warning(
+                    f"Dropping {index} record(s) before the first UTC midnight "
+                    f"({records[0][0]} -> {timestamp}) to keep the artifact aligned"
+                )
+            return records[index:]
+
+    raise ValueError("No record starts at UTC midnight; refusing to write a misaligned artifact")
+
+
 class OptimizedPriceDecoder:
     """Decoder for the optimized format."""
     
@@ -485,6 +505,8 @@ class SmartBatchDownloader:
             date_range = f"{unique_records[0][0].date()} to {unique_records[-1][0].date()}"
             logger.info(f"  Final date range: {date_range}")
         
+        unique_records = trim_to_utc_midnight_start(unique_records)
+
         # The decoder rebuilds timestamps as start_date + index hours, so a hole in
         # the series does not read back as a hole - it shifts every later record
         # earlier. Refuse to write rather than ship silently misaligned prices.

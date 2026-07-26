@@ -10,6 +10,7 @@ import server
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import build_interval_dataset
 from build_interval_dataset import find_gaps
+from smart_batch_downloader import trim_to_utc_midnight_start
 
 
 class DataFreshnessTest(unittest.TestCase):
@@ -107,6 +108,34 @@ class IntervalWindowClippingTest(unittest.TestCase):
         kept = {timestamp for timestamp, _ in records}
         self.assertIn(datetime(2026, 5, 6, 22, 0, tzinfo=timezone.utc), kept)
         self.assertIn(datetime(2026, 5, 6, 23, 45, tzinfo=timezone.utc), kept)
+
+
+class MidnightAlignmentTest(unittest.TestCase):
+    """The header stores a date, so the decoder starts at that date's UTC midnight.
+
+    A series beginning mid-day reads back shifted by the offset, and the gap check
+    cannot see it because the records themselves are perfectly contiguous.
+    """
+
+    def _quarter_hours(self, start, count):
+        return [(start + timedelta(minutes=15 * i), 10.0) for i in range(count)]
+
+    def test_midnight_series_is_untouched(self):
+        records = self._quarter_hours(datetime(2025, 10, 1, tzinfo=timezone.utc), 4)
+        self.assertEqual(trim_to_utc_midnight_start(records), records)
+
+    def test_local_day_lead_in_is_trimmed(self):
+        # Exactly the 2025-09-30T22:00Z lead-in a from-scratch rebuild pulls in.
+        records = self._quarter_hours(datetime(2025, 9, 30, 22, 0, tzinfo=timezone.utc), 12)
+        trimmed = trim_to_utc_midnight_start(records)
+
+        self.assertEqual(trimmed[0][0], datetime(2025, 10, 1, tzinfo=timezone.utc))
+        self.assertEqual(len(trimmed), 4)
+
+    def test_series_that_never_hits_midnight_is_rejected(self):
+        records = self._quarter_hours(datetime(2025, 9, 30, 22, 0, tzinfo=timezone.utc), 4)
+        with self.assertRaises(ValueError):
+            trim_to_utc_midnight_start(records)
 
 
 if __name__ == "__main__":
