@@ -15,7 +15,7 @@ This system automatically fetches the latest Austrian energy price data daily to
 ### Files
 - `daily_update.py` - Main daily update script
 - `setup_daily_job.ps1` - PowerShell script to set up Windows Task Scheduler
-- `test_daily_update.py` - Test script to verify functionality
+- `smoke_daily_update.py` - Manual smoke check (performs a real download)
 
 ### How It Works
 
@@ -23,6 +23,18 @@ This system automatically fetches the latest Austrian energy price data daily to
 2. **Automatic Merging**: Combines new data with existing dataset
 3. **Error Handling**: Robust retry logic with exponential backoff
 4. **Logging**: Detailed logs saved to `daily_update.log`
+5. **Both Resolutions**: Refreshes the hourly and the 15-minute artifact
+6. **Self-healing Window**: The range starts from where the stored artifacts end,
+   not from yesterday, so a missed run still catches up in one go
+
+### Countries
+
+Set `COUNTRIES` (comma separated) or pass them as arguments; defaults to `AT`:
+
+```bash
+COUNTRIES=AT,DE-LU,FR python daily_update.py
+python daily_update.py AT DE-LU
+```
 
 ### Setup Instructions
 
@@ -49,8 +61,8 @@ This system automatically fetches the latest Austrian energy price data daily to
 #### Option 2: Manual Testing
 
 ```bash
-# Test the daily update functionality
-python test_daily_update.py
+# Smoke-check the daily update (downloads and rewrites artifacts)
+python smoke_daily_update.py
 
 # Run the actual daily update
 python daily_update.py

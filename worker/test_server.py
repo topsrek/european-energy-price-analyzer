@@ -1,3 +1,4 @@
+import os
 import unittest
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import build_interval_dataset
 from build_interval_dataset import find_gaps
 from smart_batch_downloader import trim_to_utc_midnight_start
+import daily_update
 
 
 class DataFreshnessTest(unittest.TestCase):
@@ -136,6 +138,33 @@ class MidnightAlignmentTest(unittest.TestCase):
         records = self._quarter_hours(datetime(2025, 9, 30, 22, 0, tzinfo=timezone.utc), 4)
         with self.assertRaises(ValueError):
             trim_to_utc_midnight_start(records)
+
+
+class DailyUpdateWindowTest(unittest.TestCase):
+    """The scheduled script must catch up, not append a fresh island.
+
+    Anchoring on "yesterday" meant a missed run merged recent data onto a much
+    older artifact, leaving a hole the format cannot represent.
+    """
+
+    def test_window_reaches_back_to_where_the_artifacts_end(self):
+        with mock.patch.object(daily_update, "latest_stored_date", return_value=date(2026, 5, 6)):
+            start_date, end_date = daily_update.update_window("AT")
+
+        self.assertLessEqual(start_date, date(2026, 5, 6))
+        self.assertGreater(end_date, date(2026, 5, 6))
+
+    def test_window_collapses_when_nothing_is_stored(self):
+        with mock.patch.object(daily_update, "latest_stored_date", return_value=None):
+            start_date, end_date = daily_update.update_window("AT")
+
+        self.assertEqual(start_date, end_date)
+
+    def test_countries_come_from_arguments_then_environment(self):
+        self.assertEqual(daily_update.countries_to_update(["at", "de-lu"]), ["AT", "DE-LU"])
+
+        with mock.patch.dict(os.environ, {"COUNTRIES": "fr, at"}):
+            self.assertEqual(daily_update.countries_to_update(), ["FR", "AT"])
 
 
 if __name__ == "__main__":
