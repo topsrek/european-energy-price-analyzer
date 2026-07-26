@@ -1,6 +1,6 @@
 
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { Navigate, useParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import Home from './pages/Home';
 import ComparisonPage from './pages/ComparisonPage';
 import Index from './pages/Index';
@@ -15,6 +15,10 @@ import OnboardingTour from '@/components/OnboardingTour';
 const RegionRoute = () => {
   const { regionCode } = useParams();
   const region = getRegionByCode(regionCode);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [regionCode]);
 
   if (!region) {
     return <Navigate to="/" replace />;

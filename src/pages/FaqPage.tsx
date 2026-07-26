@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, Link, Navigate } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
 import { getRegionByCode } from '@/config/regions';
@@ -23,11 +23,7 @@ const FaqPage = () => {
   const region = getRegionByCode(regionCode);
   const [searchQuery, setSearchQuery] = useState('');
 
-  if (!region) {
-    return <Navigate to="/" replace />;
-  }
-
-  const faqs: FAQEntry[] = [
+  const faqs = useMemo<FAQEntry[]>(() => [
     {
       id: 'what-is-spot',
       category: 'Markt',
@@ -113,7 +109,7 @@ const FaqPage = () => {
         </p>
       ),
     },
-  ];
+  ], [regionCode]);
 
   const normalizedSearchQuery = searchQuery.toLowerCase();
   const filteredFaqs = faqs.filter(
@@ -121,6 +117,10 @@ const FaqPage = () => {
       faq.question.toLowerCase().includes(normalizedSearchQuery) ||
       faq.category.toLowerCase().includes(normalizedSearchQuery)
   );
+
+  if (!region) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-background">

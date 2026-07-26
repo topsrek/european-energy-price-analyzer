@@ -29,16 +29,12 @@ const steps: Step[] = [
     content: 'Produzierst du selbst Strom (z.B. Photovoltaik)? Viele Einspeisevergütungen orientieren sich ebenfalls an diesen Marktpreisen. Zu wissen, wann der Strom viel wert ist, hilft bei der Optimierung deiner Anlage.',
   },
   {
-    title: 'Alles im Blick',
-    content: 'Nutze die Filter und das Lineal, um den für dich besten Tarif zu finden oder dein Verbrauchsverhalten zu analysieren. Viel Spaß beim Erkunden!',
+    title: 'Analysieren & filtern',
+    content: 'Über "Durchschnitt & Filter" vergleichst du längere Zeiträume sinnvoll: Tagesverläufe zeigen typische Muster, Filter grenzen Monate, Wochentage, Stunden oder Kalenderwochen ein.',
   },
   {
-    title: 'Analyse & Durchschnitt',
-    content: 'Über "Durchschnitt & Filter" kannst du komplexe Fragen beantworten. Aktiviere den Durchschnitt (z.B. "Tagesverlauf"), um Muster über lange Zeiträume zu erkennen. Mit Filtern kannst du gezielt einzelne Monate, Wochentage oder sogar Kalenderwochen isolieren.',
-  },
-  {
-    title: 'Beispielfrage',
-    content: 'Mit der Durchschnittsberechnung kannst du Fragen beantworten wie: Wie hoch war durchschnittlich der Preis sonntag mittag in den Sommermonaten der letzten Jahre?',
+    title: 'Typische Fragen',
+    content: 'So beantwortest du Fragen wie: Wie teuer war Strom an Sonntagmittagen im Sommer? Oder: Welche Stunden waren im letzten Jahr im Schnitt am günstigsten?',
   },
 ];
 

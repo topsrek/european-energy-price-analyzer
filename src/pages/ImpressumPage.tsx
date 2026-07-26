@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import AppHeader from '@/components/AppHeader';
 import { getRegionByCode, defaultRegion } from '@/config/regions';
 import { useParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, Mail, MapPin, ShieldCheck, Globe, Eye } from 'lucide-react';
+import { ArrowLeft, Mail, MapPin, ShieldCheck, Globe, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 
@@ -10,16 +10,21 @@ const ImpressumPage = () => {
   const { regionCode } = useParams();
   const { pathname } = useLocation();
   const region = getRegionByCode(regionCode) || defaultRegion;
-  const [showEmail, setShowEmail] = React.useState(false);
+  const [emailCopied, setEmailCopied] = React.useState(false);
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [pathname]);
 
-  const revealEmail = () => {
-    // Obfuscated parts
-    const parts = ['topsrek', 'gmail.com'];
-    return parts.join('@');
+  const buildEmail = () => {
+    const user = String.fromCharCode(116, 111, 112, 115, 114, 101, 107);
+    const domain = ['gmail', 'com'].join('.');
+    return [user, domain].join('@');
+  };
+
+  const copyEmail = async () => {
+    await navigator.clipboard.writeText(buildEmail());
+    setEmailCopied(true);
   };
 
   return (
@@ -64,22 +69,17 @@ const ImpressumPage = () => {
                 <h2 className="text-lg font-bold uppercase tracking-wider">Kontakt</h2>
               </div>
               <div className="space-y-2 text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  {showEmail ? (
-                    <a href={`mailto:${revealEmail()}`} className="text-primary hover:underline font-medium">
-                      {revealEmail()}
-                    </a>
-                  ) : (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => setShowEmail(true)}
-                      className="h-8 text-xs gap-2"
-                    >
-                      <Eye className="h-3 w-3" />
-                      E-Mail anzeigen
-                    </Button>
-                  )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">topsrek [at] gmail [dot] com</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={copyEmail}
+                    className="h-8 text-xs gap-2"
+                  >
+                    <Copy className="h-3 w-3" />
+                    {emailCopied ? 'Kopiert' : 'E-Mail kopieren'}
+                  </Button>
                 </div>
                 <p>Web: <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">topsrek.top</a></p>
                 <p>GitHub: <a href="https://github.com/topsrek" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">@topsrek</a></p>
