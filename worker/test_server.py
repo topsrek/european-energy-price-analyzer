@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import server
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import build_interval_dataset
 from build_interval_dataset import find_gaps
 
 
@@ -77,6 +78,35 @@ class GapDetectionTest(unittest.TestCase):
         # Exactly the May 6 22:00-23:45Z hole that shifted every later timestamp.
         series = self._series(0, 45 + 15 + 120)
         self.assertEqual(len(find_gaps(series, self.STEP)), 1)
+
+
+class IntervalWindowClippingTest(unittest.TestCase):
+    """Upstream days are local, not UTC.
+
+    Asking for start=2026-05-07 answers from 2026-05-06T22:00Z. Clipping the
+    response at UTC midnight discarded 22:00-23:45Z, which is exactly the stretch
+    that bridges back to a stored artifact ending 21:45Z.
+    """
+
+    def test_local_day_lead_in_is_kept(self):
+        fake_now = datetime(2026, 5, 7, tzinfo=timezone.utc)
+        payload = {
+            # 22:00Z on May 6 is inside upstream's "May 7" local day.
+            "unix_seconds": [
+                int((fake_now - timedelta(hours=2) + timedelta(minutes=15 * i)).timestamp())
+                for i in range(8)
+            ],
+            "price": [10.0 + i for i in range(8)],
+        }
+
+        with mock.patch.object(build_interval_dataset, "fetch_chunk_payload", return_value=payload):
+            records = build_interval_dataset.fetch_interval_records(
+                "AT", date(2026, 5, 7), date(2026, 5, 7)
+            )
+
+        kept = {timestamp for timestamp, _ in records}
+        self.assertIn(datetime(2026, 5, 6, 22, 0, tzinfo=timezone.utc), kept)
+        self.assertIn(datetime(2026, 5, 6, 23, 45, tzinfo=timezone.utc), kept)
 
 
 if __name__ == "__main__":

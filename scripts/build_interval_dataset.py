@@ -162,9 +162,14 @@ def fetch_interval_records(country_code: str, start_date: date, end_date: date) 
         }
     )
 
+    # Upstream days are local (CET/CEST), not UTC: start=2026-05-07 answers from
+    # 2026-05-06T22:00Z. Clipping the response at UTC midnight therefore threw away
+    # the records that bridge back to what is already stored, which left a hole the
+    # positional artifact format cannot represent. Keep a day of slack on both ends
+    # and let merge_records dedupe; the caller's window decides what is fetched.
     all_records: list[tuple[datetime, float]] = []
-    utc_start = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
-    utc_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+    utc_start = datetime.combine(start_date - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+    utc_end = datetime.combine(end_date + timedelta(days=2), datetime.min.time(), tzinfo=timezone.utc)
 
     for chunk_start, chunk_end in chunk_ranges(start_date, end_date):
         logger.info("Downloading interval range %s to %s", chunk_start, chunk_end)
