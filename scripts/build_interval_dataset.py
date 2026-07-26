@@ -248,10 +248,34 @@ def write_metadata(country_code: str, binary_file: Path, records: list[tuple[dat
     logger.info("Wrote interval metadata to %s", metadata_path)
 
 
+def find_gaps(records: list[tuple[datetime, float]], step: timedelta) -> list[tuple[datetime, datetime]]:
+    """Return adjacent pairs that are not exactly one step apart.
+
+    The artifact stores prices positionally and the decoder rebuilds timestamps as
+    start + index * step, so a hole does not read back as a hole -- it shifts every
+    later record earlier. Callers must refuse to write a non-contiguous series.
+    """
+    return [
+        (earlier, later)
+        for (earlier, _), (later, _) in zip(records, records[1:])
+        if later - earlier != step
+    ]
+
+
 def write_binary(binary_file: Path, records: list[tuple[datetime, float]]) -> None:
     if not records:
         logger.warning("No interval records available; leaving artifact unchanged")
         return
+
+    gaps = find_gaps(records, timedelta(minutes=15))
+    if gaps:
+        for earlier, later in gaps[:10]:
+            missing = int((later - earlier) / timedelta(minutes=15)) - 1
+            logger.error("Interval gap: %s -> %s (%s slots missing)", earlier, later, missing)
+        raise ValueError(
+            f"Refusing to write {binary_file.name}: {len(gaps)} gap(s) in the 15-minute series. "
+            "Writing it would shift every later timestamp earlier."
+        )
 
     encoder = OptimizedEnergyPriceEncoder()
     encoded = encoder.encode_price_data(records)

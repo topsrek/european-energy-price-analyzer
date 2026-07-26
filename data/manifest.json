@@ -11,7 +11,9 @@
     {
       "code": "DE-LU",
       "hourly": "/api/de-lu_electricity_prices.bin",
-      "interval": "/api/de-lu_electricity_prices_15min.bin"
+      "interval": "/api/de-lu_electricity_prices_15min.bin",
+      "tariffs": "/data/de/tariffs.json",
+      "grid": "/data/de/grid-areas.json"
     },
     {
       "code": "FR",

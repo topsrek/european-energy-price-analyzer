@@ -14,6 +14,7 @@ If no dates provided, downloads from July 1, 2025 to today.
 
 import sys
 import logging
+import time
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import List, Tuple, Set
@@ -435,7 +436,12 @@ class SmartBatchDownloader:
             except Exception as e:
                 failed_ranges += 1
                 logger.error(f"✗ Error downloading range {start_date} to {end_date}: {e}")
-        
+
+            # Pace requests like the interval builder does, so a multi-country run
+            # does not burst straight into the upstream rate limit.
+            if i < len(date_ranges):
+                time.sleep(1.0)
+
         logger.info(f"Range download summary:")
         logger.info(f"  Successful ranges: {successful_ranges}/{len(date_ranges)}")
         logger.info(f"  Failed ranges: {failed_ranges}/{len(date_ranges)}")
@@ -479,9 +485,26 @@ class SmartBatchDownloader:
             date_range = f"{unique_records[0][0].date()} to {unique_records[-1][0].date()}"
             logger.info(f"  Final date range: {date_range}")
         
+        # The decoder rebuilds timestamps as start_date + index hours, so a hole in
+        # the series does not read back as a hole - it shifts every later record
+        # earlier. Refuse to write rather than ship silently misaligned prices.
+        gaps = [
+            (earlier, later)
+            for (earlier, _), (later, _) in zip(unique_records, unique_records[1:])
+            if later - earlier != timedelta(hours=1)
+        ]
+        if gaps:
+            for earlier, later in gaps[:10]:
+                missing = int((later - earlier) / timedelta(hours=1)) - 1
+                logger.error(f"Hourly gap: {earlier} -> {later} ({missing} hours missing)")
+            raise ValueError(
+                f"Refusing to write {self.web_file.name}: {len(gaps)} gap(s) in the hourly series. "
+                "Writing it would shift every later timestamp earlier."
+            )
+
         # Encode the merged data using optimized format
         encoder = OptimizedEnergyPriceEncoder()
-        
+
         try:
             encoded_data = encoder.encode_price_data(unique_records)
         except Exception as e:
@@ -619,7 +642,16 @@ def main():
         
         # Download missing data
         new_records = smart_downloader.download_missing_dates(missing_dates)
-        
+
+        # Days were missing but nothing came back: every range failed (rate limiting,
+        # upstream outage). Exit non-zero so the caller retries instead of recording
+        # a successful refresh that fetched nothing.
+        if missing_dates and not new_records:
+            logger.error(
+                f"Failed to download any of the {len(missing_dates)} missing day(s) for {country_code}"
+            )
+            sys.exit(1)
+
         # Merge and save
         if new_records or not existing_records:  # Update if we have new data or no existing file
             smart_downloader.merge_and_save_data(existing_records, new_records)
@@ -627,7 +659,7 @@ def main():
             smart_downloader.create_status_report(before_analysis, after_analysis)
         else:
             logger.info("\n✅ All data is already up to date - no changes needed!")
-            
+
     except KeyboardInterrupt:
         logger.info("\nSmart download interrupted by user")
     except Exception as e:

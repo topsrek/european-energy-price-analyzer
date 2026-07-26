@@ -34,6 +34,7 @@ DEFAULT_UPDATE_TIMEZONE = "Europe/Vienna"
 DEFAULT_UPDATE_HOUR_LOCAL = 13
 DEFAULT_UPDATE_MINUTE_LOCAL = 7
 DEFAULT_COUNTRIES = "AT"
+UPDATE_OVERLAP_DAYS = 1
 SCHEDULER_POLL_SECONDS = 5 * 60
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 25 * 60
 DEFAULT_COMMAND_RETRIES = 2
@@ -178,11 +179,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = self.normalized_path()
         if path == "/health":
+            # Deliberately still HTTP 200 when data is stale: the process is serving
+            # fine, and a non-200 would make the orchestrator restart-loop the
+            # container over a data problem it cannot fix by restarting. Monitoring
+            # should alert on "ok": false / "stale_countries" instead.
+            stale = stale_country_details(datetime.now(update_timezone()))
             self.send_json(
                 {
-                    "ok": True,
+                    "ok": not stale,
                     "service": "eepa-worker",
                     "time": now_iso(),
+                    "stale_countries": stale,
                     "state": STATE.snapshot(),
                 }
             )
@@ -463,8 +470,13 @@ def update_window(country_code: str) -> tuple[date, date]:
     if not latest_timestamp:
         return target_date, target_date
 
+    # Re-fetch the last stored day (plus a day of slack) instead of resuming after
+    # it. The final stored day is usually partial, because the update runs before
+    # upstream has published every interval of it. Resuming at latest_date + 1 left
+    # that day permanently short, and the binary format encodes records positionally,
+    # so a hole silently shifts every later timestamp earlier.
     latest_date = parse_timestamp(latest_timestamp).astimezone(tz).date()
-    start_date = latest_date + timedelta(days=1)
+    start_date = latest_date - timedelta(days=UPDATE_OVERLAP_DAYS)
     if start_date > target_date:
         start_date = target_date
 
