@@ -21,6 +21,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from price_downloader import retry_delay_from_response
 from smart_batch_downloader import OptimizedEnergyPriceEncoder, trim_to_utc_midnight_start
 
 logging.basicConfig(
@@ -131,6 +132,7 @@ def fetch_chunk_payload(
     url = f"{BASE_URL}?bzn={country_code}&start={chunk_start.isoformat()}&end={chunk_end.isoformat()}"
 
     for attempt in range(1, len(REQUEST_RETRY_DELAYS_SECONDS) + 2):
+        response = None
         try:
             response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
@@ -141,7 +143,9 @@ def fetch_chunk_payload(
                     f"Failed to download interval range {chunk_start} to {chunk_end} after {attempt} attempts"
                 ) from exc
 
-            retry_delay = REQUEST_RETRY_DELAYS_SECONDS[attempt - 1]
+            # Honour Retry-After: the fixed first delay was shorter than the window
+            # the limiter asks for, so that attempt was spent earning another 429.
+            retry_delay = retry_delay_from_response(response, REQUEST_RETRY_DELAYS_SECONDS[attempt - 1])
             logger.warning(
                 "Interval download failed for %s to %s on attempt %s: %s. Retrying in %ss.",
                 chunk_start,

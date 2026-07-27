@@ -13,7 +13,8 @@ import sys
 import time
 import struct
 import requests
-from datetime import datetime, date
+from datetime import datetime, date, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import List, Tuple, Optional
 import logging
@@ -24,6 +25,45 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# The upstream limiter answers 429 with Retry-After (typically ~7s). Cap it so a
+# hostile or malformed value cannot park a refresh for hours.
+MAX_RETRY_AFTER_SECONDS = 300
+
+
+def retry_delay_from_response(response, fallback_seconds):
+    """Seconds to wait before retrying, honouring Retry-After when present.
+
+    The API rate limits aggressively and says exactly how long to wait. Ignoring
+    that meant either retrying too early (another 429) or backing off far longer
+    than asked, which pushed refreshes towards the command timeout.
+    """
+    if response is None:
+        return fallback_seconds
+
+    raw = response.headers.get('Retry-After')
+    if not raw:
+        return fallback_seconds
+
+    raw = raw.strip()
+    try:
+        seconds = float(raw)
+    except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(raw)
+        except (TypeError, ValueError):
+            return fallback_seconds
+
+        if retry_at is None:
+            return fallback_seconds
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        seconds = (retry_at - datetime.now(timezone.utc)).total_seconds()
+
+    if seconds != seconds or seconds < 0:  # NaN or negative
+        return fallback_seconds
+
+    return min(seconds, MAX_RETRY_AFTER_SECONDS)
 
 class EnergyPriceEncoder:
     """Encodes energy price data into custom binary format."""
@@ -135,14 +175,15 @@ class EnergyPriceDownloader:
         url = f"{self.BASE_URL}?bzn={self.country_code}&start={start_str}&end={end_str}"
         
         retry_delay = self.INITIAL_RETRY_DELAY
-        
+
         for attempt in range(self.MAX_RETRIES):
+            response = None
             try:
                 logger.info(f"Downloading data for {start_str} to {end_str} (attempt {attempt + 1}/{self.MAX_RETRIES})")
-                
+
                 response = self.session.get(url, timeout=30)
                 response.raise_for_status()
-                
+
                 data = response.json()
                 
                 # Validate response structure
@@ -169,10 +210,11 @@ class EnergyPriceDownloader:
                 logger.error(f"Unexpected error (attempt {attempt + 1}): {e}")
             
             if attempt < self.MAX_RETRIES - 1:
-                logger.info(f"Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
+                wait_seconds = retry_delay_from_response(response, retry_delay)
+                logger.info(f"Retrying in {wait_seconds:.0f} seconds...")
+                time.sleep(wait_seconds)
                 retry_delay = min(retry_delay * 2, 1800)  # Cap at 30 minutes
-        
+
         logger.error(f"Failed to download data for {start_str} to {end_str} after {self.MAX_RETRIES} attempts")
         return None
 
@@ -184,12 +226,13 @@ class EnergyPriceDownloader:
         retry_delay = self.INITIAL_RETRY_DELAY
         
         for attempt in range(self.MAX_RETRIES):
+            response = None
             try:
                 logger.info(f"Downloading data for {date_str} (attempt {attempt + 1}/{self.MAX_RETRIES})")
-                
+
                 response = self.session.get(url, timeout=30)
                 response.raise_for_status()
-                
+
                 data = response.json()
                 
                 # Validate response structure
@@ -216,10 +259,11 @@ class EnergyPriceDownloader:
                 logger.error(f"Unexpected error (attempt {attempt + 1}): {e}")
             
             if attempt < self.MAX_RETRIES - 1:
-                logger.info(f"Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
+                wait_seconds = retry_delay_from_response(response, retry_delay)
+                logger.info(f"Retrying in {wait_seconds:.0f} seconds...")
+                time.sleep(wait_seconds)
                 retry_delay = min(retry_delay * 2, 1800)  # Cap at 30 minutes
-        
+
         logger.error(f"Failed to download data for {date_str} after {self.MAX_RETRIES} attempts")
         return None
     

@@ -13,6 +13,7 @@ import build_interval_dataset
 from build_interval_dataset import find_gaps
 from smart_batch_downloader import trim_to_utc_midnight_start
 import daily_update
+from price_downloader import MAX_RETRY_AFTER_SECONDS, retry_delay_from_response
 
 
 class DataFreshnessTest(unittest.TestCase):
@@ -165,6 +166,49 @@ class DailyUpdateWindowTest(unittest.TestCase):
 
         with mock.patch.dict(os.environ, {"COUNTRIES": "fr, at"}):
             self.assertEqual(daily_update.countries_to_update(), ["FR", "AT"])
+
+
+class RetryAfterTest(unittest.TestCase):
+    """The limiter answers 429 with Retry-After and we have to obey it.
+
+    The old fixed delays either retried before the window had passed (earning
+    another 429) or waited far longer than asked, pushing refreshes towards the
+    command timeout.
+    """
+
+    class _Response:
+        def __init__(self, headers):
+            self.headers = headers
+
+    def test_seconds_form_is_honoured(self):
+        # Exactly what the API sends: "retry-after: 7".
+        response = self._Response({"Retry-After": "7"})
+        self.assertEqual(retry_delay_from_response(response, 61), 7)
+
+    def test_missing_header_falls_back(self):
+        self.assertEqual(retry_delay_from_response(self._Response({}), 61), 61)
+
+    def test_no_response_falls_back(self):
+        self.assertEqual(retry_delay_from_response(None, 61), 61)
+
+    def test_garbage_value_falls_back(self):
+        response = self._Response({"Retry-After": "soon"})
+        self.assertEqual(retry_delay_from_response(response, 61), 61)
+
+    def test_absurd_value_is_capped(self):
+        response = self._Response({"Retry-After": "999999"})
+        self.assertEqual(retry_delay_from_response(response, 61), MAX_RETRY_AFTER_SECONDS)
+
+    def test_http_date_form_is_supported(self):
+        retry_at = datetime.now(timezone.utc) + timedelta(seconds=30)
+        response = self._Response({"Retry-After": retry_at.strftime("%a, %d %b %Y %H:%M:%S GMT")})
+        self.assertGreater(retry_delay_from_response(response, 61), 0)
+        self.assertLessEqual(retry_delay_from_response(response, 61), 31)
+
+    def test_past_http_date_falls_back(self):
+        retry_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+        response = self._Response({"Retry-After": retry_at.strftime("%a, %d %b %Y %H:%M:%S GMT")})
+        self.assertEqual(retry_delay_from_response(response, 61), 61)
 
 
 if __name__ == "__main__":
