@@ -12,6 +12,7 @@ import json
 import logging
 import mimetypes
 import os
+import random
 import re
 import subprocess
 import threading
@@ -37,9 +38,8 @@ DEFAULT_COUNTRIES = "AT"
 UPDATE_OVERLAP_DAYS = 1
 SCHEDULER_POLL_SECONDS = 5 * 60
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 25 * 60
-DEFAULT_COMMAND_RETRIES = 2
+DEFAULT_COMMAND_RETRIES = 1
 COMMAND_RETRY_DELAYS_SECONDS = (60, 180)
-UPDATE_RETRY_DELAYS_SECONDS = (10 * 60, 20 * 60, 40 * 60, 60 * 60)
 PUBLIC_BINARY_PATH_RE = re.compile(r"^/[a-z0-9-]+_electricity_prices(?:_backup|_15min)?\.bin$")
 
 logging.basicConfig(
@@ -100,7 +100,7 @@ class WorkerState:
                 self.next_retry_not_before = None
             else:
                 self.consecutive_update_failures += 1
-                retry_delay = retry_after_seconds or retry_delay_seconds(self.consecutive_update_failures)
+                retry_delay = retry_after_seconds or retry_delay_seconds()
                 self.next_retry_not_before = iso_after_seconds(retry_delay)
             self._persist_locked()
 
@@ -448,9 +448,24 @@ def is_client_data_fresh(client_latest: str, server_latest: str) -> bool:
     return parse_timestamp(server_latest) <= parse_timestamp(client_latest)
 
 
-def retry_delay_seconds(failure_count: int) -> int:
-    index = max(0, min(failure_count - 1, len(UPDATE_RETRY_DELAYS_SECONDS) - 1))
-    return UPDATE_RETRY_DELAYS_SECONDS[index]
+def retry_delay_window(now: datetime) -> tuple[int, int]:
+    update_hour = int(os.getenv("UPDATE_HOUR_LOCAL", str(DEFAULT_UPDATE_HOUR_LOCAL)))
+    update_minute = int(os.getenv("UPDATE_MINUTE_LOCAL", str(DEFAULT_UPDATE_MINUTE_LOCAL)))
+    scheduled_time = now.replace(hour=update_hour, minute=update_minute, second=0, microsecond=0)
+    if now < scheduled_time:
+        scheduled_time -= timedelta(days=1)
+    elapsed = now - scheduled_time
+
+    if elapsed < timedelta(minutes=23):
+        return 12 * 60, 3 * 60
+    if elapsed < timedelta(hours=5):
+        return 30 * 60, 10 * 60
+    return 2 * 60 * 60, 30 * 60
+
+
+def retry_delay_seconds() -> int:
+    base, jitter = retry_delay_window(datetime.now(update_timezone()))
+    return base + random.randint(0, jitter)
 
 
 def update_timezone() -> ZoneInfo:

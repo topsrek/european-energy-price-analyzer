@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { CalendarIcon, ChevronDown } from 'lucide-react';
-import { format, startOfDay } from 'date-fns';
+import { format, isAfter, startOfDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import {
@@ -30,6 +30,23 @@ const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
 const MOBILE_VISIBLE_PRESET_IDS: QuickRangePresetId[] = ['1d', '3d', '1m'];
 const MOBILE_MENU_PRESET_IDS: QuickRangePresetId[] = ['1w', '3m', '6m', '1y', '5y'];
+type RangeEndpoint = 'from' | 'to';
+
+export const setRangeEndpoint = (
+  range: DateRange | undefined,
+  endpoint: RangeEndpoint,
+  date: Date,
+): DateRange => {
+  const day = startOfDay(date);
+
+  if (endpoint === 'from') {
+    const to = range?.to && !isAfter(day, range.to) ? range.to : day;
+    return { from: day, to };
+  }
+
+  const from = range?.from && !isAfter(range.from, day) ? range.from : day;
+  return { from, to: day };
+};
 
 interface DateRangePickerProps {
   startDate: Date | null;
@@ -50,6 +67,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 }) => {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isMoreRangesOpen, setIsMoreRangesOpen] = useState(false);
+  const [activeEndpoint, setActiveEndpoint] = useState<RangeEndpoint>('to');
   const isMobile = useIsMobile();
   const latestSelectableDate = useMemo(
     () => startOfDay(maxDate ?? new Date()),
@@ -99,18 +117,23 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     }
   }, [endDate, isPickerOpen, startDate]);
 
-  const handleRangeSelect = (range: DateRange | undefined) => {
-    setDraftRange(range);
-
-    if (!range?.from) {
-      onStartDateChange(null);
-      onEndDateChange(null);
-      return;
+  const handlePickerOpenChange = (open: boolean) => {
+    setIsPickerOpen(open);
+    if (open) {
+      setDraftRange({ from: startDate ?? undefined, to: endDate ?? undefined });
+      setActiveEndpoint(startDate ? 'to' : 'from');
     }
+  };
 
-    if (range.to) {
-      onStartDateChange(startOfDay(range.from));
-      onEndDateChange(startOfDay(range.to));
+  const handleDayClick = (date: Date) => {
+    const range = setRangeEndpoint(draftRange, activeEndpoint, date);
+    setDraftRange(range);
+    onStartDateChange(range.from ?? null);
+    onEndDateChange(range.to ?? null);
+
+    if (activeEndpoint === 'from') {
+      setActiveEndpoint('to');
+    } else {
       setIsPickerOpen(false);
     }
   };
@@ -136,21 +159,49 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   const renderRangeCalendar = () => (
-    <Calendar
-      mode="range"
-      locale={de}
-      weekStartsOn={1}
-      selected={draftRange}
-      onSelect={handleRangeSelect}
-      disabled={(date) =>
-        date > latestSelectableDate ||
-        (earliestSelectableDate ? date < earliestSelectableDate : false)
-      }
-      initialFocus
-      defaultMonth={draftRange?.from || startDate || endDate || latestSelectableDate}
-      numberOfMonths={isMobile ? 1 : 2}
-      className={cn("pointer-events-auto")}
-    />
+    <div>
+      <div className="grid grid-cols-2 gap-2 border-b p-3">
+        {(['from', 'to'] as const).map((endpoint) => {
+          const date = endpoint === 'from' ? draftRange?.from : draftRange?.to;
+          const active = activeEndpoint === endpoint;
+          return (
+            <button
+              key={endpoint}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setActiveEndpoint(endpoint)}
+              className={cn(
+                "rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                active ? "border-primary bg-accent" : "border-border hover:bg-muted",
+              )}
+            >
+              <span className="block text-xs text-muted-foreground">
+                {endpoint === 'from' ? 'Von' : 'Bis'}
+              </span>
+              <span className="block text-sm font-medium">
+                {date ? format(date, 'dd.MM.yyyy', { locale: de }) : 'Datum'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <Calendar
+        mode="range"
+        locale={de}
+        weekStartsOn={1}
+        selected={draftRange}
+        onDayClick={handleDayClick}
+        disabled={(date) =>
+          date > latestSelectableDate ||
+          (earliestSelectableDate ? date < earliestSelectableDate : false) ||
+          (activeEndpoint === 'to' && draftRange?.from ? date < draftRange.from : false)
+        }
+        initialFocus
+        defaultMonth={draftRange?.to || endDate || draftRange?.from || startDate || latestSelectableDate}
+        numberOfMonths={isMobile ? 1 : 2}
+        className="pointer-events-auto"
+      />
+    </div>
   );
 
   const renderPickerTrigger = (compactLabel = false, className?: string) => (
@@ -172,7 +223,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       {isMobile ? (
         <div className="flex w-full flex-col gap-2">
           <div className="grid grid-cols-2 gap-2">
-            <Drawer open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+            <Drawer open={isPickerOpen} onOpenChange={handlePickerOpenChange}>
               <DrawerTrigger asChild>
                 {renderPickerTrigger(true)}
               </DrawerTrigger>
@@ -239,7 +290,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       ) : (
         <>
           <div className="flex w-full min-w-0 xl:w-auto">
-            <Popover open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+            <Popover open={isPickerOpen} onOpenChange={handlePickerOpenChange}>
               <PopoverTrigger asChild>
                 {renderPickerTrigger(false, "xl:min-w-[280px]")}
               </PopoverTrigger>
