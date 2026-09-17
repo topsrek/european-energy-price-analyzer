@@ -108,7 +108,7 @@ echo "Triggering Coolify deployment for ${COOLIFY_GIT_REPOSITORY}@${COOLIFY_GIT_
 echo "Coolify application UUID: ${COOLIFY_RESOURCE_UUID}"
 
 curl --fail --show-error --silent --location \
-  --request GET "$DEPLOY_URL" \
+  --request POST "$DEPLOY_URL" \
   --header "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
   --header "Accept: application/json"
 
