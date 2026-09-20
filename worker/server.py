@@ -333,6 +333,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
+        self.send_header("Content-Security-Policy", "frame-ancestors 'self' https://machine-literacy.com https://www.machine-literacy.com http://localhost:5173")
         self.send_header("Cache-Control", cache_control)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
