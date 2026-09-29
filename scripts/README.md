@@ -6,7 +6,7 @@ This system downloads daily energy price data from European energy market APIs a
 
 - ⚡ **Ultra-Efficient Storage**: 16.8x compression vs JSON (~94% space savings!)
 - 🌍 **Multi-Country Support**: Austria ready, expandable to other EU countries  
-- 📊 **Smart Data Management**: No duplicates, only downloads missing data
+- 📊 **Smart Data Management**: No duplicates; re-fetches the requested window so partial days complete and upstream corrections land
 - 🚀 **Lightning-Fast Decoding**: Optimized TypeScript decoder
 - 🛡️ **Error Handling**: Robust retry logic with exponential backoff
 - 🧠 **Intelligent Merging**: Automatically combines new data with existing
@@ -60,7 +60,6 @@ pip install -r requirements.txt
 scripts/
 ├── smart_batch_downloader.py # Main intelligent downloader (w/ optimized range downloads)
 ├── price_downloader.py       # Core API downloader (supports date ranges)
-├── binary_reader.py          # Binary format reader  
 ├── metadata_manager.py       # Metadata tracking system
 ├── daily_update.py           # Daily scheduled updates
 ├── requirements.txt          # Python dependencies
@@ -116,8 +115,10 @@ Set up automatic daily updates:
 ## Error Handling
 
 The downloader includes robust error handling:
-- **Retry Logic**: Exponential backoff starting at 61 seconds
-- **Max Retries**: 5 attempts with up to 30-minute delays
+- **Retry Logic**: Retries only transient failures (HTTP 429, 5xx, connection errors, timeouts) with 5/15/30/60 s delays, honouring `Retry-After`; other 4xx errors fail immediately
+- **Damaged artifacts**: If an existing `.bin` cannot be decoded (or decodes to nothing) the scripts exit non-zero without writing, and they never shrink an artifact. Pass `--rebuild` to deliberately rebuild it from the requested window
+- **Atomic writes**: Artifacts and metadata are written to a temp file, fsynced and renamed into place (binary first, then metadata)
+- **Quarter-hours**: Since the 15-minute MTU switch (2025-10-01) the hourly artifact stores the mean of the four quarter-hours; hours with fewer than four are left out and re-fetched on a later run
 - **Validation**: Checks for API response format and data consistency
 - **Logging**: Comprehensive logging to console and file
 

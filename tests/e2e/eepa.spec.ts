@@ -4,7 +4,8 @@ test('Austria route loads the committed real hourly dataset', async ({ page }) =
   await page.goto('/at');
 
   await expect(page).toHaveTitle(/Strompreisrechner Österreich - EEPA-AT/);
-  await expect(page.getByText(/reale stündliche Preisdatensätze/)).toBeVisible();
+  // Routes are lazy-loaded; the dev server transforms them on first request, which can exceed the default timeout.
+  await expect(page.getByText(/reale stündliche Preisdatensätze/)).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('Keine Datendatei verfügbar')).toHaveCount(0);
   await expect(page.getByText(/Beispieldaten|Mock data/i)).toHaveCount(0);
 

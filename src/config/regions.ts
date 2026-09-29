@@ -24,6 +24,8 @@ export interface RegionConfig {
   dataStatus: 'available' | 'planned';
   dataFiles: RegionDataFiles;
   chartColor: string;
+  /** Standard VAT rate applied to household electricity (energy, network costs, levies). */
+  vatRate: number;
 }
 
 export const REGION_STORAGE_KEY = 'eepa.selectedRegion';
@@ -45,6 +47,7 @@ export const regions: RegionConfig[] = [
     market: 'Day-ahead electricity prices',
     dataStatus: 'available',
     chartColor: '#e11d48',
+    vatRate: 0.2,
     dataFiles: {
       hourly: '/api/at_electricity_prices.bin',
       interval: '/api/at_electricity_prices_15min.bin',
@@ -66,6 +69,7 @@ export const regions: RegionConfig[] = [
     market: 'Day-ahead electricity prices',
     dataStatus: 'available',
     chartColor: '#2563eb',
+    vatRate: 0.19,
     dataFiles: {
       hourly: '/api/de-lu_electricity_prices.bin',
       interval: '/api/de-lu_electricity_prices_15min.bin',
@@ -87,6 +91,9 @@ export const regions: RegionConfig[] = [
     market: 'Day-ahead electricity prices',
     dataStatus: 'available',
     chartColor: '#0f766e',
+    // TVA on electricity consumption is 20 %. The former 5.5 % rate on the subscription
+    // (abonnement) was abolished on 2025-08-01, so 20 % applies to all per-kWh components.
+    vatRate: 0.2,
     dataFiles: {
       hourly: '/api/fr_electricity_prices.bin',
       interval: '/api/fr_electricity_prices_15min.bin',

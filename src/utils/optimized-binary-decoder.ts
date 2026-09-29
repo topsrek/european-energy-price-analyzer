@@ -56,7 +56,12 @@ export class OptimizedBinaryPriceDecoder {
       throw new Error(`Invalid day: ${day}`);
     }
     
-    return new Date(year, month - 1, day); // Note: JS months are 0-based
+    const date = new Date(year, month - 1, day); // Note: JS months are 0-based
+    if (date.getMonth() !== month - 1 || date.getDate() !== day) {
+      throw new Error(`Invalid date: ${year}-${month}-${day}`);
+    }
+
+    return date;
   }
 
   /**
@@ -109,6 +114,9 @@ export class OptimizedBinaryPriceDecoder {
     // Read header (32 bits)
     const startDate = this.readDate();
     const endDate = this.readDate();
+    if (endDate < startDate) {
+      throw new Error("Corrupt price file: header end date precedes start date");
+    }
     
     console.log(`Decoding optimized format: ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`);
     
@@ -117,70 +125,50 @@ export class OptimizedBinaryPriceDecoder {
     let recordOffset = 0;
     
     while (true) {
-      try {
-        // Check if we have enough bits remaining
-        const remainingBits = (this.data.length * 8) - this.bitPosition;
-        if (remainingBits < 15) { // Minimum record size
-          break;
-        }
-        
-        const price = this.readPriceRecord();
-        
-        // Calculate UTC timestamp for this hour offset
-        const timestamp = this.getTimestampForRecord(startDate, recordOffset);
-        
-        // Stop if we've passed the end date
-        if (timestamp.getUTCFullYear() > endDate.getFullYear() || 
-           (timestamp.getUTCFullYear() === endDate.getFullYear() && 
-            timestamp.getUTCMonth() > endDate.getMonth()) ||
-           (timestamp.getUTCFullYear() === endDate.getFullYear() && 
-            timestamp.getUTCMonth() === endDate.getMonth() &&
-            timestamp.getUTCDate() > endDate.getDate())) {
-          break;
-        }
-        
-        records.push({
-          timestamp: timestamp.toISOString(),
-          price,
-          unit: 'EUR_MWh'
-        });
-        
-        recordOffset++;
-        
-      } catch (error) {
-        console.info(`Decode completed at record ${recordOffset}: ${error}`);
+      // Check if we have enough bits remaining. Anything shorter than the
+      // minimum record size is byte-alignment padding at the end of the file.
+      const remainingBits = (this.data.length * 8) - this.bitPosition;
+      if (remainingBits < 15) {
         break;
       }
+
+      let price: number;
+      try {
+        price = this.readPriceRecord();
+      } catch (error) {
+        // A record was cut off mid-way: the file is truncated or corrupt.
+        // Fail loudly instead of silently returning partial data.
+        throw new Error(
+          `Corrupt or truncated price file: decoding failed at record ${recordOffset}: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error }
+        );
+      }
+
+      // Calculate UTC timestamp for this hour offset
+      const timestamp = this.getTimestampForRecord(startDate, recordOffset);
+
+      // Stop if we've passed the end date
+      if (timestamp.getUTCFullYear() > endDate.getFullYear() ||
+         (timestamp.getUTCFullYear() === endDate.getFullYear() &&
+          timestamp.getUTCMonth() > endDate.getMonth()) ||
+         (timestamp.getUTCFullYear() === endDate.getFullYear() &&
+          timestamp.getUTCMonth() === endDate.getMonth() &&
+          timestamp.getUTCDate() > endDate.getDate())) {
+        break;
+      }
+
+      records.push({
+        timestamp: timestamp.toISOString(),
+        price,
+        unit: 'EUR_MWh'
+      });
+
+      recordOffset++;
     }
-    
+
     console.log(`Successfully decoded ${records.length} actual records (UTC timestamps, no placeholders)`);
     
     return records;
-  }
-
-  /**
-   * Get decoding statistics
-   */
-  public getStats(): { 
-    totalBits: number; 
-    headerBits: number; 
-    dataBits: number; 
-    estimatedRecords: number; 
-    avgBitsPerRecord: number; 
-  } {
-    const totalBits = this.data.length * 8;
-    const headerBits = 32;
-    const dataBits = totalBits - headerBits;
-    const estimatedRecords = Math.floor(dataBits / 16); // Conservative estimate
-    const avgBitsPerRecord = estimatedRecords > 0 ? dataBits / estimatedRecords : 0;
-    
-    return {
-      totalBits,
-      headerBits, 
-      dataBits,
-      estimatedRecords,
-      avgBitsPerRecord
-    };
   }
 }
 
@@ -196,34 +184,6 @@ export function decodeOptimizedBinaryEnergyPrices(
 }
 
 /**
- * Load and decode optimized binary price data from a file
- */
-export async function loadOptimizedBinaryPriceFile(
-  file: File,
-  options?: { intervalMinutes?: number }
-): Promise<EnergyPrice[]> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    
-    reader.onload = () => {
-      try {
-        const buffer = reader.result as ArrayBuffer;
-        const prices = decodeOptimizedBinaryEnergyPrices(buffer, options);
-        resolve(prices);
-      } catch (error) {
-        reject(error);
-      }
-    };
-    
-    reader.onerror = () => {
-      reject(new Error('Failed to read file'));
-    };
-    
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-/**
  * Fetch and decode optimized binary price data from a URL
  */
 export async function fetchOptimizedBinaryPriceData(
@@ -235,6 +195,10 @@ export async function fetchOptimizedBinaryPriceData(
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    // An SPA fallback page would otherwise be decoded as (garbage) price data.
+    if (response.headers.get('content-type')?.includes('text/html')) {
+      throw new Error(`Expected binary price data but got HTML from ${url}`);
     }
     
     const buffer = await response.arrayBuffer();

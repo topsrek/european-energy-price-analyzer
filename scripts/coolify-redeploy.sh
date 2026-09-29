@@ -23,6 +23,10 @@ EOF
   exit 1
 fi
 
+if [[ "$(stat -c '%a' "$ENV_FILE" 2>/dev/null || stat -f '%Lp' "$ENV_FILE")" != "600" ]]; then
+  echo "Warning: $ENV_FILE should have mode 600 (chmod 600 \"$ENV_FILE\")" >&2
+fi
+
 while IFS= read -r line || [[ -n "$line" ]]; do
   line="${line%$'\r'}"
   [[ -z "$line" || "$line" == \#* ]] && continue
@@ -33,6 +37,10 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
   key="${line%%=*}"
   value="${line#*=}"
+  # Allow KEY="value" / KEY='value'.
+  if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then
+    value="${BASH_REMATCH[1]}"
+  fi
 
   case "$key" in
     COOLIFY_BASE_URL | COOLIFY_API_TOKEN | COOLIFY_FORCE | COOLIFY_RESOURCE_UUID | COOLIFY_GIT_BRANCH | COOLIFY_GIT_REPOSITORY)
@@ -61,11 +69,21 @@ elif [[ "$COOLIFY_GIT_REPOSITORY" =~ ^https://github.com/(.+)$ ]]; then
   COOLIFY_GIT_REPOSITORY="${BASH_REMATCH[1]}"
 fi
 
+if [[ "$COOLIFY_FORCE" != "true" && "$COOLIFY_FORCE" != "false" ]]; then
+  echo "COOLIFY_FORCE must be true or false" >&2
+  exit 1
+fi
+
+# Pass the token through curl's stdin config instead of argv, so it never shows up in `ps`.
+coolify_curl() {
+  curl --fail --show-error --silent --location --config - "$@" <<EOF
+header = "Authorization: Bearer ${COOLIFY_API_TOKEN}"
+header = "Accept: application/json"
+EOF
+}
+
 if [[ -z "${COOLIFY_RESOURCE_UUID:-}" ]]; then
-  APPLICATIONS_JSON="$(curl --fail --show-error --silent --location \
-    "${COOLIFY_BASE_URL}/api/v1/applications" \
-    --header "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
-    --header "Accept: application/json")"
+  APPLICATIONS_JSON="$(coolify_curl "${COOLIFY_BASE_URL}/api/v1/applications")"
 
   COOLIFY_RESOURCE_UUID="$(APPLICATIONS_JSON="$APPLICATIONS_JSON" python3 - "$COOLIFY_GIT_REPOSITORY" "$COOLIFY_GIT_BRANCH" <<'PY'
 import json
@@ -102,14 +120,16 @@ PY
 )"
 fi
 
+if [[ ! "$COOLIFY_RESOURCE_UUID" =~ ^[A-Za-z0-9]+$ ]]; then
+  echo "Invalid Coolify application UUID: $COOLIFY_RESOURCE_UUID" >&2
+  exit 1
+fi
+
 DEPLOY_URL="${COOLIFY_BASE_URL}/api/v1/deploy?uuid=${COOLIFY_RESOURCE_UUID}&force=${COOLIFY_FORCE}"
 
 echo "Triggering Coolify deployment for ${COOLIFY_GIT_REPOSITORY}@${COOLIFY_GIT_BRANCH}"
 echo "Coolify application UUID: ${COOLIFY_RESOURCE_UUID}"
 
-curl --fail --show-error --silent --location \
-  --request POST "$DEPLOY_URL" \
-  --header "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
-  --header "Accept: application/json"
+coolify_curl --request POST "$DEPLOY_URL"
 
 echo

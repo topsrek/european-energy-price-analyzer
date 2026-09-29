@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ComparisonSeries, ContractOption, DataResolution, EnergyPrice, SmartMeterData } from '@/types/energy-data';
+import { ComparisonSeries, DataResolution, EnergyPrice, SmartMeterData } from '@/types/energy-data';
+import type { ChartContractOption } from '@/hooks/useTariffData';
+import { toast } from '@/hooks/use-toast';
+import { downsampleMinMax } from '@/utils/chart-downsample';
 import {
   ResponsiveContainer,
   LineChart,
@@ -32,12 +35,11 @@ import {
 // Define the structure for individual data points used in the chart
 interface ExtendedChartDataPoint {
   timestamp: string;
+  time: number; // Epoch milliseconds, precomputed once per data change
   date: Date; // Parsed date object for easier manipulation
   price: number;
+  netPrice?: number; // Spot price without VAT (single-series chart only)
   unit: 'EUR_MWh' | 'cent_kWh';
-  isFirstDataPointOfDay?: boolean;
-  isFirstDataPointOfWeek?: boolean;
-  isFirstDataPointOfMonth?: boolean;
   consumption?: number;
   cost?: number;
   contractEnergyPrice?: number;
@@ -56,7 +58,11 @@ interface EnergyChartProps {
   smartMeterData?: SmartMeterData[];
   showSmartMeterData: boolean;
   showTotalCost: boolean;
-  selectedContract?: ContractOption;
+  selectedContract?: ChartContractOption;
+  /** Yearly consumption (kWh) used to spread the contract's network costs per kWh. */
+  annualConsumption?: number;
+  /** VAT rate of the displayed region; callers showing taxed values must pass it. */
+  vatRate?: number;
   averaging: string;
   showZeroLine: boolean;
   showAverageLine: boolean;
@@ -79,15 +85,219 @@ type ZoomRange = {
 const MIN_VISIBLE_POINTS = 2;
 const Y_DOMAIN_MARGIN_RATIO = 0.08;
 const COMPARISON_COLORS = ['#e11d48', '#2563eb', '#0f766e', '#d97706', '#7c3aed', '#475569'];
+// Upper bound of points handed to recharts; larger visible ranges are min/max-downsampled.
+const MAX_DRAW_POINTS = 3000;
+const PRICE_LIST_DISPLAY_LIMIT = 2000;
+const DEFAULT_ANNUAL_CONSUMPTION = 3500;
+const HOUR_MS = 3_600_000;
+// Stable defaults so memoized chart data is not invalidated by a new [] on every render.
+const EMPTY_PRICES: EnergyPrice[] = [];
+const EMPTY_SERIES: ComparisonSeries[] = [];
+
+type BucketKey = string | number;
+
+const getAveragingBucketKey = (averaging: string, time: number): BucketKey => {
+  // Epoch hours keep both DST fall-back hours apart.
+  if (averaging === 'hourly') return Math.floor(time / HOUR_MS);
+  const date = new Date(time);
+  if (averaging === 'monthly') return `${date.getFullYear()}-${date.getMonth() + 1}`;
+  if (averaging === 'daily') return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+  if (averaging === 'weekly') {
+    const weekStart = new Date(date);
+    weekStart.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+    weekStart.setHours(0, 0, 0, 0);
+    return weekStart.toISOString().slice(0, 10);
+  }
+  return time;
+};
+
+type AverageSource = {
+  prices: EnergyPrice[];
+  times: Float64Array;
+  keys: BucketKey[] | null;
+};
+
+const buildAverageSource = (prices: EnergyPrice[], averaging: string): AverageSource => {
+  const times = new Float64Array(prices.length);
+  prices.forEach((item, index) => {
+    times[index] = Date.parse(item.timestamp);
+  });
+  const usesBucketKeys = averaging !== 'none' && averaging !== 'daily-cycle';
+  return {
+    prices,
+    times,
+    keys: usesBucketKeys ? Array.from(times, (time) => getAveragingBucketKey(averaging, time)) : null,
+  };
+};
+
+const getMonthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}`;
+
+const formatPriceListDate = (averaging: string, date: Date) => {
+  if (averaging === 'monthly') return format(date, 'MMMM yyyy', { locale: de });
+  if (averaging === 'weekly') return `KW ${getISOWeek(date)} ${format(date, 'yyyy')}`;
+  if (averaging === 'daily-cycle') return format(date, 'HH:00');
+  return format(date, averaging === 'daily' ? 'dd.MM.yyyy' : 'dd.MM.yyyy HH:mm');
+};
+
+// Generate dynamic ticks for XAxis
+const getXAxisTicks = (axisData: ExtendedChartDataPoint[], averaging: string) => {
+  if (!axisData || axisData.length === 0) {
+    return [];
+  }
+
+  const ticks: string[] = [];
+  const firstDate = axisData[0].date;
+  const lastDate = axisData[axisData.length - 1].date;
+  const daysDiff = differenceInDays(lastDate, firstDate);
+
+  // Handle cases based on 'averaging' prop first
+  if (averaging === 'daily-cycle') {
+    // For daily-cycle, show specific hours if data covers them
+    const uniqueHours = new Set(axisData.map(d => getHours(d.date)));
+    const tickHours = [0, 6, 12, 18]; // Default hours to show
+    tickHours.forEach(hour => {
+      if (uniqueHours.has(hour)) {
+         const firstMatch = axisData.find(d => getHours(d.date) === hour);
+         if (firstMatch) ticks.push(firstMatch.timestamp);
+      }
+    });
+    // Ensure at least first and last points are there if no specific hours match
+    if (ticks.length === 0) {
+      ticks.push(axisData[0].timestamp);
+      if (axisData.length > 1) ticks.push(axisData[axisData.length - 1].timestamp);
+    }
+    return ticks.filter((t, i, arr) => arr.indexOf(t) === i); // Unique ticks
+  }
+
+  if (averaging === 'hourly') {
+      // For hourly, show a tick every 6 or 12 hours if the span is large enough
+      let step = 1; // Show every hour by default
+      if (axisData.length > 24 * 3) step = 6; // Every 6 hours if more than 3 days of hourly data
+      if (axisData.length > 24 * 7) step = 12; // Every 12 hours if more than 7 days
+
+      axisData.forEach((item, index) => {
+          if (index % step === 0) {
+              ticks.push(item.timestamp);
+          }
+      });
+      if (ticks.length === 0 && axisData.length > 0) ticks.push(axisData[0].timestamp);
+      if (axisData.length > 1 && !ticks.includes(axisData[axisData.length - 1].timestamp)) {
+          ticks.push(axisData[axisData.length -1].timestamp);
+      }
+      return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
+  }
+
+
+  if (averaging === 'daily') {
+    // Show every Nth day
+    let step = 1;
+    if (daysDiff > 10) step = 2;
+    if (daysDiff > 30) step = 3;
+    if (daysDiff > 90) step = 7; // Every week
+
+    let lastPushedDate: Date | null = null;
+    axisData.forEach(item => {
+      if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= step) {
+        ticks.push(item.timestamp);
+        lastPushedDate = item.date;
+      }
+    });
+     if (ticks.length === 0 && axisData.length > 0) ticks.push(axisData[0].timestamp);
+     if (axisData.length > 1 && !ticks.includes(axisData[axisData.length - 1].timestamp)) {
+          ticks.push(axisData[axisData.length -1].timestamp);
+      }
+    return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
+  }
+
+  if (averaging === 'weekly') {
+    axisData.forEach((item) => {
+      ticks.push(item.timestamp);
+    });
+    return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
+  }
+
+  if (averaging === 'monthly') {
+    const monthTicks = axisData
+      .filter((item, index) => index === 0 || getMonthKey(item.date) !== getMonthKey(axisData[index - 1].date))
+      .map((item) => item.timestamp);
+    if (monthTicks.length < 2 && axisData.length > 0) {
+      monthTicks.push(axisData[0].timestamp, axisData[axisData.length - 1].timestamp);
+    }
+    const uniqueTicks = monthTicks.filter((tick, index, ticks) => ticks.indexOf(tick) === index);
+    const step = Math.max(1, Math.ceil(uniqueTicks.length / 12));
+    return uniqueTicks.filter((_, index) => index % step === 0 || index === uniqueTicks.length - 1);
+  }
+
+
+  // Default dynamic ticks if no specific averaging mode dictates them
+  if (daysDiff < 3) { // Less than 3 days: potentially more ticks
+    axisData.forEach(item => {
+      const hour = getHours(item.date);
+      if (hour % 6 === 0) { // Ticks at 00:00, 06:00, 12:00, 18:00
+        ticks.push(item.timestamp);
+      }
+    });
+    // Ensure first and last points are ticks
+    if (axisData.length > 0 && !ticks.includes(axisData[0].timestamp)) {
+      ticks.unshift(axisData[0].timestamp);
+    }
+    if (axisData.length > 1 && !ticks.includes(axisData[axisData.length - 1].timestamp)) {
+      ticks.push(axisData[axisData.length - 1].timestamp);
+    }
+  } else if (daysDiff <= 10) { // 3-10 days: a tick per day (midnight or first data point of day)
+    const dailyTicks = new Map<string, string>();
+    axisData.forEach(item => {
+      const dayKey = format(item.date, 'yyyy-MM-dd');
+      if (!dailyTicks.has(dayKey) || getHours(item.date) === 0) {
+        dailyTicks.set(dayKey, item.timestamp);
+      }
+    });
+    ticks.push(...Array.from(dailyTicks.values()));
+  } else if (daysDiff <= 30) { // 10-30 days: every 2nd day
+    let lastPushedDate: Date | null = null;
+    axisData.forEach(item => {
+      if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= 2) {
+        ticks.push(item.timestamp);
+        lastPushedDate = item.date;
+      }
+    });
+  } else { // More than 30 days: every Nth day (e.g. 3rd, 7th)
+    let step = 3;
+    if (daysDiff > 90) step = 7; // weekly for very long ranges
+    let lastPushedDate: Date | null = null;
+    axisData.forEach(item => {
+      if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= step) {
+        ticks.push(item.timestamp);
+        lastPushedDate = item.date;
+      }
+    });
+  }
+
+  // Ensure there's at least one tick if axisData is not empty
+  if (ticks.length === 0 && axisData.length > 0) {
+      ticks.push(axisData[0].timestamp);
+  }
+  // Ensure the last data point is a tick if there's more than one point
+  if (axisData.length > 1 && ticks[ticks.length -1] !== axisData[axisData.length -1].timestamp) {
+      const lastTimestamp = axisData[axisData.length -1].timestamp;
+      if (!ticks.includes(lastTimestamp)) {
+           ticks.push(lastTimestamp);
+      }
+  }
+
+  return ticks.filter((t, i, arr) => arr.indexOf(t) === i); // Return unique ticks
+};
 
 const EnergyChart: React.FC<EnergyChartProps> = ({
-  energyPrices = [],
+  energyPrices = EMPTY_PRICES,
   averageEnergyPrices = energyPrices,
-  comparisonSeries = [],
+  comparisonSeries = EMPTY_SERIES,
   smartMeterData,
   showSmartMeterData,
   showTotalCost,
   selectedContract,
+  annualConsumption = DEFAULT_ANNUAL_CONSUMPTION,
+  vatRate = 0,
   averaging,
   showZeroLine,
   showAverageLine,
@@ -119,6 +329,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const [copiedFormat, setCopiedFormat] = useState<'excel' | 'markdown' | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | undefined>(undefined);
   const [isDraggingCutoff, setIsDraggingCutoff] = useState(false);
+  const cutoffDragRef = useRef<{ startY: number; startValue: number; plotHeight: number; span: number } | null>(null);
+  const onCutoffValueChangeRef = useRef(onCutoffValueChange);
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const zoomRangeRef = useRef<ZoomRange | null>(null);
@@ -128,44 +340,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const showSpotPriceWithTax = controlledShowSpotPriceWithTax ?? false;
   const priceUnitLabel = referenceEnergyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'c/kWh';
 
-  const reduceDataPoints = useCallback((data: ExtendedChartDataPoint[]) => {
-    if (data.length === 0) return data;
-
-    const totalDataPoints = data.length;
-    const intervalFactor = dataResolution === 'interval' ? 4 : 1;
-    const threeMonthsInHours = 90 * 24 * intervalFactor;
-    const oneYearInHours = 365 * 24 * intervalFactor;
-    const fiveYearsInHours = 5 * oneYearInHours;
-    const tenYearsInHours = 10 * oneYearInHours;
-
-    let step = 1;
-
-    if (totalDataPoints > tenYearsInHours) {
-      step = 24 * intervalFactor;
-    } else if (totalDataPoints > fiveYearsInHours) {
-      step = 12 * intervalFactor;
-    } else if (totalDataPoints > oneYearInHours) {
-      step = 3 * intervalFactor;
-    } else if (totalDataPoints > threeMonthsInHours) {
-      step = Math.max(2, intervalFactor);
-    }
-
-    if (step === 1) return data;
-
-    const reducedData = [data[0]];
-    for (let i = step; i < data.length; i += step) {
-      reducedData.push(data[i]);
-    }
-
-    const lastIndex = data.length - 1;
-    if (lastIndex > 0 && lastIndex % step !== 0) {
-      reducedData.push(data[lastIndex]);
-    }
-
-    return reducedData;
-  }, [dataResolution]);
-
-  // Prepare chart data, memoized
+  // Full-resolution chart rows. Zoom indices refer to this array; only drawing is downsampled.
   const chartData = useMemo(() => {
     if (isComparisonChart) {
       const rowMap = new Map<string, ExtendedChartDataPoint>();
@@ -173,15 +348,16 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       plotSeries.forEach((series) => {
         series.energyPrices.forEach((item) => {
           const existing = rowMap.get(item.timestamp);
-          const date = parseISO(item.timestamp);
           if (existing) {
             existing[series.id] = item.price;
             return;
           }
 
+          const time = Date.parse(item.timestamp);
           rowMap.set(item.timestamp, {
             timestamp: item.timestamp,
-            date,
+            time,
+            date: new Date(time),
             price: item.price,
             unit: item.unit,
             [series.id]: item.price,
@@ -189,85 +365,20 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         });
       });
 
-      const internalChartData = Array.from(rowMap.values()).sort(
-        (left, right) => left.date.getTime() - right.date.getTime()
-      );
-
-      const dayProcessed = new Map<string, boolean>();
-      const weekProcessed = new Map<string, boolean>();
-      const monthProcessed = new Map<string, boolean>();
-
-      internalChartData.forEach((item) => {
-        const date = item.date;
-        const dayKey = format(date, 'yyyy-MM-dd');
-        item.isFirstDataPointOfDay = !dayProcessed.has(dayKey);
-        dayProcessed.set(dayKey, true);
-
-        const weekOfYearKey = format(date, 'yyyy-II');
-        item.isFirstDataPointOfWeek = getDay(date) === 1 && !weekProcessed.has(weekOfYearKey);
-        if (item.isFirstDataPointOfWeek) {
-          weekProcessed.set(weekOfYearKey, true);
-        }
-
-        const monthKey = format(date, 'yyyy-MM');
-        item.isFirstDataPointOfMonth = !monthProcessed.has(monthKey);
-        monthProcessed.set(monthKey, true);
-      });
-
-      return reduceDataPoints(internalChartData);
+      return Array.from(rowMap.values()).sort((left, right) => left.time - right.time);
     }
 
+    const vatFactor = 1 + vatRate;
     const internalChartData: ExtendedChartDataPoint[] = energyPrices.map(item => {
-      const date = parseISO(item.timestamp);
-      let processedPrice = item.price;
-
-      // Add tax to spot price if enabled
-      if (showSpotPriceWithTax) {
-        processedPrice = item.price * 1.2; // Add 20% VAT
-      }
-
+      const time = Date.parse(item.timestamp);
       return {
         timestamp: item.timestamp,
-        date: date,
-        price: processedPrice,
-        originalPrice: item.price, // Keep original for reference
+        time,
+        date: new Date(time),
+        price: showSpotPriceWithTax ? item.price * vatFactor : item.price,
+        netPrice: item.price,
         unit: item.unit,
       };
-    });
-
-    const dayProcessed = new Map<string, boolean>();
-    const weekProcessed = new Map<string, boolean>();
-    const monthProcessed = new Map<string, boolean>();
-
-    internalChartData.forEach(item => {
-      const date = item.date;
-      const dayKey = format(date, 'yyyy-MM-dd');
-      if (!dayProcessed.has(dayKey)) {
-        item.isFirstDataPointOfDay = true;
-        dayProcessed.set(dayKey, true);
-      } else {
-        item.isFirstDataPointOfDay = false;
-      }
-
-      const weekOfYearKey = format(date, 'yyyy-II');
-      if (getDay(date) === 1) {
-        if (!weekProcessed.has(weekOfYearKey)) {
-          item.isFirstDataPointOfWeek = true;
-          weekProcessed.set(weekOfYearKey, true);
-        } else {
-          item.isFirstDataPointOfWeek = false;
-        }
-      } else {
-        item.isFirstDataPointOfWeek = false;
-      }
-
-      const monthKey = format(date, 'yyyy-MM');
-      if (!monthProcessed.has(monthKey)) {
-        item.isFirstDataPointOfMonth = true;
-        monthProcessed.set(monthKey, true);
-      } else {
-        item.isFirstDataPointOfMonth = false;
-      }
     });
 
     if (showSmartMeterData && smartMeterData && smartMeterData.length > 0) {
@@ -290,39 +401,37 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     }
 
     if (selectedContract) {
-      const energyPriceInCents = selectedContract.energyPrice;
-      const annualConsumption = showSmartMeterData && smartMeterData
-        ? smartMeterData.reduce((sum, data) => sum + data.consumption, 0) * (365 / (smartMeterData.length / 24))
-        : 3500;
-
-      const networkCostsPerYear = selectedContract.networkCosts(annualConsumption);
-      const networkCostsPerKwh = networkCostsPerYear / annualConsumption;
+      const consumption = annualConsumption > 0 ? annualConsumption : DEFAULT_ANNUAL_CONSUMPTION;
+      // networkCosts() returns net (excl. VAT) yearly network costs; VAT is applied once below.
+      const netNetworkCentPerKwh = (selectedContract.networkCosts(consumption) / consumption) * 100;
+      const isSpotContract = selectedContract.pricing === 'spot';
+      const spotMarkupCentPerKwh = selectedContract.spotMarkupCentKwh ?? 0;
 
       internalChartData.forEach(item => {
-        // Contract energy price (Nettostromkosten)
-        if (item.unit === 'EUR_MWh') {
-          item.contractEnergyPrice = energyPriceInCents * 10;
-          item.contractNetworkCosts = (energyPriceInCents + networkCostsPerKwh * 100) * 10;
-          item.contractTotalPriceTaxed = (energyPriceInCents + networkCostsPerKwh * 100) * 10 * 1.2;
-        } else {
-          item.contractEnergyPrice = energyPriceInCents;
-          item.contractNetworkCosts = energyPriceInCents + (networkCostsPerKwh * 100);
-          item.contractTotalPriceTaxed = (energyPriceInCents + (networkCostsPerKwh * 100)) * 1.2;
-        }
+        const unitFactor = item.unit === 'EUR_MWh' ? 10 : 1; // cent/kWh -> chart unit
+        // Spot contracts follow the (net) market price plus the provider markup.
+        const energyPrice = isSpotContract
+          ? (item.netPrice ?? item.price) + spotMarkupCentPerKwh * unitFactor
+          : selectedContract.energyPrice * unitFactor;
+        const withNetwork = energyPrice + netNetworkCentPerKwh * unitFactor;
+        item.contractEnergyPrice = energyPrice;
+        item.contractNetworkCosts = withNetwork;
+        item.contractTotalPriceTaxed = withNetwork * vatFactor;
       });
     }
 
-    return reduceDataPoints(internalChartData);
+    return internalChartData;
   }, [
+    annualConsumption,
     energyPrices,
     isComparisonChart,
     plotSeries,
-    reduceDataPoints,
     selectedContract,
     showSmartMeterData,
     showSpotPriceWithTax,
     showTotalCost,
     smartMeterData,
+    vatRate,
   ]);
 
   const fullDataEndIndex = Math.max(0, chartData.length - 1);
@@ -373,13 +482,22 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   }, [averaging, chartData.length, firstChartTimestamp, lastChartTimestamp]);
 
   const visibleRange = normalizeZoomRange(zoomRange) ?? { start: 0, end: fullDataEndIndex };
-  const visibleChartData = useMemo(() => {
+  // Full-resolution rows of the visible range: used for statistics, axis domain and price list.
+  const visibleFullData = useMemo(() => {
     if (chartData.length === 0) {
       return [];
     }
 
     return chartData.slice(visibleRange.start, visibleRange.end + 1);
   }, [chartData, visibleRange.end, visibleRange.start]);
+
+  // Rows handed to recharts: min/max-downsampled so peaks survive at any zoom level.
+  const visibleChartData = useMemo(() => {
+    const getValues = isComparisonChart
+      ? (item: ExtendedChartDataPoint) => plotSeries.map((series) => item[series.id] as number | undefined)
+      : (item: ExtendedChartDataPoint) => [item.price];
+    return downsampleMinMax(visibleFullData, MAX_DRAW_POINTS, getValues);
+  }, [isComparisonChart, plotSeries, visibleFullData]);
 
   const isZoomed = zoomRange !== null;
   const visiblePointCount = visibleRange.end - visibleRange.start + 1;
@@ -631,76 +749,79 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     };
   }, [chartData.length, fullDataEndIndex, minVisiblePoints, panFromClientDelta, zoomFromRange]);
 
-  // Calculate data timespan in days and months
-  const dataTimeSpanDays = visibleChartData.length > 0
-    ? differenceInDays(visibleChartData[visibleChartData.length - 1].date, visibleChartData[0].date)
+  const dataTimeSpanMonths = visibleFullData.length > 0
+    ? differenceInMonths(visibleFullData[visibleFullData.length - 1].date, visibleFullData[0].date)
     : 0;
 
-  const dataTimeSpanMonths = visibleChartData.length > 0
-    ? differenceInMonths(visibleChartData[visibleChartData.length - 1].date, visibleChartData[0].date)
-    : 0;
+  const visibleStart = visibleFullData[0]?.time ?? Number.NEGATIVE_INFINITY;
+  const visibleEnd = visibleFullData[visibleFullData.length - 1]?.time ?? Number.POSITIVE_INFINITY;
+  const visibleBucketKeys = useMemo(() => {
+    if (averaging === 'none' || averaging === 'daily-cycle') return null;
+    return new Set(visibleFullData.map((item) => getAveragingBucketKey(averaging, item.time)));
+  }, [averaging, visibleFullData]);
 
-  const visibleStart = visibleChartData[0]?.date.getTime() ?? Number.NEGATIVE_INFINITY;
-  const visibleEnd = visibleChartData[visibleChartData.length - 1]?.date.getTime() ?? Number.POSITIVE_INFINITY;
-  const getAveragingBucketKey = useCallback((date: Date) => {
-    if (averaging === 'monthly') return `${date.getFullYear()}-${date.getMonth() + 1}`;
-    if (averaging === 'daily') return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
-    if (averaging === 'weekly') {
-      const weekStart = new Date(date);
-      weekStart.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-      weekStart.setHours(0, 0, 0, 0);
-      return weekStart.toISOString().slice(0, 10);
-    }
-    if (averaging === 'hourly') return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}`;
-    return date.toISOString();
-  }, [averaging]);
-  const visibleBucketKeys = useMemo(
-    () => new Set(visibleChartData.map((item) => getAveragingBucketKey(item.date))),
-    [getAveragingBucketKey, visibleChartData]
+  // Epoch times and bucket keys of the unaveraged source data, computed once per data change
+  // instead of parsing every timestamp on each pan/zoom frame.
+  const averageSources = useMemo(
+    () => (isComparisonChart
+      ? plotSeries.map((series) => buildAverageSource(series.energyPrices, averaging))
+      : [buildAverageSource(averageEnergyPrices, averaging)]),
+    [averageEnergyPrices, averaging, isComparisonChart, plotSeries]
   );
-  const isInVisibleRange = useCallback((timestamp: string) => {
-    if (averaging === 'daily-cycle') return true;
-    if (averaging === 'none') {
-      const time = parseISO(timestamp).getTime();
-      return time >= visibleStart && time <= visibleEnd;
+
+  const averageVisible = useCallback((source: AverageSource, transform: (value: number) => number = (value) => value) => {
+    let sum = 0;
+    let count = 0;
+    for (let index = 0; index < source.prices.length; index++) {
+      let included: boolean;
+      if (averaging === 'daily-cycle') {
+        included = true;
+      } else if (visibleBucketKeys && source.keys) {
+        included = visibleBucketKeys.has(source.keys[index]);
+      } else {
+        const time = source.times[index];
+        included = time >= visibleStart && time <= visibleEnd;
+      }
+      if (included) {
+        sum += transform(source.prices[index].price);
+        count += 1;
+      }
     }
-    return visibleBucketKeys.has(getAveragingBucketKey(parseISO(timestamp)));
-  }, [averaging, getAveragingBucketKey, visibleBucketKeys, visibleEnd, visibleStart]);
+    return count > 0 ? sum / count : null;
+  }, [averaging, visibleBucketKeys, visibleEnd, visibleStart]);
 
   const averageSummaries = useMemo(() => {
     // ponytail: display point reduction never changes aggregate calculations.
     if (isComparisonChart) {
       return plotSeries
         .map((series, index) => {
-          const values = series.energyPrices
-            .filter((item) => isInVisibleRange(item.timestamp))
-            .map((item) => item.price);
-
-          if (!values.length) return null;
+          const value = averageVisible(averageSources[index]);
+          if (value === null) return null;
 
           return {
             id: series.id,
             label: series.shortLabel ?? series.label,
             color: series.color || COMPARISON_COLORS[index % COMPARISON_COLORS.length],
-            value: values.reduce((sum, value) => sum + value, 0) / values.length,
+            value,
           };
         })
         .filter((item): item is NonNullable<typeof item> => item !== null);
     }
 
-    const values = averageEnergyPrices
-      .filter((item) => isInVisibleRange(item.timestamp))
-      .map((item) => showSpotPriceWithTax ? item.price * 1.2 : item.price);
+    const vatFactor = 1 + vatRate;
+    const value = averageSources[0]
+      ? averageVisible(averageSources[0], showSpotPriceWithTax ? (price) => price * vatFactor : undefined)
+      : null;
 
-    if (!values.length) return [];
+    if (value === null) return [];
 
     return [{
       id: 'price',
       label: showSpotPriceWithTax ? 'Strompreis inkl. USt.' : 'Strompreis',
       color: '#8E512C',
-      value: values.reduce((sum, value) => sum + value, 0) / values.length,
+      value,
     }];
-  }, [averageEnergyPrices, isComparisonChart, isInVisibleRange, plotSeries, showSpotPriceWithTax]);
+  }, [averageSources, averageVisible, isComparisonChart, plotSeries, showSpotPriceWithTax, vatRate]);
 
   const averagePrice = useMemo(() => {
     const values = averageSummaries.map((item) => item.value);
@@ -718,11 +839,11 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const shouldShowWeekSeparators = showWeekSeparators && canShowWeekSeparators;
   const shouldShowMonthSeparators = showMonthSeparators && canShowMonthSeparators;
   const hasMultipleQuarters = useMemo(() => {
-    const quarterKeys = new Set(
-      visibleChartData.map((item) => `${item.date.getFullYear()}-Q${getQuarter(item.date)}`)
-    );
-    return quarterKeys.size > 1;
-  }, [visibleChartData]);
+    const first = visibleFullData[0]?.date;
+    const last = visibleFullData[visibleFullData.length - 1]?.date;
+    if (!first || !last) return false;
+    return first.getFullYear() !== last.getFullYear() || getQuarter(first) !== getQuarter(last);
+  }, [visibleFullData]);
   const canShowQuarterSeparators = averaging !== 'daily-cycle' && hasMultipleQuarters;
   const shouldShowQuarterSeparators = showQuarterSeparators && canShowQuarterSeparators;
 
@@ -730,180 +851,15 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     if (activeRangePreset === '1w' && canShowDaySeparators) setShowDaySeparators(true);
   }, [activeRangePreset, canShowDaySeparators]);
 
-  // Generate dynamic ticks for XAxis
-  const getXAxisTicks = (axisData: ExtendedChartDataPoint[]) => {
-    if (!axisData || axisData.length === 0) {
-      return [];
-    }
-
-    const ticks: string[] = [];
-    const firstDate = axisData[0].date;
-    const lastDate = axisData[axisData.length - 1].date;
-    const daysDiff = differenceInDays(lastDate, firstDate);
-
-    // Handle cases based on 'averaging' prop first
-    if (averaging === 'daily-cycle') {
-      // For daily-cycle, show specific hours if data covers them
-      const uniqueHours = new Set(axisData.map(d => getHours(d.date)));
-      const tickHours = [0, 6, 12, 18]; // Default hours to show
-      tickHours.forEach(hour => {
-        if (uniqueHours.has(hour)) {
-           const firstMatch = axisData.find(d => getHours(d.date) === hour);
-           if (firstMatch) ticks.push(firstMatch.timestamp);
-        }
-      });
-      // Ensure at least first and last points are there if no specific hours match
-      if (ticks.length === 0) {
-        ticks.push(axisData[0].timestamp);
-        if (axisData.length > 1) ticks.push(axisData[axisData.length - 1].timestamp);
-      }
-      return ticks.filter((t, i, arr) => arr.indexOf(t) === i); // Unique ticks
-    }
-
-    if (averaging === 'hourly') {
-        // For hourly, show a tick every 6 or 12 hours if the span is large enough
-        let step = 1; // Show every hour by default
-        if (axisData.length > 24 * 3) step = 6; // Every 6 hours if more than 3 days of hourly data
-        if (axisData.length > 24 * 7) step = 12; // Every 12 hours if more than 7 days
-
-        axisData.forEach((item, index) => {
-            if (index % step === 0) {
-                ticks.push(item.timestamp);
-            }
-        });
-        if (ticks.length === 0 && axisData.length > 0) ticks.push(axisData[0].timestamp);
-        if (axisData.length > 1 && !ticks.includes(axisData[axisData.length - 1].timestamp)) {
-            ticks.push(axisData[axisData.length -1].timestamp);
-        }
-        return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
-    }
-
-
-    if (averaging === 'daily') {
-      // Show every Nth day
-      let step = 1;
-      if (daysDiff > 10) step = 2;
-      if (daysDiff > 30) step = 3;
-      if (daysDiff > 90) step = 7; // Every week
-
-      let lastPushedDate: Date | null = null;
-      axisData.forEach(item => {
-        if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= step) {
-          ticks.push(item.timestamp);
-          lastPushedDate = item.date;
-        }
-      });
-       if (ticks.length === 0 && axisData.length > 0) ticks.push(axisData[0].timestamp);
-       if (axisData.length > 1 && !ticks.includes(axisData[axisData.length - 1].timestamp)) {
-            ticks.push(axisData[axisData.length -1].timestamp);
-        }
-      return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
-    }
-
-    if (averaging === 'weekly') {
-      axisData.forEach((item) => {
-        ticks.push(item.timestamp);
-      });
-      return ticks.filter((t, i, arr) => arr.indexOf(t) === i);
-    }
-
-    if (averaging === 'monthly') {
-      const monthTicks = axisData
-        .filter((item) => item.isFirstDataPointOfMonth)
-        .map((item) => item.timestamp);
-      if (monthTicks.length < 2 && axisData.length > 0) {
-        monthTicks.push(axisData[0].timestamp, axisData[axisData.length - 1].timestamp);
-      }
-      const uniqueTicks = monthTicks.filter((tick, index, ticks) => ticks.indexOf(tick) === index);
-      const step = Math.max(1, Math.ceil(uniqueTicks.length / 12));
-      return uniqueTicks.filter((_, index) => index % step === 0 || index === uniqueTicks.length - 1);
-    }
-
-
-    // Default dynamic ticks if no specific averaging mode dictates them
-    if (daysDiff < 3) { // Less than 3 days: potentially more ticks
-      axisData.forEach(item => {
-        const hour = getHours(item.date);
-        if (hour % 6 === 0) { // Ticks at 00:00, 06:00, 12:00, 18:00
-          ticks.push(item.timestamp);
-        }
-      });
-      // Ensure first and last points are ticks
-      if (axisData.length > 0 && !ticks.includes(axisData[0].timestamp)) {
-        ticks.unshift(axisData[0].timestamp);
-      }
-      if (axisData.length > 1 && !ticks.includes(axisData[axisData.length - 1].timestamp)) {
-        ticks.push(axisData[axisData.length - 1].timestamp);
-      }
-    } else if (daysDiff <= 10) { // 3-10 days: a tick per day (midnight or first data point of day)
-      const dailyTicks = new Map<string, string>();
-      axisData.forEach(item => {
-        const dayKey = format(item.date, 'yyyy-MM-dd');
-        if (!dailyTicks.has(dayKey) || getHours(item.date) === 0) {
-          dailyTicks.set(dayKey, item.timestamp);
-        }
-      });
-      ticks.push(...Array.from(dailyTicks.values()));
-    } else if (daysDiff <= 30) { // 10-30 days: every 2nd day
-      let lastPushedDate: Date | null = null;
-      axisData.forEach(item => {
-        if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= 2) {
-          ticks.push(item.timestamp);
-          lastPushedDate = item.date;
-        }
-      });
-    } else { // More than 30 days: every Nth day (e.g. 3rd, 7th)
-      let step = 3;
-      if (daysDiff > 90) step = 7; // weekly for very long ranges
-      let lastPushedDate: Date | null = null;
-      axisData.forEach(item => {
-        if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= step) {
-          ticks.push(item.timestamp);
-          lastPushedDate = item.date;
-        }
-      });
-    }
-
-    // Ensure there's at least one tick if axisData is not empty
-    if (ticks.length === 0 && axisData.length > 0) {
-        ticks.push(axisData[0].timestamp);
-    }
-    // Ensure the last data point is a tick if there's more than one point
-    if (axisData.length > 1 && ticks[ticks.length -1] !== axisData[axisData.length -1].timestamp) {
-        const lastTimestamp = axisData[axisData.length -1].timestamp;
-        if (!ticks.includes(lastTimestamp)) {
-             ticks.push(lastTimestamp);
-        }
-    }
-
-    return ticks.filter((t, i, arr) => arr.indexOf(t) === i); // Return unique ticks
-  };
-
-  const xAxisTicks = getXAxisTicks(visibleChartData);
-
-  // Calculate time unit based on data length and averaging option
-  const getTimeUnit = () => {
-    if (averaging === 'monthly') return 'month';
-    if (averaging === 'weekly') return 'week';
-    if (averaging === 'daily') return 'day';
-    if (averaging === 'daily-cycle') return 'hour';
-    if (averaging === 'hourly') return 'hour';
-
-    // Default based on data length
-    if (referenceEnergyPrices.length > 720) return 'month';
-    if (referenceEnergyPrices.length > 168) return 'week';
-    if (referenceEnergyPrices.length > 24) return 'day';
-    return 'hour';
-  };
-
-  const timeUnit = getTimeUnit();
+  const xAxisTicks = useMemo(() => getXAxisTicks(visibleChartData, averaging), [averaging, visibleChartData]);
 
   // Format date tick based on selected time unit and averaging
+  const visibleDaysDiff = visibleFullData.length > 0
+    ? differenceInDays(visibleFullData[visibleFullData.length - 1].date, visibleFullData[0].date)
+    : 0;
   const formatXAxis = (timestamp: string) => {
     const date = parseISO(timestamp);
-    const firstDate = visibleChartData.length > 0 ? visibleChartData[0].date : new Date();
-    const lastDate = visibleChartData.length > 0 ? visibleChartData[visibleChartData.length - 1].date : new Date();
-    const daysDiff = visibleChartData.length > 0 ? differenceInDays(lastDate, firstDate) : 0;
+    const daysDiff = visibleDaysDiff;
 
     switch (averaging) {
       case 'monthly':
@@ -927,10 +883,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         } else if (daysDiff <= 10) {
             return format(date, 'dd.MM.', { locale: de });
         } else if (daysDiff <= 90) { // Up to ~3 months
-            if (date.getDate() === 1 || xAxisTicks.find(t => parseISO(t).valueOf() === date.valueOf() && differenceInDays(date, visibleChartData[0].date) < 7 )) { // First day of month or first tick
-                 return format(date, 'dd.MM.', { locale: de }); // Show day and month for first few/month starts
-            }
-            return format(date, 'dd.MM.', { locale: de }); // Otherwise just day for denser ticks
+            return format(date, 'dd.MM.', { locale: de });
         } else { // More than 3 months
             return format(date, 'MMM yy', { locale: de });
         }
@@ -990,7 +943,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         .map((series) =>
           buildStats(
             series.shortLabel ?? series.label,
-            visibleChartData
+            visibleFullData
               .map((item) => item[series.id])
               .filter((value): value is number => typeof value === 'number' && Number.isFinite(value)),
             series.color
@@ -1001,22 +954,35 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
 
     const singleStats = buildStats(
       'Strompreis',
-      visibleChartData
+      visibleFullData
         .map((item) => item.price)
         .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
     );
 
     return singleStats ? [singleStats] : [];
-  }, [comparisonSeries, cutoffEnabled, cutoffValue, isComparisonChart, visibleChartData]);
+  }, [comparisonSeries, cutoffEnabled, cutoffValue, isComparisonChart, visibleFullData]);
 
-  const buildPaddedDomain = useCallback((values: number[], fallback: [number | 'auto', number | 'auto'] = ['auto', 'auto']) => {
-    const finiteValues = values.filter((value) => Number.isFinite(value));
-    if (!finiteValues.length) {
+  const buildPaddedDomain = useCallback((
+    rows: ExtendedChartDataPoint[],
+    getValues: (item: ExtendedChartDataPoint, push: (value: unknown) => void) => void,
+    extraValues: number[] = [],
+    fallback: [number | 'auto', number | 'auto'] = ['auto', 'auto'],
+  ) => {
+    // Min/max in a loop: spreading full-resolution arrays into Math.min can exceed the argument limit.
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    const push = (value: unknown) => {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return;
+      if (value < min) min = value;
+      if (value > max) max = value;
+    };
+    rows.forEach((item) => getValues(item, push));
+    extraValues.forEach(push);
+
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
       return fallback;
     }
 
-    const min = Math.min(...finiteValues);
-    const max = Math.max(...finiteValues);
     const span = max - min;
     const minimumPadding = priceUnitLabel === '€/MWh' ? 5 : 0.5;
     const padding = span > 0
@@ -1027,31 +993,24 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   }, [priceUnitLabel]);
 
   const autoPriceAxisDomain = useMemo(() => {
-    const values: number[] = [];
-
-    visibleChartData.forEach((item) => {
-      if (isComparisonChart) {
-        plotSeries.forEach((series) => {
-          const value = item[series.id];
-          if (typeof value === 'number' && Number.isFinite(value)) {
-            values.push(value);
-          }
-        });
-      } else {
-        if (typeof item.price === 'number' && Number.isFinite(item.price)) {
-          values.push(item.price);
+    const showContractLines = !isComparisonChart && Boolean(selectedContract);
+    return buildPaddedDomain(
+      visibleFullData,
+      (item, push) => {
+        if (isComparisonChart) {
+          plotSeries.forEach((series) => push(item[series.id]));
+          return;
         }
 
-        if (selectedContract) {
-          if (showBasePrice && typeof item.contractEnergyPrice === 'number') values.push(item.contractEnergyPrice);
-          if (showNetworkCosts && typeof item.contractNetworkCosts === 'number') values.push(item.contractNetworkCosts);
-          if (showWithTaxes && typeof item.contractTotalPriceTaxed === 'number') values.push(item.contractTotalPriceTaxed);
+        push(item.price);
+        if (showContractLines) {
+          if (showBasePrice) push(item.contractEnergyPrice);
+          if (showNetworkCosts) push(item.contractNetworkCosts);
+          if (showWithTaxes) push(item.contractTotalPriceTaxed);
         }
-      }
-    });
-
-    if (showZeroLine) values.push(0);
-    return buildPaddedDomain(values);
+      },
+      showZeroLine ? [0] : []
+    );
   }, [
     buildPaddedDomain,
     isComparisonChart,
@@ -1061,7 +1020,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     showNetworkCosts,
     showWithTaxes,
     showZeroLine,
-    visibleChartData,
+    visibleFullData,
   ]);
 
   const priceAxisDomain = [
@@ -1076,23 +1035,15 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     }
   }, [autoPriceAxisDomain, onAutoYDomainChange]);
 
-  const consumptionAxisDomain = useMemo(() => {
-    return buildPaddedDomain(
-      visibleChartData
-        .map((item) => item.consumption)
-        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value)),
-      ['auto', 'auto']
-    );
-  }, [buildPaddedDomain, visibleChartData]);
+  const consumptionAxisDomain = useMemo(
+    () => buildPaddedDomain(visibleFullData, (item, push) => push(item.consumption)),
+    [buildPaddedDomain, visibleFullData]
+  );
 
-  const costAxisDomain = useMemo(() => {
-    return buildPaddedDomain(
-      visibleChartData
-        .map((item) => item.cost)
-        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value)),
-      ['auto', 'auto']
-    );
-  }, [buildPaddedDomain, visibleChartData]);
+  const costAxisDomain = useMemo(
+    () => buildPaddedDomain(visibleFullData, (item, push) => push(item.cost)),
+    [buildPaddedDomain, visibleFullData]
+  );
 
   const clampTooltipPosition = (state: {
     chartX?: number;
@@ -1208,38 +1159,46 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     };
   };
 
-  const formatPriceListDate = (date: Date) => {
-    if (averaging === 'monthly') return format(date, 'MMMM yyyy', { locale: de });
-    if (averaging === 'weekly') return `KW ${getISOWeek(date)} ${format(date, 'yyyy')}`;
-    if (averaging === 'daily-cycle') return format(date, 'HH:00');
-    return format(date, averaging === 'daily' ? 'dd.MM.yyyy' : 'dd.MM.yyyy HH:mm');
-  };
-
-  const priceListRows = visibleChartData.map((item) => ({
-    date: formatPriceListDate(item.date),
-    price: item.price.toFixed(2),
-  }));
+  // Built from full-resolution visible rows, and only while the dialog is open.
+  const priceListRows = useMemo(() => {
+    if (!isPriceListOpen) return [];
+    return visibleFullData.map((item) => ({
+      date: formatPriceListDate(averaging, item.date),
+      price: item.price.toFixed(2),
+    }));
+  }, [averaging, isPriceListOpen, visibleFullData]);
   const priceListHeader = `Preis (${priceUnitLabel})`;
-  const priceListExcel = ['Zeitraum\t' + priceListHeader, ...priceListRows.map((row) => `${row.date}\t${row.price}`)].join('\n');
-  const priceListMarkdown = ['| Zeitraum | ' + priceListHeader + ' |', '| --- | ---: |', ...priceListRows.map((row) => `| ${row.date} | ${row.price} |`)].join('\n');
 
   const copyPriceList = async (copyFormat: 'excel' | 'markdown') => {
-    const text = copyFormat === 'excel' ? priceListExcel : priceListMarkdown;
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      document.body.append(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      textarea.remove();
+    const text = copyFormat === 'excel'
+      ? ['Zeitraum\t' + priceListHeader, ...priceListRows.map((row) => `${row.date}\t${row.price}`)].join('\n')
+      : ['| Zeitraum | ' + priceListHeader + ' |', '| --- | ---: |', ...priceListRows.map((row) => `| ${row.date} | ${row.price} |`)].join('\n');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.append(textarea);
+        textarea.select();
+        const copied = document.execCommand('copy');
+        textarea.remove();
+        if (!copied) throw new Error('execCommand copy failed');
+      }
+      setCopiedFormat(copyFormat);
+    } catch (error) {
+      console.warn('Copying the price list failed:', error);
+      setCopiedFormat(null);
+      toast({
+        title: 'Kopieren fehlgeschlagen',
+        description: 'Der Browser hat den Zugriff auf die Zwischenablage verweigert. Bitte die Tabelle manuell markieren und kopieren.',
+        variant: 'destructive',
+      });
     }
-    setCopiedFormat(copyFormat);
   };
 
-  // Simplified renderMonthBands function - avoiding NaN errors
-  const renderMonthBands = () => {
+  // Band/marker elements reference drawn timestamps (categorical x-axis), memoized per view.
+  const monthBands = useMemo(() => {
     if (!shouldShowMonthSeparators || visibleChartData.length === 0) {
       return null;
     }
@@ -1328,9 +1287,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     });
 
     return <>{monthElements}</>;
-  };
+  }, [shouldShowMonthSeparators, visibleChartData]);
 
-  const renderQuarterBands = () => {
+  const quarterBands = useMemo(() => {
     if (!shouldShowQuarterSeparators || visibleChartData.length === 0) {
       return null;
     }
@@ -1410,91 +1369,110 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     });
 
     return <>{quarterElements}</>;
-  };
+  }, [shouldShowQuarterSeparators, visibleChartData]);
 
-  // Renamed from renderWeekBands and uses ReferenceLine for week markers
-  const renderWeekMarkers = () => {
+  // Week marker at the first drawn Monday point of each ISO week.
+  const weekMarkers = useMemo(() => {
     if (!shouldShowWeekSeparators || visibleChartData.length === 0) {
       return null;
     }
-    const weekMarkers: React.JSX.Element[] = [];
-    visibleChartData.forEach((item) => { // No index needed as we use item.timestamp
-        if (item.isFirstDataPointOfWeek) {
-            weekMarkers.push(
-                <ReferenceLine
-                    key={`week-marker-${item.timestamp}`}
-                    x={item.timestamp}
-                    yAxisId="price"
-                    stroke="var(--week-marker-color)"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 4"
-                    strokeOpacity={0.75}
-                    ifOverflow="hidden"
+    const markers: React.JSX.Element[] = [];
+    let lastWeekKey: string | null = null;
+    visibleChartData.forEach((item) => {
+      if (getDay(item.date) !== 1) return;
+      const weekKey = format(item.date, 'RRRR-II');
+      if (weekKey === lastWeekKey) return;
+      lastWeekKey = weekKey;
+      markers.push(
+        <ReferenceLine
+          key={`week-marker-${item.timestamp}`}
+          x={item.timestamp}
+          yAxisId="price"
+          stroke="var(--week-marker-color)"
+          strokeWidth={1.5}
+          strokeDasharray="4 4"
+          strokeOpacity={0.75}
+          ifOverflow="hidden"
           style={{ pointerEvents: 'none' }}
-                    label={{
-                        value: `KW ${getISOWeek(item.date)}`,
-                        position: 'insideTop',
-                        fill: 'var(--week-label-color)',
-                        fontSize: 10,
-                        textAnchor: 'middle', /* Ensure centering if not default for ReferenceLine label */
-                    }}
-                />
-            );
-        }
+          label={{
+            value: `KW ${getISOWeek(item.date)}`,
+            position: 'insideTop',
+            fill: 'var(--week-label-color)',
+            fontSize: 10,
+            textAnchor: 'middle',
+          }}
+        />
+      );
     });
-    return <>{weekMarkers}</>;
-  };
+    return <>{markers}</>;
+  }, [shouldShowWeekSeparators, visibleChartData]);
 
-  // Updated renderDayBands function using ReferenceArea like months
-  const renderDayBands = () => {
+  // Alternating day bands, grouped in a single pass. A band runs from the first point of a day
+  // to the first point of the next day, so it never spills past midnight at any resolution.
+  const dayBands = useMemo(() => {
     if (!shouldShowDaySeparators || visibleChartData.length <= 1) {
       return null;
     }
-    const dayReferenceAreas: React.JSX.Element[] = [];
-    let isGray = true; // For alternating fill
-    const processedDays = new Set<string>(); // Tracks yyyy-MM-dd to ensure each day gets one band
+    const days: Array<{ key: string; first: string; last: string }> = [];
+    visibleChartData.forEach((item) => {
+      const dayKey = format(item.date, 'yyyy-MM-dd');
+      const current = days[days.length - 1];
+      if (current?.key === dayKey) {
+        current.last = item.timestamp;
+      } else {
+        days.push({ key: dayKey, first: item.timestamp, last: item.timestamp });
+      }
+    });
 
-    for (let i = 0; i < visibleChartData.length; i++) {
-        const currentDataPointDate = visibleChartData[i].date;
-        const dayKey = format(currentDataPointDate, 'yyyy-MM-dd');
+    return (
+      <>
+        {days.map((day, index) => index % 2 === 0 && (
+          <ReferenceArea
+            key={`day-area-${day.key}`}
+            x1={day.first}
+            x2={days[index + 1]?.first ?? day.last}
+            yAxisId="price"
+            fill="var(--day-band-fill-color)"
+            fillOpacity={0.15}
+            ifOverflow="hidden"
+            style={{ pointerEvents: 'none' }}
+          />
+        ))}
+      </>
+    );
+  }, [shouldShowDaySeparators, visibleChartData]);
 
-        if (!processedDays.has(dayKey)) {
-            // First time encountering this day in the loop
-            processedDays.add(dayKey);
+  useEffect(() => {
+    onCutoffValueChangeRef.current = onCutoffValueChange;
+  }, [onCutoffValueChange]);
 
-            // Find all data points actually belonging to this specific day (yyyy-MM-dd)
-            const pointsInThisExactDay = visibleChartData.filter(dp => format(dp.date, 'yyyy-MM-dd') === dayKey);
-
-            if (pointsInThisExactDay.length > 0) {
-                const firstTimestampInDay = pointsInThisExactDay[0].timestamp;
-                const lastTimestamp = new Date(pointsInThisExactDay[pointsInThisExactDay.length - 1].timestamp);
-                // Add one hour because we want to include the last hour in the timeframe
-                lastTimestamp.setHours(lastTimestamp.getHours() + 1);
-                const lastTimestampInDay = lastTimestamp.toISOString();
-
-                // Create ReferenceArea for alternating days
-                if (isGray) {
-                    dayReferenceAreas.push(
-                        <ReferenceArea
-                            key={`day-area-${dayKey}`}
-                            x1={firstTimestampInDay}
-                            x2={lastTimestampInDay}
-                            yAxisId="price"
-                            fill="var(--day-band-fill-color)"
-                            fillOpacity={0.15}
-                            ifOverflow="hidden"
-          style={{ pointerEvents: 'none' }}
-                        />
-                    );
-                }
-                // Toggle for the next distinct day
-                isGray = !isGray;
-            }
-        }
+  // Ruler drag: window listeners live only while dragging and are removed on mouseup,
+  // window blur or unmount.
+  useEffect(() => {
+    if (!isDraggingCutoff) {
+      return;
     }
-    // The returned elements are directly used by Recharts
-    return <>{dayReferenceAreas}</>;
-  };
+
+    const move = (event: MouseEvent) => {
+      const drag = cutoffDragRef.current;
+      if (!drag) return;
+      const nextValue = drag.startValue - ((event.clientY - drag.startY) / drag.plotHeight) * drag.span;
+      onCutoffValueChangeRef.current?.(Number(nextValue.toFixed(2)));
+    };
+    const stop = () => {
+      cutoffDragRef.current = null;
+      setIsDraggingCutoff(false);
+    };
+
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+    window.addEventListener('blur', stop);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', stop);
+      window.removeEventListener('blur', stop);
+    };
+  }, [isDraggingCutoff]);
 
   return (
     <div className="min-w-0 space-y-2 md:space-y-4">
@@ -1577,10 +1555,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             />
 
             {/* Zeitraum-Highlights sind rein visuell und fangen keine Mausereignisse ab. */}
-            {renderQuarterBands()}
-            {renderMonthBands()}
-            {renderWeekMarkers()}
-            {renderDayBands()}
+            {quarterBands}
+            {monthBands}
+            {weekMarkers}
+            {dayBands}
 
             <XAxis
               dataKey="timestamp"
@@ -1781,22 +1759,14 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                     return;
                   }
 
-                  const startY = event.clientY;
-                  const startValue = cutoffValue;
-                  // ponytail: fixed chart chrome is 106px; derive bounds only if the layout becomes variable.
-                  const plotHeight = Math.max(1, wrapper.clientHeight - 106);
-                  const move = (pointerEvent: MouseEvent) => {
-                    const nextValue = startValue - ((pointerEvent.clientY - startY) / plotHeight) * (domainMax - domainMin);
-                    onCutoffValueChange(Number(nextValue.toFixed(2)));
+                  cutoffDragRef.current = {
+                    startY: event.clientY,
+                    startValue: cutoffValue,
+                    // ponytail: fixed chart chrome is 106px; derive bounds only if the layout becomes variable.
+                    plotHeight: Math.max(1, wrapper.clientHeight - 106),
+                    span: domainMax - domainMin,
                   };
-                  const stop = () => {
-                    setIsDraggingCutoff(false);
-                    window.removeEventListener('mousemove', move);
-                  };
-
                   setIsDraggingCutoff(true);
-                  window.addEventListener('mousemove', move);
-                  window.addEventListener('mouseup', stop, { once: true });
                 }}
               />
             )}
@@ -1861,9 +1831,14 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                   <div className="max-h-[52vh] overflow-auto rounded-md border">
                     <table className="w-auto min-w-[22rem] text-sm">
                       <thead className="sticky top-0 bg-background"><tr><th className="p-2 text-left">Zeitraum</th><th className="px-2 py-2 pl-6 text-left">{priceListHeader}</th></tr></thead>
-                      <tbody>{priceListRows.map((row, index) => <tr key={`price-row-${index}`} className="border-t"><td className="p-2">{row.date}</td><td className="px-2 py-2 pl-6 text-left tabular-nums">{row.price}</td></tr>)}</tbody>
+                      <tbody>{priceListRows.slice(0, PRICE_LIST_DISPLAY_LIMIT).map((row, index) => <tr key={`price-row-${index}`} className="border-t"><td className="p-2">{row.date}</td><td className="px-2 py-2 pl-6 text-left tabular-nums">{row.price}</td></tr>)}</tbody>
                     </table>
                   </div>
+                  {priceListRows.length > PRICE_LIST_DISPLAY_LIMIT && (
+                    <p className="text-xs text-muted-foreground">
+                      Angezeigt werden die ersten {PRICE_LIST_DISPLAY_LIMIT.toLocaleString('de-AT')} von {priceListRows.length.toLocaleString('de-AT')} Zeilen. Kopieren übernimmt alle Zeilen.
+                    </p>
+                  )}
                   <DialogFooter>
                     <Button type="button" variant="outline" onClick={() => void copyPriceList('excel')}><Copy className="h-4 w-4" />{copiedFormat === 'excel' ? 'Kopiert' : 'Für Excel kopieren'}</Button>
                     <Button type="button" onClick={() => void copyPriceList('markdown')}><Copy className="h-4 w-4" />{copiedFormat === 'markdown' ? 'Kopiert' : 'Markdown kopieren'}</Button>

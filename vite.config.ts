@@ -8,11 +8,8 @@ const packageJson = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, "package.json"), "utf-8")
 ) as { version: string };
 
-const devApiFileMap: Record<string, string> = {
-  "/api/at_electricity_prices.bin": "at_electricity_prices.bin",
-  "/api/at_electricity_prices_backup.bin": "at_electricity_prices_backup.bin",
-  "/api/at_electricity_prices_15min.bin": "at_electricity_prices_15min.bin",
-};
+// Mirrors PUBLIC_BINARY_PATH_RE in worker/server.py so every region works in dev.
+const DEV_API_BINARY_RE = /^\/api\/([a-z0-9-]+_electricity_prices(?:_15min)?\.bin)$/;
 
 // https://vitejs.dev/config/
 export default defineConfig(() => ({
@@ -40,7 +37,7 @@ export default defineConfig(() => ({
           }
 
           const requestPath = req.url.split("?")[0];
-          const fileName = devApiFileMap[requestPath];
+          const fileName = DEV_API_BINARY_RE.exec(requestPath)?.[1];
 
           if (!fileName) {
             next();

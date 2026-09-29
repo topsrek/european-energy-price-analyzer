@@ -14,12 +14,11 @@ This system automatically fetches the latest Austrian energy price data daily to
 
 ### Files
 - `daily_update.py` - Main daily update script
-- `setup_daily_job.ps1` - PowerShell script to set up Windows Task Scheduler
 - `smoke_daily_update.py` - Manual smoke check (performs a real download)
 
 ### How It Works
 
-1. **Intelligent Updates**: Only downloads missing data (no duplicates)
+1. **Overlap Refresh**: Re-fetches the requested window (last stored day plus slack) so partial days are completed and upstream corrections win
 2. **Automatic Merging**: Combines new data with existing dataset
 3. **Error Handling**: Robust retry logic with exponential backoff
 4. **Logging**: Detailed logs saved to `daily_update.log`
@@ -38,27 +37,11 @@ python daily_update.py AT DE-LU
 
 ### Setup Instructions
 
-#### Option 1: Windows Task Scheduler (Recommended)
+In production the worker (`worker/server.py`, started by the root `Dockerfile`) runs the
+update on its own schedule (`UPDATE_HOUR_LOCAL`/`UPDATE_MINUTE_LOCAL` in `UPDATE_TIMEZONE`,
+default 13:07 Europe/Vienna, after day-ahead prices are published). No external scheduler is needed.
 
-1. **Run as Administrator**:
-   ```powershell
-   # Navigate to scripts directory
-   cd D:\DEV\european-energy-price-analyzer\scripts
-   
-   # Run the setup script
-   .\setup_daily_job.ps1
-   ```
-
-2. **Verify Setup**:
-   ```powershell
-   # Check if task was created
-   Get-ScheduledTask -TaskName "AustrianEnergyPriceUpdate"
-   
-   # Test run the task
-   Start-ScheduledTask -TaskName "AustrianEnergyPriceUpdate"
-   ```
-
-#### Option 2: Manual Testing
+For manual runs:
 
 ```bash
 # Smoke-check the daily update (downloads and rewrites artifacts)
@@ -66,33 +49,6 @@ python smoke_daily_update.py
 
 # Run the actual daily update
 python daily_update.py
-```
-
-### Task Scheduler Details
-
-- **Task Name**: `AustrianEnergyPriceUpdate`
-- **Schedule**: Daily at 2:00 AM
-- **Script**: `daily_update.py`
-- **Working Directory**: `D:\DEV\european-energy-price-analyzer\scripts`
-- **Log File**: `daily_update.log`
-
-### Management Commands
-
-```powershell
-# View task details
-Get-ScheduledTask -TaskName "AustrianEnergyPriceUpdate"
-
-# Run task immediately
-Start-ScheduledTask -TaskName "AustrianEnergyPriceUpdate"
-
-# Stop running task
-Stop-ScheduledTask -TaskName "AustrianEnergyPriceUpdate"
-
-# Delete task
-Unregister-ScheduledTask -TaskName "AustrianEnergyPriceUpdate" -Confirm:$false
-
-# View task history
-Get-ScheduledTask -TaskName "AustrianEnergyPriceUpdate" | Get-ScheduledTaskInfo
 ```
 
 ### Log Files
@@ -141,13 +97,9 @@ python daily_update.py
 - **Download Speed**: ~1-2 seconds per day of data
 - **File Growth**: ~2 bytes per record (ultra-efficient)
 - **Memory Usage**: Minimal (streaming downloads)
-- **Network Usage**: Only downloads missing data
+- **Network Usage**: Only the update window is downloaded
 
 ## 🎯 Next Steps
 
-1. **Set up the daily job** using the PowerShell script
-2. **Test the system** with the test script
-3. **Monitor logs** for the first few days
-4. **Verify data updates** in your web application
-
-Your EEPA data system will now automatically stay current with the latest market data.
+1. **Monitor** `/api/health` (`ok`, `stale_countries`) and the worker logs
+2. **Verify data updates** in the web application

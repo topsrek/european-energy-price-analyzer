@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Small EEPA worker API and scheduler.
+"""Small EEPA web server, API and scheduler.
 
-This process is intentionally boring: a tiny stdlib HTTP API plus a daily
-background update loop. Coolify can run it as a separate service next to the
-static frontend.
+This process is intentionally boring: a tiny stdlib HTTP server that serves the
+built frontend (dist/), the price binaries and a small JSON API, plus a daily
+background update loop.
 """
 
 from __future__ import annotations
@@ -40,7 +40,12 @@ SCHEDULER_POLL_SECONDS = 5 * 60
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 25 * 60
 DEFAULT_COMMAND_RETRIES = 1
 COMMAND_RETRY_DELAYS_SECONDS = (60, 180)
-PUBLIC_BINARY_PATH_RE = re.compile(r"^/[a-z0-9-]+_electricity_prices(?:_backup|_15min)?\.bin$")
+PUBLIC_BINARY_PATH_RE = re.compile(r"^/[a-z0-9-]+_electricity_prices(?:_15min)?\.bin$")
+COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}(?:-[A-Z]{2})?$")
+REQUEST_TIMEOUT_SECONDS = 15
+DEFAULT_FRAME_ANCESTORS = (
+    "'self' https://machine-literacy.com https://www.machine-literacy.com http://localhost:5173"
+)
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -158,7 +163,27 @@ STATE = WorkerState()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "EEPAWorker/0.1"
+    server_version = "EEPAWorker"
+    sys_version = ""
+    # Drop idle or slow clients instead of holding a thread open forever.
+    timeout = REQUEST_TIMEOUT_SECONDS
+
+    def end_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        super().end_headers()
+
+    def handle_one_request(self) -> None:
+        try:
+            super().handle_one_request()
+        except (ConnectionError, TimeoutError):
+            raise
+        except Exception:
+            logger.exception("Unhandled error while serving %s", getattr(self, "path", "?"))
+            try:
+                self.send_json({"error": "internal_error"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+            except OSError:
+                pass
 
     def do_HEAD(self) -> None:
         path = self.normalized_path()
@@ -167,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_file(public_binary, "application/octet-stream", head_only=True)
             return
 
-        if path in {"/health", "/geoip", "/data-manifest", "/data-freshness"}:
+        if path in {"/health", "/geoip", "/data-manifest"}:
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -246,17 +271,25 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def read_json_body(self) -> dict[str, Any]:
-        content_length = int(self.headers.get("Content-Length", "0"))
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            raise ValueError("invalid content length") from None
         if content_length <= 0:
             return {}
         if content_length > 4096:
             raise ValueError("request body too large")
-        return json.loads(self.rfile.read(content_length).decode("utf-8"))
+        payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("request body must be a JSON object")
+        return payload
 
     def handle_data_freshness(self) -> None:
         try:
             payload = self.read_json_body()
             country_code = str(payload.get("countryCode") or payload.get("country") or "AT").upper()
+            if not COUNTRY_CODE_RE.match(country_code):
+                raise ValueError("invalid country code")
             resolution = str(payload.get("resolution") or "hourly").lower()
             client_latest = first_nonempty(
                 payload.get("latestTimestamp"),
@@ -291,8 +324,12 @@ class Handler(BaseHTTPRequestHandler):
                     "clientLatestTimestamp": client_latest,
                 }
             )
-        except (json.JSONDecodeError, ValueError) as exc:
-            self.send_json({"error": "bad_request", "message": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self.send_json({"error": "bad_request", "message": "invalid JSON body"}, status=HTTPStatus.BAD_REQUEST)
+        except ValueError as exc:
+            # Our own validation messages are safe to echo; parser internals are not.
+            message = str(exc) if str(exc) in SAFE_ERROR_MESSAGES else "invalid request"
+            self.send_json({"error": "bad_request", "message": message}, status=HTTPStatus.BAD_REQUEST)
 
     def send_file(self, path: Path, content_type: str, head_only: bool = False) -> None:
         if not path.exists() or not path.is_file():
@@ -321,6 +358,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if not candidate.exists() or not candidate.is_file():
+            # Only extension-less paths are client-side routes. Serving index.html for a
+            # missing hashed asset (e.g. after a redeploy) would be cached as "JS" for a year.
+            if request_path.startswith("/assets/") or Path(request_path).suffix:
+                self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+                return
             candidate = DIST_ROOT / "index.html"
 
         if not candidate.exists() or not candidate.is_file():
@@ -329,16 +371,28 @@ class Handler(BaseHTTPRequestHandler):
 
         body = candidate.read_bytes()
         content_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
-        cache_control = "public, immutable, max-age=31536000" if "/assets/" in request_path else "no-cache"
+        cache_control = "public, immutable, max-age=31536000" if request_path.startswith("/assets/") else "no-cache"
 
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Security-Policy", "frame-ancestors 'self' https://machine-literacy.com https://www.machine-literacy.com http://localhost:5173")
+        self.send_header("Content-Security-Policy", f"frame-ancestors {frame_ancestors()}")
         self.send_header("Cache-Control", cache_control)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if not head_only:
             self.wfile.write(body)
+
+
+SAFE_ERROR_MESSAGES = {
+    "invalid content length",
+    "request body too large",
+    "request body must be a JSON object",
+    "invalid country code",
+}
+
+
+def frame_ancestors() -> str:
+    return os.getenv("FRAME_ANCESTORS", "").strip() or DEFAULT_FRAME_ANCESTORS
 
 
 def now_iso() -> str:
@@ -407,7 +461,11 @@ def load_data_manifest() -> dict[str, Any]:
     manifest_path = ROOT / "data" / "manifest.json"
     if not manifest_path.exists():
         return {"countries": [], "updated_at": None}
-    return json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse data manifest: %s", manifest_path)
+        return {"countries": [], "updated_at": None}
 
 
 def get_latest_data_timestamp(country_code: str, resolution: str) -> str | None:
@@ -419,7 +477,7 @@ def get_latest_data_timestamp(country_code: str, resolution: str) -> str | None:
 
     for suffix in suffixes:
         file_name = f"{country}_{suffix}"
-        for metadata_dir in (ROOT / "scripts" / "data", ROOT / "scripts" / "metadata", ROOT / "public"):
+        for metadata_dir in (ROOT / "scripts" / "data", ROOT / "public"):
             metadata_path = metadata_dir / file_name
             if not metadata_path.exists():
                 continue
@@ -481,10 +539,14 @@ def update_timezone() -> ZoneInfo:
 def update_window(country_code: str) -> tuple[date, date]:
     tz = update_timezone()
     target_date = datetime.now(tz).date() + timedelta(days=1)
-    latest_timestamp = get_latest_data_timestamp(country_code, "hourly")
-
-    if not latest_timestamp:
+    # Start from whichever dataset is further behind, otherwise a lagging 15-minute
+    # file can fall outside the window and its merge refuses to write forever.
+    latest_timestamps = [
+        get_latest_data_timestamp(country_code, resolution) for resolution in ("hourly", "interval")
+    ]
+    if not all(latest_timestamps):
         return target_date, target_date
+    latest_timestamp = min(latest_timestamps, key=parse_timestamp)
 
     # Re-fetch the last stored day (plus a day of slack) instead of resuming after
     # it. The final stored day is usually partial, because the update runs before
@@ -520,7 +582,11 @@ def latest_data_date(country_code: str, resolution: str, tz: ZoneInfo) -> date |
     latest_timestamp = get_latest_data_timestamp(country_code, resolution)
     if not latest_timestamp:
         return None
-    return parse_timestamp(latest_timestamp).astimezone(tz).date()
+    try:
+        return parse_timestamp(latest_timestamp).astimezone(tz).date()
+    except ValueError:
+        logger.warning("Invalid last_timestamp for %s %s: %r", country_code, resolution, latest_timestamp)
+        return None
 
 
 def stale_country_details(now: datetime) -> list[str]:
@@ -549,13 +615,19 @@ def next_retry_due(now_utc: datetime) -> bool:
 
 def scheduler_loop() -> None:
     while True:
-        now_local = datetime.now(update_timezone())
-        stale_details = stale_country_details(now_local)
+        try:
+            now_local = datetime.now(update_timezone())
+            stale_details = stale_country_details(now_local)
 
-        if stale_details and next_retry_due(datetime.now(timezone.utc)) and not STATE.is_running():
-            expected_date = expected_latest_date(now_local)
-            reason = f"catch-up to {expected_date.isoformat()} for {', '.join(stale_details)}"
-            run_update(reason=reason, expected_date=expected_date)
+            if stale_details and next_retry_due(datetime.now(timezone.utc)) and not STATE.is_running():
+                expected_date = expected_latest_date(now_local)
+                reason = f"catch-up to {expected_date.isoformat()} for {', '.join(stale_details)}"
+                run_update(reason=reason, expected_date=expected_date)
+        except Exception:
+            # Never let the scheduler thread die; updates would silently stop until restart.
+            logger.exception("Scheduler iteration failed")
+            if STATE.is_running():
+                STATE.mark_finished("error", "scheduler error (see logs)")
 
         time.sleep(SCHEDULER_POLL_SECONDS)
 
@@ -582,8 +654,9 @@ def run_update(*, reason: str, expected_date: date) -> None:
     STATE.mark_started(reason)
     countries = countries_to_update()
 
-    try:
-        for country in countries:
+    failed: list[str] = []
+    for country in countries:
+        try:
             start_date, end_date = update_window(country)
             hourly_command = [
                 "python3",
@@ -602,19 +675,25 @@ def run_update(*, reason: str, expected_date: date) -> None:
             logger.info("Running daily update for %s from %s to %s", country, start_date, end_date)
             run_command(hourly_command, f"{country} hourly refresh")
             run_command(interval_command, f"{country} interval refresh")
-            time.sleep(30)
+        except Exception:
+            # Keep going so one failing country does not block the others.
+            logger.exception("Daily update failed for %s", country)
+            failed.append(country)
+        time.sleep(30)
 
-        remaining_stale = stale_country_details(datetime.now(update_timezone()))
-        if remaining_stale:
-            message = f"waiting for upstream data: {', '.join(remaining_stale)}"
-            logger.info("Update completed but data is still behind %s: %s", expected_date, remaining_stale)
-            STATE.mark_finished("pending", message)
-            return
+    if failed:
+        # Details stay in the logs; /health is public and should not leak commands or paths.
+        STATE.mark_finished("error", f"update failed for {','.join(failed)} (see logs)")
+        return
 
-        STATE.mark_finished("ok", f"updated {','.join(countries)}")
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        logger.exception("Daily update failed")
-        STATE.mark_finished("error", str(exc))
+    remaining_stale = stale_country_details(datetime.now(update_timezone()))
+    if remaining_stale:
+        message = f"waiting for upstream data: {', '.join(remaining_stale)}"
+        logger.info("Update completed but data is still behind %s: %s", expected_date, remaining_stale)
+        STATE.mark_finished("pending", message)
+        return
+
+    STATE.mark_finished("ok", f"updated {','.join(countries)}")
 
 
 def main() -> None:
@@ -623,6 +702,7 @@ def main() -> None:
         threading.Thread(target=scheduler_loop, daemon=True).start()
 
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server.daemon_threads = True
     logger.info("EEPA worker listening on port %s", port)
     server.serve_forever()
 

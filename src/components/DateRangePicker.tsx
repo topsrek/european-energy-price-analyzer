@@ -73,7 +73,10 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     () => startOfDay(maxDate ?? new Date()),
     [maxDate]
   );
-  const earliestSelectableDate = minDate ?? null;
+  const earliestSelectableDate = useMemo(
+    () => (minDate ? startOfDay(minDate) : null),
+    [minDate]
+  );
   const [draftRange, setDraftRange] = useState<DateRange | undefined>(() => ({
     from: startDate ?? undefined,
     to: endDate ?? undefined,

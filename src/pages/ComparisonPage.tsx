@@ -20,7 +20,14 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowUpDown, LineChart, SlidersHorizontal } from 'lucide-react';
 import { ComparisonSeries, DataResolution, EnergyPrice, FilterOptions as FilterOptionsType, AveragingOption } from '@/types/energy-data';
 import { RegionCode, regions } from '@/config/regions';
-import { applyFilters, calculateAverage, convertEnergyPriceUnit, filterByDateRange } from '@/utils/data-utils';
+import {
+  applyFilters,
+  calculateAverage,
+  convertEnergyPriceUnit,
+  convertPriceValue,
+  filterByDateRange,
+  getTimestampBounds,
+} from '@/utils/data-utils';
 import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
 import { getActiveQuickRangePreset, getQuickRangeDates } from '@/utils/date-range-presets';
 import { formatLocalDateForQuery, parseLocalDateFromQuery } from '@/utils/local-date';
@@ -28,24 +35,27 @@ import {
   DATA_RESOLUTION_STORAGE_KEY,
   PRICE_UNIT_STORAGE_KEY,
   PriceUnit,
+  createDefaultFilters,
+  parseAveragingQueryParam,
   parseQueryNumber,
   parseRegionCodesQueryParam,
+  readFiltersFromQuery,
   readInitialDataResolution,
   readInitialPriceUnit,
   serializeOptionalNumber,
   serializeResolutionQueryParam,
   serializeUnitQueryParam,
+  writeFiltersToQuery,
 } from '@/utils/analyzer-state';
 import { CheckedState } from '@radix-ui/react-checkbox';
 import { safeStorageSetItem } from '@/lib/safe-storage';
+import { startOfDay } from 'date-fns';
 
 interface CachedPriceData {
   data: EnergyPrice[];
   latestTimestamp: string;
 }
 
-const DEFAULT_SHOW_ZERO_LINE = false;
-const DEFAULT_SHOW_AVERAGE_LINE = false;
 const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
 
@@ -115,45 +125,24 @@ const ComparisonPage = () => {
     const params = new URLSearchParams(window.location.search);
     return parseLocalDateFromQuery(params.get('start'));
   });
+  // Without an explicit end date we default to the latest available day once data is loaded.
   const [endDate, setEndDate] = useState<Date | null>(() => {
-    if (typeof window === 'undefined') return new Date();
+    if (typeof window === 'undefined') return null;
     const params = new URLSearchParams(window.location.search);
-    return parseLocalDateFromQuery(params.get('end')) ?? new Date();
+    return parseLocalDateFromQuery(params.get('end'));
   });
   const [isAveragingEnabled, setIsAveragingEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
-    return new URLSearchParams(window.location.search).has('avg');
+    return parseAveragingQueryParam(new URLSearchParams(window.location.search).get('avg')) !== null;
   });
   const [averaging, setAveraging] = useState<AveragingOption>(() => {
     if (typeof window === 'undefined') return 'daily-cycle';
-    return (new URLSearchParams(window.location.search).get('avg') as AveragingOption) || 'daily-cycle';
+    return parseAveragingQueryParam(new URLSearchParams(window.location.search).get('avg')) ?? 'daily-cycle';
   });
   
   const [filters, setFilters] = useState<FilterOptionsType>(() => {
-    if (typeof window === 'undefined') {
-      return {
-        months: Array.from({ length: 12 }, (_, i) => i),
-        weekdays: Array.from({ length: 7 }, (_, i) => i),
-        hours: Array.from({ length: 24 }, (_, i) => i),
-        daysOfMonth: Array.from({ length: 31 }, (_, i) => i + 1),
-        weeksOfYear: Array.from({ length: 53 }, (_, i) => i + 1),
-      };
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    const f_m = params.get('f_m')?.split(',').map(Number);
-    const f_wd = params.get('f_wd')?.split(',').map(Number);
-    const f_h = params.get('f_h')?.split(',').map(Number);
-    const f_dm = params.get('f_dm')?.split(',').map(Number);
-    const f_w = params.get('f_w')?.split(',').map(Number);
-
-    return {
-      months: f_m || Array.from({ length: 12 }, (_, i) => i),
-      weekdays: f_wd || Array.from({ length: 7 }, (_, i) => i),
-      hours: f_h || Array.from({ length: 24 }, (_, i) => i),
-      daysOfMonth: f_dm || Array.from({ length: 31 }, (_, i) => i + 1),
-      weeksOfYear: f_w || Array.from({ length: 53 }, (_, i) => i + 1),
-    };
+    if (typeof window === 'undefined') return createDefaultFilters();
+    return readFiltersFromQuery(new URLSearchParams(window.location.search));
   });
 
   const [isLoadingPriceData, setIsLoadingPriceData] = useState(true);
@@ -195,9 +184,12 @@ const ComparisonPage = () => {
 
   const [cutoffValue, setCutoffValue] = useState<number | null>(() => {
     if (typeof window === 'undefined') return null;
-    const cv = new URLSearchParams(window.location.search).get('cv');
-    return cv ? Number(cv) : null;
+    return parseQueryNumber(new URLSearchParams(window.location.search).get('cv'));
   });
+  // Raw text of the ruler input so partial input such as "8.", "-" or "8," can be typed.
+  const [cutoffInput, setCutoffInput] = useState<string>(() =>
+    cutoffValue === null ? '' : String(cutoffValue)
+  );
   const [showDelta, setShowDelta] = useState(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).get('delta') === '1';
@@ -354,12 +346,7 @@ const ComparisonPage = () => {
       params.delete('avg');
     }
     
-    // Serialize filters
-    if (filters.months.length < 12) params.set('f_m', filters.months.join(',')); else params.delete('f_m');
-    if (filters.weekdays.length < 7) params.set('f_wd', filters.weekdays.join(',')); else params.delete('f_wd');
-    if (filters.hours.length < 24) params.set('f_h', filters.hours.join(',')); else params.delete('f_h');
-    if (filters.daysOfMonth.length < 31) params.set('f_dm', filters.daysOfMonth.join(',')); else params.delete('f_dm');
-    if (filters.weeksOfYear.length < 53) params.set('f_w', filters.weeksOfYear.join(',')); else params.delete('f_w');
+    writeFiltersToQuery(params, filters);
 
     if (startDate) params.set('start', formatLocalDateForQuery(startDate)); else params.delete('start');
     if (endDate) params.set('end', formatLocalDateForQuery(endDate)); else params.delete('end');
@@ -372,89 +359,136 @@ const ComparisonPage = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadAllSelectedRegions = async () => {
-      setIsLoadingPriceData(true);
-      const nextSeries: Partial<Record<RegionCode, EnergyPrice[]>> = {};
-      const nextErrors: Partial<Record<RegionCode, string>> = {};
+    const getCachedEntry = (regionCode: RegionCode) => cacheRef.current[dataResolution]?.[regionCode];
 
-      for (const region of selectedRegions) {
-        const cachedEntry = cacheRef.current[dataResolution]?.[region.code];
-        if (cachedEntry) {
-          nextSeries[region.code] = cachedEntry.data;
-          void isCachedDataFresh(region.marketCode, dataResolution, cachedEntry.latestTimestamp).then((fresh) => {
-            if (!fresh && isMounted) {
-              void loadAllSelectedRegions();
+    const evictCachedEntries = (regionCodes: RegionCode[]) => {
+      const resolutionCache = cacheRef.current[dataResolution];
+      if (!resolutionCache) return;
+      regionCodes.forEach((code) => {
+        delete resolutionCache[code];
+      });
+    };
+
+    /**
+     * Loads all selected regions (from cache where possible). On the initial pass
+     * cached entries are checked for freshness; stale ones are evicted and a single
+     * refresh pass re-fetches only those, without re-checking freshness (no loop).
+     */
+    const loadAllSelectedRegions = async (isRefresh: boolean) => {
+      if (!isRefresh) setIsLoadingPriceData(true);
+      const freshnessChecks: Promise<{ code: RegionCode; fresh: boolean }>[] = [];
+
+      try {
+        const nextSeries: Partial<Record<RegionCode, EnergyPrice[]>> = {};
+        const nextErrors: Partial<Record<RegionCode, string>> = {};
+
+        for (const region of selectedRegions) {
+          const cachedEntry = getCachedEntry(region.code);
+          if (cachedEntry) {
+            nextSeries[region.code] = cachedEntry.data;
+            if (!isRefresh) {
+              freshnessChecks.push(
+                isCachedDataFresh(region.marketCode, dataResolution, cachedEntry.latestTimestamp)
+                  .then((fresh) => ({ code: region.code, fresh }))
+              );
             }
-          });
-          continue;
-        }
-
-        try {
-          const binaryPath = dataResolution === 'interval' ? region.dataFiles.interval : region.dataFiles.hourly;
-          if (!binaryPath) {
-            nextErrors[region.code] = 'Keine Datendatei verfügbar';
             continue;
           }
 
-          const dataBaseUrl = getDataBaseUrl();
-          const realData = await fetchOptimizedBinaryPriceData(`${dataBaseUrl}${binaryPath}`, {
-            intervalMinutes: dataResolution === 'interval' ? 15 : 60,
+          try {
+            const binaryPath = dataResolution === 'interval' ? region.dataFiles.interval : region.dataFiles.hourly;
+            if (!binaryPath) {
+              nextErrors[region.code] = 'Keine Datendatei verfügbar';
+              continue;
+            }
+
+            const dataBaseUrl = getDataBaseUrl();
+            const realData = await fetchOptimizedBinaryPriceData(`${dataBaseUrl}${binaryPath}`, {
+              intervalMinutes: dataResolution === 'interval' ? 15 : 60,
+            });
+
+            nextSeries[region.code] = realData;
+            cacheRef.current[dataResolution] = {
+              ...(cacheRef.current[dataResolution] ?? {}),
+              [region.code]: {
+                data: realData,
+                latestTimestamp: latestTimestampFromData(realData),
+              },
+            };
+          } catch (error) {
+            console.warn(`Failed to load ${region.code} comparison data`, error);
+            nextErrors[region.code] =
+              dataResolution === 'interval'
+                ? `Für ${region.localName} wurde noch keine 15-Minuten-Datei gefunden.`
+                : `Für ${region.localName} wurde keine aktuelle Preisdatei gefunden.`;
+          }
+        }
+
+        if (!isMounted) return;
+
+        setSeriesByRegion((previous) => ({ ...previous, ...nextSeries }));
+        setSeriesErrors(nextErrors);
+
+        let earliest = Infinity;
+        let latest = -Infinity;
+        let loadedSeriesCount = 0;
+        for (const region of selectedRegions) {
+          const series = nextSeries[region.code] ?? getCachedEntry(region.code)?.data ?? [];
+          const bounds = getTimestampBounds(series);
+          if (!bounds) continue;
+          loadedSeriesCount += 1;
+          earliest = Math.min(earliest, bounds.earliest);
+          latest = Math.max(latest, bounds.latest);
+        }
+
+        if (loadedSeriesCount > 0) {
+          const earliestDate = new Date(earliest);
+          const latestDate = new Date(latest);
+          setEarliestAvailableDate(earliestDate);
+          setLatestAvailableDate(latestDate);
+
+          const latestDay = startOfDay(latestDate);
+          if (!startDateRef.current) {
+            const defaultRange = getQuickRangeDates('1y', latestDay, earliestDate);
+            setStartDate(defaultRange.startDate);
+            setEndDate(defaultRange.endDate);
+          } else if (!endDateRef.current) {
+            setEndDate(latestDay);
+          }
+        }
+
+        if (Object.keys(nextErrors).length > 0 && loadedSeriesCount === 0) {
+          toastRef.current({
+            title: 'Keine Vergleichsdaten verfügbar',
+            description: 'Für die ausgewählten Regionen konnten keine Preisdateien geladen werden.',
+            variant: 'destructive',
           });
-
-          nextSeries[region.code] = realData;
-          cacheRef.current[dataResolution] = {
-            ...(cacheRef.current[dataResolution] ?? {}),
-            [region.code]: {
-              data: realData,
-              latestTimestamp: latestTimestampFromData(realData),
-            },
-          };
-        } catch (error) {
-          console.warn(`Failed to load ${region.code} comparison data`, error);
-          nextErrors[region.code] =
-            dataResolution === 'interval'
-              ? `Für ${region.localName} wurde noch keine 15-Minuten-Datei gefunden.`
-              : `Für ${region.localName} wurde keine aktuelle Preisdatei gefunden.`;
         }
-      }
-
-      if (!isMounted) return;
-
-      setSeriesByRegion((previous) => ({ ...previous, ...nextSeries }));
-      setSeriesErrors(nextErrors);
-
-      const loadedSeries = selectedRegions
-        .map((region) => nextSeries[region.code] ?? cacheRef.current[dataResolution]?.[region.code]?.data ?? [])
-        .filter((series) => series.length > 0);
-
-      if (loadedSeries.length > 0) {
-        const allTimestamps = loadedSeries.flatMap((series) => series.map((record) => new Date(record.timestamp).getTime()));
-        const earliest = new Date(Math.min(...allTimestamps));
-        const latest = new Date(Math.max(...allTimestamps));
-        setEarliestAvailableDate(earliest);
-        setLatestAvailableDate(latest);
-
-        if (!startDateRef.current || !endDateRef.current) {
-          const today = new Date();
-          const defaultRange = getQuickRangeDates('1y', today, earliest);
-          setStartDate(defaultRange.startDate);
-          setEndDate(today);
+      } catch (error) {
+        console.error('Failed to prepare comparison data', error);
+        if (isMounted) {
+          toastRef.current({
+            title: 'Fehler beim Laden der Vergleichsdaten',
+            description: 'Die Preisdaten konnten nicht verarbeitet werden.',
+            variant: 'destructive',
+          });
         }
+      } finally {
+        if (isMounted && !isRefresh) setIsLoadingPriceData(false);
       }
 
-      if (Object.keys(nextErrors).length > 0 && loadedSeries.length === 0) {
-        toastRef.current({
-          title: 'Keine Vergleichsdaten verfügbar',
-          description: 'Für die ausgewählten Regionen konnten keine Preisdateien geladen werden.',
-          variant: 'destructive',
-        });
-      }
+      if (freshnessChecks.length === 0) return;
 
-      setIsLoadingPriceData(false);
+      const results = await Promise.all(freshnessChecks);
+      const staleCodes = results.filter((result) => !result.fresh).map((result) => result.code);
+      if (!isMounted || staleCodes.length === 0) return;
+
+      evictCachedEntries(staleCodes);
+      await loadAllSelectedRegions(true);
     };
 
     if (selectedRegions.length > 0) {
-      void loadAllSelectedRegions();
+      void loadAllSelectedRegions(false);
     } else {
       setSeriesByRegion({});
       setSeriesErrors({});
@@ -476,6 +510,26 @@ const ComparisonPage = () => {
     const average = allValues.reduce((sum, value) => sum + value, 0) / allValues.length;
     setCutoffValue(Number(average.toFixed(2)));
   }, [cutoffValue, displayedSeries]);
+
+  // Keep the ruler text in sync when the value changes elsewhere (chart drag,
+  // auto-average, unit switch) without clobbering partial input like "8.".
+  useEffect(() => {
+    setCutoffInput((current) =>
+      parseQueryNumber(current) === cutoffValue ? current : cutoffValue === null ? '' : String(cutoffValue)
+    );
+  }, [cutoffValue]);
+
+  const handlePriceUnitChange = (nextUnit: PriceUnit) => {
+    if (nextUnit === priceUnit) return;
+    setCutoffValue((current) => (current === null ? null : convertPriceValue(current, priceUnit, nextUnit)));
+    setPriceUnit(nextUnit);
+  };
+
+  const handleCutoffInputChange = (value: string) => {
+    setCutoffInput(value);
+    const parsed = parseQueryNumber(value);
+    if (parsed !== null) setCutoffValue(parsed);
+  };
 
   const toggleRegion = (regionCode: RegionCode) => {
     setSelectedRegionCodes((current) => {
@@ -539,7 +593,7 @@ const ComparisonPage = () => {
                             size="sm"
                             className={priceUnit === 'EUR_MWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
                             aria-pressed={priceUnit === 'EUR_MWh'}
-                            onClick={() => setPriceUnit('EUR_MWh')}
+                            onClick={() => handlePriceUnitChange('EUR_MWh')}
                           >
                             €/MWh
                           </Button>
@@ -548,7 +602,7 @@ const ComparisonPage = () => {
                             size="sm"
                             className={priceUnit === 'cent_kWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
                             aria-pressed={priceUnit === 'cent_kWh'}
-                            onClick={() => setPriceUnit('cent_kWh')}
+                            onClick={() => handlePriceUnitChange('cent_kWh')}
                           >
                             c/kWh
                           </Button>
@@ -623,11 +677,8 @@ const ComparisonPage = () => {
                         <Input
                           id="compare-cutoff-value"
                           inputMode="decimal"
-                          value={cutoffValue === null ? '' : String(cutoffValue)}
-                          onChange={(event) => {
-                            const nextValue = Number(event.target.value);
-                            setCutoffValue(Number.isFinite(nextValue) ? nextValue : null);
-                          }}
+                          value={cutoffInput}
+                          onChange={(event) => handleCutoffInputChange(event.target.value)}
                           placeholder={priceUnit === 'EUR_MWh' ? '€/MWh' : 'c/kWh'}
                           disabled={!cutoffEnabled}
                         />

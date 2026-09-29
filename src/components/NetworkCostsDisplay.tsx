@@ -6,9 +6,12 @@ import { NetworkCosts } from '@/types/energy-data';
 interface NetworkCostsDisplayProps {
   networkCosts: NetworkCosts;
   consumption: number;
+  vatRate: number;
 }
 
-const NetworkCostsDisplay: React.FC<NetworkCostsDisplayProps> = ({ networkCosts, consumption }) => {
+const formatVatPercent = (vatRate: number) => `${Number((vatRate * 100).toFixed(1))}%`;
+
+const NetworkCostsDisplay: React.FC<NetworkCostsDisplayProps> = ({ networkCosts, consumption, vatRate }) => {
   return (
     <Card className="mb-6">
       <CardHeader>
@@ -71,7 +74,7 @@ const NetworkCostsDisplay: React.FC<NetworkCostsDisplayProps> = ({ networkCosts,
               <span>{networkCosts.calculated.total_excl_tax.toFixed(2)} €</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span>Umsatzsteuer +20%</span>
+              <span>Umsatzsteuer +{formatVatPercent(vatRate)}</span>
               <span>{networkCosts.calculated.tax_amount.toFixed(2)} €</span>
             </div>
             <div className="flex justify-between font-bold border-t pt-1">

@@ -186,7 +186,7 @@ const FaqPage = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm">
-              Nutze den **Durchschnitts-Modus "Tagesverlauf"** zusammen mit einem langen Zeitraum (z.B. 1 Jahr), 
+              Nutze den <strong>Durchschnitts-Modus "Tagesverlauf"</strong> zusammen mit einem langen Zeitraum (z.B. 1 Jahr), 
               um zu sehen, zu welcher Uhrzeit Strom in deiner Region statistisch am günstigsten ist.
             </CardContent>
           </Card>

@@ -5,6 +5,7 @@ import { useParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, Mail, MapPin, ShieldCheck, Globe, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
+import { buildContactEmail } from '@/lib/contact';
 
 const ImpressumPage = () => {
   const { regionCode } = useParams();
@@ -16,15 +17,14 @@ const ImpressumPage = () => {
     window.scrollTo(0, 0);
   }, [pathname]);
 
-  const buildEmail = () => {
-    const user = String.fromCharCode(116, 111, 112, 115, 114, 101, 107);
-    const domain = ['gmail', 'com'].join('.');
-    return [user, domain].join('@');
-  };
-
   const copyEmail = async () => {
-    await navigator.clipboard.writeText(buildEmail());
-    setEmailCopied(true);
+    try {
+      await navigator.clipboard.writeText(buildContactEmail());
+      setEmailCopied(true);
+    } catch {
+      // Clipboard can be blocked (e.g. inside an iframe); fall back to the mail client.
+      window.location.href = `mailto:${buildContactEmail()}`;
+    }
   };
 
   return (
@@ -94,7 +94,7 @@ const ImpressumPage = () => {
             </div>
             <div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground space-y-4">
               <p>
-                Der **European Energy Price Analyzer (EEPA)** ist ein privates Projekt zur Visualisierung und Analyse 
+                Der <strong>European Energy Price Analyzer (EEPA)</strong> ist ein privates Projekt zur Visualisierung und Analyse 
                 öffentlich zugänglicher Strommarkt-Daten. Alle Berechnungen erfolgen ohne Gewähr.
               </p>
               <p>

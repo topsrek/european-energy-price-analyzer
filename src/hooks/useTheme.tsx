@@ -20,7 +20,11 @@ const initialState: ThemeProviderState = {
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
-const applyTheme = (theme: string) => {
+type Theme = 'light' | 'dark';
+
+const isTheme = (value: unknown): value is Theme => value === 'light' || value === 'dark';
+
+const applyTheme = (theme: Theme) => {
   const root = window.document.documentElement;
   root.classList.remove('light', 'dark');
   root.classList.add(theme);
@@ -48,9 +52,10 @@ export function ThemeProvider({
   storageKey = 'vite-ui-theme',
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState(() => {
+  const [theme, setTheme] = useState<Theme>(() => {
     const storedTheme = safeStorageGetItem(storageKey);
-    return storedTheme || defaultTheme;
+    if (isTheme(storedTheme)) return storedTheme;
+    return isTheme(defaultTheme) ? defaultTheme : 'light';
   });
 
   useEffect(() => {
@@ -59,6 +64,7 @@ export function ThemeProvider({
   }, [theme, storageKey]);
 
   const updateTheme = useCallback((nextTheme: string) => {
+    if (!isTheme(nextTheme)) return;
     startThemeTransition();
     applyTheme(nextTheme);
     safeStorageSetItem(storageKey, nextTheme);

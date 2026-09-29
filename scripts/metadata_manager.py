@@ -7,25 +7,85 @@ binary database file. This allows us to efficiently manage multiple countries
 and track data coverage.
 """
 
+import contextlib
 import json
 import logging
-from datetime import datetime, date
+import os
+import stat
+import tempfile
+from datetime import datetime, date, timezone
 from pathlib import Path
-from typing import Dict, List, Set, Optional
+from typing import List, Optional, Union
 
 logger = logging.getLogger(__name__)
+
+# Mode for newly created artifacts. mkstemp creates 0600 files, which the web
+# server could not read if it runs as a different user than the refresh job.
+DEFAULT_FILE_MODE = 0o644
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Persist the rename itself. Not supported everywhere (e.g. Windows)."""
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def atomic_write_bytes(path: Union[str, Path], data: bytes) -> None:
+    """Replace path with data so readers see either the old or the new file.
+
+    Writing in place meant a crash or a full disk mid-write left a truncated
+    artifact, which the next run then read as "no history" and overwrote. The
+    temp file lives in the same directory so os.replace is an atomic rename.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        mode = DEFAULT_FILE_MODE
+
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_name, mode)
+        os.replace(tmp_name, path)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp_name)
+        raise
+
+    _fsync_directory(path.parent)
+
+
+def atomic_write_text(path: Union[str, Path], text: str, encoding: str = "utf-8") -> None:
+    atomic_write_bytes(path, text.encode(encoding))
+
 
 class CountryMetadata:
     """Manages metadata for a single country's energy price data."""
     
-    def __init__(self, country_code: str, metadata_dir: str = "../public"):
+    def __init__(self, country_code: str, metadata_dir: str = "../public", binary_file: Optional[Path] = None):
         self.country_code = country_code.upper()
         self.metadata_dir = Path(metadata_dir)
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         
         # Metadata file path
         self.metadata_file = self.metadata_dir / f"{country_code.lower()}_electricity_prices_metadata.json"
-        self.binary_file = self.metadata_dir / f"{country_code.lower()}_electricity_prices.bin"
+        # The artifact lives in public/, not next to the metadata; defaulting to the
+        # metadata dir left file_size permanently at 0.
+        self.binary_file = Path(binary_file) if binary_file else self.metadata_dir / f"{country_code.lower()}_electricity_prices.bin"
         
         # Load existing metadata
         self.metadata = self._load_metadata()
@@ -113,132 +173,16 @@ class CountryMetadata:
         if self.binary_file.exists():
             self.metadata["file_info"]["file_size"] = self.binary_file.stat().st_size
         
-        self.metadata["file_info"]["last_updated"] = datetime.now().isoformat()
+        self.metadata["file_info"]["last_updated"] = datetime.now(timezone.utc).isoformat()
         
         logger.info(f"Metadata updated: {len(covered_dates)} days covered, "
                    f"{analysis.get('total_records', 0)} total records")
     
-    def find_missing_dates(self, start_date: date, end_date: date) -> Set[date]:
-        """Find missing dates in the specified range."""
-        from datetime import timedelta
-        
-        covered_dates = set()
-        
-        for date_str in self.metadata["data_coverage"]["covered_dates"]:
-            try:
-                covered_dates.add(datetime.strptime(date_str, "%Y-%m-%d").date())
-            except ValueError:
-                continue
-        
-        missing_dates = set()
-        current_date = start_date
-        
-        while current_date <= end_date:
-            if current_date not in covered_dates:
-                missing_dates.add(current_date)
-            current_date += timedelta(days=1)
-        
-        return missing_dates
-    
-    def add_covered_dates(self, new_dates: List[date]) -> None:
-        """Add new dates to the covered dates list."""
-        current_covered = set()
-        
-        for date_str in self.metadata["data_coverage"]["covered_dates"]:
-            try:
-                current_covered.add(datetime.strptime(date_str, "%Y-%m-%d").date())
-            except ValueError:
-                continue
-        
-        # Add new dates
-        current_covered.update(new_dates)
-        
-        # Sort and convert back to strings
-        covered_date_strings = [d.strftime("%Y-%m-%d") for d in sorted(current_covered)]
-        self.metadata["data_coverage"]["covered_dates"] = covered_date_strings
-        
-        logger.info(f"Added {len(new_dates)} new dates to {self.country_code} coverage")
-    
     def save(self) -> None:
         """Save metadata to file."""
         try:
-            with open(self.metadata_file, 'w', encoding='utf-8') as f:
-                json.dump(self.metadata, f, indent=2, ensure_ascii=False)
+            atomic_write_text(self.metadata_file, json.dumps(self.metadata, indent=2, ensure_ascii=False))
             logger.info(f"Metadata saved for {self.country_code}: {self.metadata_file}")
         except Exception as e:
             logger.error(f"Failed to save metadata for {self.country_code}: {e}")
-            raise
-    
-    def get_summary(self) -> dict:
-        """Get a summary of the data coverage."""
-        coverage = self.metadata["data_coverage"]
-        file_info = self.metadata["file_info"]
-        
-        summary = {
-            "country": self.metadata["country"]["name"],
-            "total_records": coverage["total_records"],
-            "days_covered": len(coverage["covered_dates"]),
-            "file_size": file_info["file_size"],
-            "last_updated": file_info["last_updated"]
-        }
-        
-        if coverage["first_timestamp"] and coverage["last_timestamp"]:
-            summary["date_range"] = f"{coverage['first_timestamp'][:10]} to {coverage['last_timestamp'][:10]}"
-        else:
-            summary["date_range"] = "No data"
-        
-        return summary
-
-class MetadataManager:
-    """Manages metadata for all countries."""
-    
-    def __init__(self, metadata_dir: str = "../public"):
-        self.metadata_dir = Path(metadata_dir)
-        self.metadata_dir.mkdir(parents=True, exist_ok=True)
-        self.countries = {}
-    
-    def get_country_metadata(self, country_code: str) -> CountryMetadata:
-        """Get or create country metadata object."""
-        country_code = country_code.upper()
-        
-        if country_code not in self.countries:
-            self.countries[country_code] = CountryMetadata(country_code, str(self.metadata_dir))
-        
-        return self.countries[country_code]
-    
-    def get_all_countries_summary(self) -> dict:
-        """Get summary of all countries with data."""
-        summaries = {}
-        
-        # Look for existing metadata files
-        for metadata_file in self.metadata_dir.glob("*_electricity_prices_metadata.json"):
-            country_code = metadata_file.stem.replace("_electricity_prices_metadata", "").upper()
-            
-            try:
-                country_metadata = self.get_country_metadata(country_code)
-                summaries[country_code] = country_metadata.get_summary()
-            except Exception as e:
-                logger.warning(f"Failed to load summary for {country_code}: {e}")
-        
-        return summaries
-    
-    def create_global_index(self) -> None:
-        """Create a global index file of all available countries."""
-        summaries = self.get_all_countries_summary()
-        
-        global_index = {
-            "available_countries": summaries,
-            "last_updated": datetime.now().isoformat(),
-            "total_countries": len(summaries),
-            "format_version": "1.0"
-        }
-        
-        index_file = self.metadata_dir / "electricity_prices_index.json"
-        
-        try:
-            with open(index_file, 'w', encoding='utf-8') as f:
-                json.dump(global_index, f, indent=2, ensure_ascii=False)
-            logger.info(f"Global index created: {index_file}")
-        except Exception as e:
-            logger.error(f"Failed to create global index: {e}")
             raise

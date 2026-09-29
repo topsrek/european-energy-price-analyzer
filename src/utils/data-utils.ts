@@ -1,9 +1,40 @@
 
+import { getHours, getISOWeek, getMonth, getDay, getDate } from 'date-fns';
 import { AveragingOption, EnergyPrice, FilterOptions, SmartMeterData } from "@/types/energy-data";
-import { decodeOptimizedBinaryEnergyPrices } from "@/utils/optimized-binary-decoder";
 
-export const parseBinaryEnergyData = (data: ArrayBuffer): EnergyPrice[] => {
-  return decodeOptimizedBinaryEnergyPrices(data);
+const MS_PER_HOUR = 3_600_000;
+
+/**
+ * Earliest/latest timestamp (epoch ms) of a price series. Uses a loop instead of
+ * Math.min(...arr)/Math.max(...arr), which throws a RangeError on large arrays
+ * (Safari limits spread arguments to 65,536).
+ */
+export const getTimestampBounds = (
+  data: EnergyPrice[]
+): { earliest: number; latest: number } | null => {
+  let earliest = Infinity;
+  let latest = -Infinity;
+
+  for (const record of data) {
+    const time = new Date(record.timestamp).getTime();
+    if (Number.isNaN(time)) continue;
+    if (time < earliest) earliest = time;
+    if (time > latest) latest = time;
+  }
+
+  return Number.isFinite(earliest) ? { earliest, latest } : null;
+};
+
+/** Convert a single price value between €/MWh and ct/kWh (1 ct/kWh = 10 €/MWh). */
+export const convertPriceValue = (
+  value: number,
+  from: EnergyPrice['unit'],
+  to: EnergyPrice['unit']
+): number => {
+  if (from === to) return value;
+  const converted = to === 'cent_kWh' ? value / 10 : value * 10;
+  // Strip binary floating-point noise such as 0.8300000000000001.
+  return Math.round(converted * 1e6) / 1e6;
 };
 
 export const parseSmartMeterData = (data: ArrayBuffer): SmartMeterData[] => {
@@ -114,10 +145,6 @@ export const filterByDateRange = (
   });
 };
 
-import { format, getHours, getISOWeek, getMonth, getDay, getDate } from 'date-fns';
-
-// ... (keep previous imports and functions)
-
 // Filter data by month, weekday, hour, day of month, week of year
 export const applyFilters = (
   data: EnergyPrice[], 
@@ -181,9 +208,9 @@ export const calculateAverage = (
       current.count += 1;
     });
     
-    // Convert the Map to an array of EnergyPrice objects
-    const baseDate = new Date();
-    baseDate.setHours(0, 0, 0, 0); // Set to start of day
+    // Convert the Map to an array of EnergyPrice objects. Use a fixed base date
+    // without a DST transition so every hour 0-23 maps to a distinct timestamp.
+    const baseDate = new Date(2000, 0, 1, 0, 0, 0, 0);
     
     return Array.from(hourlyAverages.entries())
       .sort(([hourA], [hourB]) => hourA - hourB)
@@ -219,7 +246,9 @@ export const calculateAverage = (
         break;
       }
       case 'hourly':
-        key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}`;
+        // Key by absolute hour so the repeated local hour on DST fall-back
+        // days stays two separate buckets.
+        key = String(Math.floor(date.getTime() / MS_PER_HOUR));
         break;
       default:
         key = item.timestamp;
@@ -239,29 +268,6 @@ export const calculateAverage = (
     price: sum / count,
     unit: data[0].unit,
   }));
-};
-
-// Calculate total cost based on energy prices and consumption
-export const calculateTotalCost = (
-  prices: EnergyPrice[],
-  consumption: SmartMeterData[]
-): number => {
-  // Create a map of timestamps to prices for quick lookup
-  const priceMap = new Map<string, number>();
-  prices.forEach(price => {
-    priceMap.set(price.timestamp, price.price);
-  });
-  
-  // Calculate total cost
-  return consumption.reduce((total, data) => {
-    const price = priceMap.get(data.timestamp);
-    if (price === undefined) return total;
-    
-    // Convert price from €/MWh to €/kWh if needed
-    const pricePerKWh = prices[0].unit === 'EUR_MWh' ? price / 1000 : price / 100;
-    
-    return total + (data.consumption * pricePerKWh);
-  }, 0);
 };
 
 export const generateDemoSmartMeterData = (prices: EnergyPrice[]): SmartMeterData[] => {

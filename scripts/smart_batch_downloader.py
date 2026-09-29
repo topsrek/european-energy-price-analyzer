@@ -2,31 +2,34 @@
 """
 Smart Batch Energy Price Downloader
 
-Intelligent downloader that:
-1. Checks existing binary data 
-2. Only downloads missing dates
-3. Merges with existing data without duplicates
-4. Updates the web-ready file
+Maintains the hourly price artifact:
+1. Reads the existing binary data (refusing to continue if it is damaged)
+2. Re-downloads the whole requested window, so partial days get completed and
+   upstream corrections land
+3. Aggregates quarter-hour prices to hourly means
+4. Merges with the existing data (new values win) and writes atomically
 
-Usage: python smart_batch_downloader.py [start_date] [end_date]
-If no dates provided, downloads from July 1, 2025 to today.
+Usage: python smart_batch_downloader.py [country_code] [start_date] [end_date] [--rebuild]
+If no dates provided, downloads Austria from July 1, 2025 to today.
+
+--rebuild ignores the existing artifact and writes only the fetched window, even
+if that leaves fewer records than before. Without it the script refuses to touch
+an artifact it cannot decode and never shrinks one.
 """
 
 import sys
 import logging
 import time
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
-from typing import List, Tuple, Set
+from typing import Dict, List, Optional, Tuple
 import json
 
 # Add current directory to path for imports  
 sys.path.insert(0, str(Path(__file__).parent))
 
 from price_downloader import EnergyPriceDownloader
-from binary_reader import read_binary_file, get_existing_timestamps, get_missing_dates, analyze_binary_file
-from metadata_manager import MetadataManager, CountryMetadata
-from datetime import timezone
+from metadata_manager import CountryMetadata, atomic_write_bytes
 
 # Configure logging
 logging.basicConfig(
@@ -163,6 +166,112 @@ def trim_to_utc_midnight_start(records):
     raise ValueError("No record starts at UTC midnight; refusing to write a misaligned artifact")
 
 
+class CorruptArtifactError(Exception):
+    """An existing artifact cannot be decoded, so it must not be overwritten."""
+
+
+REBUILD_FLAG = "--rebuild"
+
+# Day-ahead markets switched to a 15-minute MTU for delivery on 2025-10-01
+# (00:00 CEST). Before that upstream serves one value per hour.
+MTU_SWITCH_UTC = datetime(2025, 9, 30, 22, 0, tzinfo=timezone.utc)
+QUARTER_MINUTES = (0, 15, 30, 45)
+FETCH_CHUNK_DAYS = 31
+
+
+def parse_rebuild_flag(argv: List[str]) -> Tuple[List[str], bool]:
+    """Split --rebuild out of the positional arguments."""
+    rebuild = REBUILD_FLAG in argv
+    return [arg for arg in argv if arg != REBUILD_FLAG], rebuild
+
+
+def metadata_record_count(metadata_path: Path) -> int:
+    """total_records from a metadata file, or 0 if it is missing or unreadable."""
+    try:
+        coverage = json.loads(Path(metadata_path).read_text(encoding="utf-8")).get("data_coverage", {})
+        return int(coverage.get("total_records") or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0
+
+
+def aggregate_to_hourly(records: List[Tuple[datetime, float]]) -> Tuple[List[Tuple[datetime, float]], List[datetime]]:
+    """Turn upstream records into one price per UTC hour.
+
+    Since the 15-minute MTU switch upstream serves four quarter-hours per hour.
+    Keeping only the :00 record made the "hourly" price the first quarter-hour,
+    not the hourly average. An hour is written as the mean of its four quarters;
+    an hour with fewer quarters is reported as incomplete and left out, so it is
+    re-fetched later instead of being written with a wrong value.
+
+    A lone :00 record is a genuine hourly price before the switch, and after it
+    only if the response contains no sub-hourly data at all (a zone still served
+    hourly).
+
+    Returns (hourly_records, incomplete_hours).
+    """
+    buckets: Dict[datetime, Dict[int, float]] = {}
+    for timestamp, price in records:
+        if price is None:
+            continue
+        if timestamp.second or timestamp.microsecond or timestamp.minute not in QUARTER_MINUTES:
+            logger.warning(f"Ignoring record at unexpected offset {timestamp}")
+            continue
+        hour = timestamp.replace(minute=0)
+        buckets.setdefault(hour, {})[timestamp.minute] = price
+
+    has_subhourly = any(set(quarters) != {0} for quarters in buckets.values())
+
+    hourly: List[Tuple[datetime, float]] = []
+    incomplete: List[datetime] = []
+    for hour in sorted(buckets):
+        quarters = buckets[hour]
+        if len(quarters) == len(QUARTER_MINUTES):
+            hourly.append((hour, sum(quarters[minute] for minute in QUARTER_MINUTES) / len(QUARTER_MINUTES)))
+        elif set(quarters) == {0} and (hour < MTU_SWITCH_UTC or not has_subhourly):
+            hourly.append((hour, quarters[0]))
+        else:
+            incomplete.append(hour)
+
+    return hourly, incomplete
+
+
+def merge_records(existing_records: List[Tuple[datetime, float]],
+                  new_records: List[Tuple[datetime, float]]) -> List[Tuple[datetime, float]]:
+    """Union by timestamp where freshly fetched values win (upstream corrections)."""
+    merged: Dict[datetime, float] = {timestamp: price for timestamp, price in existing_records}
+    merged.update({timestamp: price for timestamp, price in new_records})
+    return sorted(merged.items(), key=lambda item: item[0])
+
+
+def series_equal(left: List[Tuple[datetime, float]], right: List[Tuple[datetime, float]]) -> bool:
+    """Whether two series would encode identically (prices are stored in cents)."""
+    return len(left) == len(right) and all(
+        left_ts == right_ts and round(left_price * 100) == round(right_price * 100)
+        for (left_ts, left_price), (right_ts, right_price) in zip(left, right)
+    )
+
+
+def load_existing_records(path: Path) -> List[Tuple[datetime, float]]:
+    """Decode the stored hourly artifact, raising CorruptArtifactError if unusable.
+
+    A missing file is a fresh start. An existing file that fails to decode or
+    decodes to nothing used to be treated as "no history": the script then wrote
+    only the fetch window over it and wiped years of data while exiting 0.
+    """
+    if not path.exists():
+        return []
+
+    try:
+        records = OptimizedPriceDecoder(path.read_bytes()).decode_all()
+    except Exception as exc:
+        raise CorruptArtifactError(f"Failed to decode {path.name}: {exc}") from exc
+
+    if not records:
+        raise CorruptArtifactError(f"{path.name} exists but decodes to no records")
+
+    return records
+
+
 class OptimizedPriceDecoder:
     """Decoder for the optimized format."""
     
@@ -267,9 +376,9 @@ class OptimizedPriceDecoder:
         return records
 
 class SmartBatchDownloader:
-    """Intelligent batch downloader that merges with existing data."""
+    """Batch downloader that merges fresh data into the existing artifact."""
     
-    def __init__(self, country_code: str = "AT", public_dir: str = None):
+    def __init__(self, country_code: str = "AT", public_dir: str = None, metadata_dir: str = None):
         self.country_code = country_code.upper()
         self.public_dir = Path(public_dir) if public_dir else Path(__file__).resolve().parents[1] / "public"
         self.public_dir.mkdir(parents=True, exist_ok=True)
@@ -278,227 +387,95 @@ class SmartBatchDownloader:
         self.web_file = self.public_dir / f"{country_code.lower()}_electricity_prices.bin"
         
         # Metadata stored in data directory (backend only, not public)
-        self.metadata_dir = Path(__file__).parent / "data"
-        self.metadata_dir.mkdir(exist_ok=True)
-        self.metadata = CountryMetadata(country_code, str(self.metadata_dir))
+        self.metadata_dir = Path(metadata_dir) if metadata_dir else Path(__file__).parent / "data"
+        self.metadata_dir.mkdir(parents=True, exist_ok=True)
+        self.metadata = CountryMetadata(country_code, str(self.metadata_dir), binary_file=self.web_file)
         
-        self.downloader = EnergyPriceDownloader(country_code=self.country_code)  # No longer needs data_dir since we don't save daily files
+        self.downloader = EnergyPriceDownloader(country_code=self.country_code)
     
-    def analyze_existing_data(self) -> dict:
-        """Analyze what data already exists in the web file."""
-        logger.info("Analyzing existing data...")
-        
-        if not self.web_file.exists():
-            logger.info("No existing web file found - will create new one")
-            return {
-                "total_records": 0,
-                "existing_timestamps": set(),
-                "date_range": "No data"
-            }
-        
-        # Read optimized format
-        try:
-            with open(self.web_file, 'rb') as f:
-                data = f.read()
-            
-            decoder = OptimizedPriceDecoder(data)
-            records = decoder.decode_all()
-            
-            if not records:
-                return {
-                    "total_records": 0,
-                    "existing_timestamps": set(),
-                    "date_range": "No data"
-                }
-            
-            timestamps = [ts for ts, _ in records]
-            prices = [price for _, price in records]
-            existing_timestamps = set(timestamps)
-            
-            min_date = min(timestamps).date()
-            max_date = max(timestamps).date()
-            
-            analysis = {
-                "total_records": len(records),
-                "date_range": f"{min_date} to {max_date}",
-                "min_price": min(prices),
-                "max_price": max(prices),
-                "file_size": len(data),
-                "days_covered": len({ts.date() for ts in timestamps}),
-                "first_timestamp": min(timestamps),
-                "last_timestamp": max(timestamps)
-            }
-            
-            logger.info(f"Existing data analysis:")
-            logger.info(f"  Records: {analysis['total_records']:,}")
-            logger.info(f"  Date range: {analysis['date_range']}")
-            logger.info(f"  Days covered: {analysis.get('days_covered', 0)}")
-            logger.info(f"  File size: {analysis['file_size']:,} bytes")
-            logger.info(f"  Price range: {analysis['min_price']:.2f} - {analysis['max_price']:.2f} EUR/MWh")
-            
-            return {
-                "total_records": analysis['total_records'],
-                "existing_timestamps": existing_timestamps,
-                "date_range": analysis['date_range'],
-                "analysis": analysis
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to analyze existing optimized data: {e}")
-            return {
-                "total_records": 0,
-                "existing_timestamps": set(),
-                "date_range": "No data"
-            }
-    
-    def find_missing_dates(self, start_date: date, end_date: date, existing_timestamps: Set[datetime]) -> Set[date]:
-        """Find which dates need to be downloaded."""
-        metadata_missing_dates = self.metadata.find_missing_dates(start_date, end_date)
-        existing_dates = {ts.date() for ts in existing_timestamps}
+    def analyze_records(self, records: List[Tuple[datetime, float]]) -> dict:
+        """Summarise a decoded series for the status report."""
+        if not records:
+            return {"total_records": 0, "date_range": "No data"}
 
-        binary_missing_dates = set()
-        current_date = start_date
-        while current_date <= end_date:
-            if current_date not in existing_dates:
-                binary_missing_dates.add(current_date)
-            current_date += timedelta(days=1)
+        timestamps = [ts for ts, _ in records]
+        prices = [price for _, price in records]
+        analysis = {
+            "total_records": len(records),
+            "date_range": f"{timestamps[0].date()} to {timestamps[-1].date()}",
+            "min_price": min(prices),
+            "max_price": max(prices),
+            "file_size": self.web_file.stat().st_size if self.web_file.exists() else 0,
+            "days_covered": len({ts.date() for ts in timestamps}),
+        }
 
-        missing_dates = metadata_missing_dates | binary_missing_dates
-        
-        logger.info(f"Date range analysis ({start_date} to {end_date}):")
-        logger.info(f"  Total days requested: {(end_date - start_date).days + 1}")
-        logger.info(f"  Days already in binary file: {len({ts.date() for ts in existing_timestamps if start_date <= ts.date() <= end_date})}")
-        logger.info(f"  Days missing in metadata: {len(metadata_missing_dates)}")
-        logger.info(f"  Days missing in binary file: {len(binary_missing_dates)}")
-        logger.info(f"  Missing days to download: {len(missing_dates)}")
-        
-        if missing_dates:
-            logger.info(f"  Missing dates: {sorted(list(missing_dates))[:5]}{'...' if len(missing_dates) > 5 else ''}")
-        
-        return missing_dates
-    
-    def download_missing_dates(self, missing_dates: Set[date]) -> List[Tuple[datetime, float]]:
-        """Download data for missing dates using efficient date range downloads."""
-        if not missing_dates:
-            logger.info("No missing dates - all data is up to date!")
-            return []
-        
-        sorted_dates = sorted(missing_dates)
-        logger.info(f"Downloading {len(missing_dates)} missing days using optimized range downloads...")
-        
-        # Group consecutive dates into ranges for efficient downloading
-        date_ranges = []
-        current_start = sorted_dates[0]
-        current_end = sorted_dates[0]
-        
-        for i in range(1, len(sorted_dates)):
-            if sorted_dates[i] == current_end + timedelta(days=1):
-                # Consecutive date, extend current range
-                current_end = sorted_dates[i]
-            else:
-                # Gap found, finish current range and start new one
-                date_ranges.append((current_start, current_end))
-                current_start = sorted_dates[i]
-                current_end = sorted_dates[i]
-        
-        # Add the final range
-        date_ranges.append((current_start, current_end))
-        
-        logger.info(f"Optimized to {len(date_ranges)} date range(s) instead of {len(missing_dates)} individual downloads")
-        
-        new_records = []
-        successful_ranges = 0
-        failed_ranges = 0
-        
-        for i, (start_date, end_date) in enumerate(date_ranges, 1):
-            days_in_range = (end_date - start_date).days + 1
-            
-            if days_in_range == 1:
-                logger.info(f"Downloading range {i}/{len(date_ranges)}: {start_date} (1 day)")
-            else:
-                logger.info(f"Downloading range {i}/{len(date_ranges)}: {start_date} to {end_date} ({days_in_range} days)")
-            
-            try:
-                # Use optimized range download
-                result = self.downloader.download_date_range_data(start_date, end_date)
-                if result:
-                    timestamps, prices = result
-                    successful_ranges += 1
-                    range_records = 0
-                    skipped_subhourly_records = 0
-                    
-                    # Convert to our record format (keep UTC from API)
-                    for timestamp, price in zip(timestamps, prices):
-                        # API provides Unix timestamps in UTC - keep as UTC
-                        dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        logger.info("Existing data analysis:")
+        logger.info(f"  Records: {analysis['total_records']:,}")
+        logger.info(f"  Date range: {analysis['date_range']}")
+        logger.info(f"  Days covered: {analysis['days_covered']}")
+        logger.info(f"  File size: {analysis['file_size']:,} bytes")
+        logger.info(f"  Price range: {analysis['min_price']:.2f} - {analysis['max_price']:.2f} EUR/MWh")
 
-                        # The optimized browser format stores consecutive hourly values.
-                        # Some API responses now include sub-hourly settlement intervals.
-                        if dt.minute != 0 or dt.second != 0 or dt.microsecond != 0:
-                            skipped_subhourly_records += 1
-                            continue
-                        
-                        # Validate price data
-                        if price is None:
-                            logger.warning(f"Null price at {dt} - skipping this record")
-                            continue
-                            
-                        new_records.append((dt, price))
-                        range_records += 1
-                    
-                    logger.info(f"✓ Downloaded {range_records} hourly records from range ({days_in_range} days)")
-                    if skipped_subhourly_records:
-                        logger.info(f"  Skipped {skipped_subhourly_records} sub-hourly records not supported by the current web format")
-                else:
-                    failed_ranges += 1
-                    logger.error(f"✗ Failed to download range {start_date} to {end_date}")
-                    
-            except Exception as e:
-                failed_ranges += 1
-                logger.error(f"✗ Error downloading range {start_date} to {end_date}: {e}")
+        return {
+            "total_records": analysis["total_records"],
+            "date_range": analysis["date_range"],
+            "analysis": analysis,
+        }
+
+    def download_window(self, start_date: date, end_date: date) -> Optional[List[Tuple[datetime, float]]]:
+        """Download the whole window and return hourly records, or None on failure.
+
+        Every day in the window is fetched, including days already stored. The
+        last stored day is usually partial and upstream occasionally corrects
+        published prices; skipping "covered" days meant neither ever landed.
+        """
+        raw: Dict[datetime, float] = {}
+        chunks = []
+        current = start_date
+        while current <= end_date:
+            chunk_end = min(current + timedelta(days=FETCH_CHUNK_DAYS - 1), end_date)
+            chunks.append((current, chunk_end))
+            current = chunk_end + timedelta(days=1)
+
+        for index, (chunk_start, chunk_end) in enumerate(chunks, 1):
+            logger.info(f"Downloading range {index}/{len(chunks)}: {chunk_start} to {chunk_end}")
+            result = self.downloader.download_date_range_data(chunk_start, chunk_end)
+            if result is None:
+                logger.error(f"✗ Failed to download range {chunk_start} to {chunk_end}")
+                return None
+
+            timestamps, prices = result
+            for timestamp, price in zip(timestamps, prices):
+                if price is None:
+                    continue
+                # API provides Unix timestamps in UTC - keep as UTC
+                raw[datetime.fromtimestamp(timestamp, tz=timezone.utc)] = price
 
             # Pace requests like the interval builder does, so a multi-country run
             # does not burst straight into the upstream rate limit.
-            if i < len(date_ranges):
+            if index < len(chunks):
                 time.sleep(1.0)
 
-        logger.info(f"Range download summary:")
-        logger.info(f"  Successful ranges: {successful_ranges}/{len(date_ranges)}")
-        logger.info(f"  Failed ranges: {failed_ranges}/{len(date_ranges)}")
-        logger.info(f"  Total records obtained: {len(new_records)}")
-        
-        return new_records
+        hourly, incomplete = aggregate_to_hourly(sorted(raw.items()))
+        if incomplete:
+            logger.warning(
+                f"Skipping {len(incomplete)} hour(s) without all four quarter-hours "
+                f"(first {incomplete[0]}, last {incomplete[-1]}); they will be re-fetched later"
+            )
+        logger.info(f"Obtained {len(hourly)} hourly records from {len(raw)} upstream records")
+        return hourly
     
     def merge_and_save_data(self, existing_records: List[Tuple[datetime, float]], 
-                           new_records: List[Tuple[datetime, float]]) -> str:
-        """Merge existing and new data, remove duplicates, and save."""
-        from datetime import timezone
-        
+                           new_records: List[Tuple[datetime, float]],
+                           existing_count: Optional[int] = None) -> List[Tuple[datetime, float]]:
+        """Merge new data over existing data and save it. Returns the saved series."""
         logger.info("Merging and saving data...")
-        
-        # All records should already be in UTC from the API
-        # No timezone conversion needed - just combine and deduplicate
-        all_records = existing_records + new_records
-        
-        # Remove duplicates by timestamp (keep first occurrence)
-        seen_timestamps = set()
-        unique_records = []
-        duplicates_removed = 0
-        
-        for timestamp, price in all_records:
-            if timestamp not in seen_timestamps:
-                seen_timestamps.add(timestamp)
-                unique_records.append((timestamp, price))
-            else:
-                duplicates_removed += 1
-        
-        # Sort by timestamp
-        unique_records.sort(key=lambda x: x[0])
+
+        unique_records = merge_records(existing_records, new_records)
         
         logger.info(f"Data merge summary:")
         logger.info(f"  Existing records: {len(existing_records):,}")
         logger.info(f"  New records: {len(new_records):,}")
-        logger.info(f"  Duplicates removed: {duplicates_removed}")
         logger.info(f"  Final unique records: {len(unique_records):,}")
         
         if unique_records:
@@ -506,6 +483,14 @@ class SmartBatchDownloader:
             logger.info(f"  Final date range: {date_range}")
         
         unique_records = trim_to_utc_midnight_start(unique_records)
+
+        if existing_count is None:
+            existing_count = len(existing_records)
+        if len(unique_records) < existing_count:
+            raise ValueError(
+                f"Refusing to write {self.web_file.name}: merged series has {len(unique_records)} records, "
+                f"fewer than the {existing_count} already stored. Pass {REBUILD_FLAG} to allow shrinking it."
+            )
 
         # The decoder rebuilds timestamps as start_date + index hours, so a hole in
         # the series does not read back as a hole - it shifts every later record
@@ -533,31 +518,30 @@ class SmartBatchDownloader:
             logger.error(f"Failed to encode data with optimized format: {e}")
             raise
         
-        # Save to web file
+        # Binary first (atomically), then metadata: the worker's staleness check
+        # reads the metadata, so it must never claim data the artifact lacks.
         try:
-            with open(self.web_file, 'wb') as f:
-                f.write(encoded_data)
+            atomic_write_bytes(self.web_file, encoded_data)
             
             file_size = self.web_file.stat().st_size
             logger.info(f"✅ Updated web file: {self.web_file.name}")
             logger.info(f"  File size: {file_size:,} bytes")
             logger.info(f"  Average bytes per record: {file_size / len(unique_records):.1f}")
             
-            # Update metadata (only stored in scripts directory for backend use)
             covered_dates = list({ts.date() for ts, _ in unique_records})
             analysis = {
                 "total_records": len(unique_records),
-                "first_timestamp": unique_records[0][0] if unique_records else None,
-                "last_timestamp": unique_records[-1][0] if unique_records else None,
+                "first_timestamp": unique_records[0][0],
+                "last_timestamp": unique_records[-1][0],
             }
             
             # Update backend metadata (stored in data directory, not public)
             self.metadata.update_from_binary_analysis(analysis, covered_dates)
             self.metadata.save()
             
-            logger.info(f"Backend metadata saved to: {self.metadata_dir / f'{self.country_code.lower()}_electricity_prices_metadata.json'}")
+            logger.info(f"Backend metadata saved to: {self.metadata.metadata_file}")
             
-            return str(self.web_file.absolute())
+            return unique_records
             
         except Exception as e:
             logger.error(f"Failed to save merged data: {e}")
@@ -585,7 +569,6 @@ class SmartBatchDownloader:
         logger.info(f"Growth: {after_size - before_size:,} bytes")
         
         logger.info("\n✅ Smart batch download completed successfully!")
-        logger.info("Your web app will now load the updated real data.")
         logger.info("=" * 60)
     
     def close(self):
@@ -599,96 +582,95 @@ def parse_date(date_str: str) -> date:
     except ValueError:
         raise ValueError(f"Invalid date format: {date_str}. Use YYYY-MM-DD")
 
-def main():
-    """Main entry point."""
-    # Parse command line arguments
+USAGE = """Usage: python smart_batch_downloader.py [country_code] [start_date] [end_date] [--rebuild]
+Examples:
+  python smart_batch_downloader.py
+  python smart_batch_downloader.py 2025-07-01 2025-10-31
+  python smart_batch_downloader.py AT 2025-07-01 2025-10-31
+  python smart_batch_downloader.py AT 2018-09-30 2026-05-07 --rebuild
+If no arguments provided, downloads Austria data from July 1, 2025 to today"""
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Main entry point. Returns the process exit code."""
+    args, rebuild = parse_rebuild_flag(sys.argv[1:] if argv is None else argv)
     country_code = "AT"  # Default to Austria
     
-    if len(sys.argv) == 1:
-        # Default: July 1, 2025 to today for Austria
-        start_date = date(2025, 7, 1)
-        end_date = date.today()
-        logger.info(f"Using defaults: {country_code}, {start_date} to {end_date}")
-    elif len(sys.argv) == 3:
-        try:
-            start_date = parse_date(sys.argv[1])
-            end_date = parse_date(sys.argv[2])
-        except ValueError as e:
-            logger.error(f"Date parsing error: {e}")
-            sys.exit(1)
-    elif len(sys.argv) == 4:
-        try:
-            country_code = sys.argv[1].upper()
-            start_date = parse_date(sys.argv[2])
-            end_date = parse_date(sys.argv[3])
-        except ValueError as e:
-            logger.error(f"Date parsing error: {e}")
-            sys.exit(1)
-    else:
-        print("Usage: python smart_batch_downloader.py [country_code] [start_date] [end_date]")
-        print("Examples:")
-        print("  python smart_batch_downloader.py")
-        print("  python smart_batch_downloader.py 2025-07-01 2025-10-31")
-        print("  python smart_batch_downloader.py AT 2025-07-01 2025-10-31")
-        print("If no arguments provided, downloads Austria data from July 1, 2025 to today")
-        sys.exit(1)
+    try:
+        if len(args) == 0:
+            start_date = date(2025, 7, 1)
+            end_date = date.today()
+            logger.info(f"Using defaults: {country_code}, {start_date} to {end_date}")
+        elif len(args) == 2:
+            start_date = parse_date(args[0])
+            end_date = parse_date(args[1])
+        elif len(args) == 3:
+            country_code = args[0].upper()
+            start_date = parse_date(args[1])
+            end_date = parse_date(args[2])
+        else:
+            print(USAGE)
+            return 1
+    except ValueError as e:
+        logger.error(f"Date parsing error: {e}")
+        return 1
     
     if start_date > end_date:
         logger.error("Start date must be before or equal to end date")
-        sys.exit(1)
+        return 1
     
     logger.info(f"Country: {country_code}, Date range: {start_date} to {end_date}")
     smart_downloader = SmartBatchDownloader(country_code)
     
     try:
-        # Analyze what we already have
-        before_analysis = smart_downloader.analyze_existing_data()
-        
-        # Read existing data using optimized decoder
-        if smart_downloader.web_file.exists():
-            try:
-                with open(smart_downloader.web_file, 'rb') as f:
-                    data = f.read()
-                decoder = OptimizedPriceDecoder(data)
-                existing_records = decoder.decode_all()
-            except Exception as e:
-                logger.warning(f"Failed to read existing optimized data: {e}")
-                existing_records = []
-        else:
-            existing_records = []
-        
-        # Find what's missing
-        missing_dates = smart_downloader.find_missing_dates(
-            start_date, end_date, before_analysis['existing_timestamps']
-        )
-        
-        # Download missing data
-        new_records = smart_downloader.download_missing_dates(missing_dates)
-
-        # Days were missing but nothing came back: every range failed (rate limiting,
-        # upstream outage). Exit non-zero so the caller retries instead of recording
-        # a successful refresh that fetched nothing.
-        if missing_dates and not new_records:
-            logger.error(
-                f"Failed to download any of the {len(missing_dates)} missing day(s) for {country_code}"
+        if rebuild:
+            logger.warning(
+                f"{REBUILD_FLAG}: ignoring the existing {smart_downloader.web_file.name} "
+                "and rebuilding it from the fetch window"
             )
-            sys.exit(1)
-
-        # Merge and save
-        if new_records or not existing_records:  # Update if we have new data or no existing file
-            smart_downloader.merge_and_save_data(existing_records, new_records)
-            after_analysis = smart_downloader.analyze_existing_data()
-            smart_downloader.create_status_report(before_analysis, after_analysis)
+            existing_records = []
+            existing_count = 0
         else:
-            logger.info("\n✅ All data is already up to date - no changes needed!")
+            try:
+                existing_records = load_existing_records(smart_downloader.web_file)
+            except CorruptArtifactError as e:
+                logger.error(
+                    f"Refusing to update {smart_downloader.web_file.name}: {e}. "
+                    f"Pass {REBUILD_FLAG} to rebuild it from the fetch window."
+                )
+                return 2
+            # The metadata count catches a truncated artifact that still decodes.
+            existing_count = max(len(existing_records), metadata_record_count(smart_downloader.metadata.metadata_file))
+
+        before_analysis = smart_downloader.analyze_records(existing_records)
+
+        new_records = smart_downloader.download_window(start_date, end_date)
+        if new_records is None:
+            # Upstream failed (rate limiting, outage). Exit non-zero so the caller
+            # retries instead of recording a successful refresh that fetched nothing.
+            logger.error(f"Failed to download {start_date} to {end_date} for {country_code}")
+            return 1
+
+        # Nothing published yet (day-ahead not out) or nothing that changes the
+        # artifact. Same as the interval builder: exit 0 and let the worker's
+        # staleness check report the country as pending.
+        if not new_records or series_equal(merge_records(existing_records, new_records), existing_records):
+            logger.info(f"No new data yet for {country_code}; artifact unchanged")
+            return 0
+
+        saved_records = smart_downloader.merge_and_save_data(existing_records, new_records, existing_count)
+        after_analysis = smart_downloader.analyze_records(saved_records)
+        smart_downloader.create_status_report(before_analysis, after_analysis)
+        return 0
 
     except KeyboardInterrupt:
         logger.info("\nSmart download interrupted by user")
+        return 130
     except Exception as e:
         logger.error(f"Smart batch download failed: {e}")
-        sys.exit(1)
+        return 1
     finally:
         smart_downloader.close()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

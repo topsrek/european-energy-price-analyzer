@@ -24,7 +24,6 @@ public/
 scripts/
 ├── smart_batch_downloader.py     # Main intelligent downloader
 ├── price_downloader.py           # Core API client
-├── binary_reader.py              # Legacy format reader
 ├── metadata_manager.py           # Metadata tracking
 ├── daily_update.py               # Daily automation
 ├── requirements.txt              # Python deps
@@ -34,8 +33,7 @@ scripts/
 ### Frontend Integration
 ```
 src/utils/
-├── optimized-binary-decoder.ts   # Decoder v2.0
-└── binary-decoder.ts             # Legacy decoder v1.0
+└── optimized-binary-decoder.ts   # Decoder v2.0
 
 src/pages/
 └── Index.tsx                     # Country route analyzer

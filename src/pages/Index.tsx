@@ -11,7 +11,15 @@ import ContractOptions from '@/components/ContractOptions';
 import InfoModal from '@/components/InfoModal';
 import HelpModal from '@/components/HelpModal';
 import { AveragingOption, ContractOption, DataResolution, EnergyPrice, FilterOptions as FilterOptionsType, SmartMeterData } from '@/types/energy-data';
-import { applyFilters, calculateAverage, convertEnergyPriceUnit, filterByDateRange, generateDemoSmartMeterData } from '@/utils/data-utils';
+import {
+  applyFilters,
+  calculateAverage,
+  convertEnergyPriceUnit,
+  convertPriceValue,
+  filterByDateRange,
+  generateDemoSmartMeterData,
+  getTimestampBounds,
+} from '@/utils/data-utils';
 import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -29,19 +37,22 @@ import { CheckedState } from '@radix-ui/react-checkbox';
 import {
   DATA_RESOLUTION_STORAGE_KEY,
   PRICE_UNIT_STORAGE_KEY,
-  DEFAULT_DATA_RESOLUTION,
-  DEFAULT_PRICE_UNIT,
   PriceUnit,
+  createDefaultFilters,
+  parseAveragingQueryParam,
   parseQueryNumber,
+  readFiltersFromQuery,
   readInitialDataResolution,
   readInitialPriceUnit,
   serializeOptionalNumber,
   serializeResolutionQueryParam,
   serializeUnitQueryParam,
+  writeFiltersToQuery,
 } from '@/utils/analyzer-state';
 import { getActiveQuickRangePreset, getQuickRangeDates } from '@/utils/date-range-presets';
 import { formatLocalDateForQuery, parseLocalDateFromQuery } from '@/utils/local-date';
 import { safeStorageSetItem } from '@/lib/safe-storage';
+import { startOfDay } from 'date-fns';
 
 interface IndexProps {
   region: RegionConfig;
@@ -52,9 +63,6 @@ interface CachedPriceData {
   dataSource: string;
   latestTimestamp: string;
 }
-
-const DEFAULT_SHOW_ZERO_LINE = false;
-const DEFAULT_SHOW_AVERAGE_LINE = false;
 
 const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
@@ -108,45 +116,25 @@ const Index = ({ region }: IndexProps) => {
     const params = new URLSearchParams(window.location.search);
     return parseLocalDateFromQuery(params.get('start'));
   });
+  // Without an explicit end date we wait for the data and default to the latest
+  // available day (which includes tomorrow's day-ahead prices once published).
   const [endDate, setEndDate] = useState<Date | null>(() => {
-    if (typeof window === 'undefined') return new Date();
+    if (typeof window === 'undefined') return null;
     const params = new URLSearchParams(window.location.search);
-    return parseLocalDateFromQuery(params.get('end')) ?? new Date();
+    return parseLocalDateFromQuery(params.get('end'));
   });
   const [isAveragingEnabled, setIsAveragingEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    return new URLSearchParams(window.location.search).has('avg');
+    return parseAveragingQueryParam(new URLSearchParams(window.location.search).get('avg')) !== null;
   });
   const [averaging, setAveraging] = useState<AveragingOption>(() => {
     if (typeof window === 'undefined') return 'daily-cycle';
-    return (new URLSearchParams(window.location.search).get('avg') as AveragingOption) || 'daily-cycle';
+    return parseAveragingQueryParam(new URLSearchParams(window.location.search).get('avg')) ?? 'daily-cycle';
   });
   
   const [filters, setFilters] = useState<FilterOptionsType>(() => {
-    if (typeof window === 'undefined') {
-      return {
-        months: Array.from({ length: 12 }, (_, i) => i),
-        weekdays: Array.from({ length: 7 }, (_, i) => i),
-        hours: Array.from({ length: 24 }, (_, i) => i),
-        daysOfMonth: Array.from({ length: 31 }, (_, i) => i + 1),
-        weeksOfYear: Array.from({ length: 53 }, (_, i) => i + 1),
-      };
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    const f_m = params.get('f_m')?.split(',').map(Number);
-    const f_wd = params.get('f_wd')?.split(',').map(Number);
-    const f_h = params.get('f_h')?.split(',').map(Number);
-    const f_dm = params.get('f_dm')?.split(',').map(Number);
-    const f_w = params.get('f_w')?.split(',').map(Number);
-
-    return {
-      months: f_m || Array.from({ length: 12 }, (_, i) => i),
-      weekdays: f_wd || Array.from({ length: 7 }, (_, i) => i),
-      hours: f_h || Array.from({ length: 24 }, (_, i) => i),
-      daysOfMonth: f_dm || Array.from({ length: 31 }, (_, i) => i + 1),
-      weeksOfYear: f_w || Array.from({ length: 53 }, (_, i) => i + 1),
-    };
+    if (typeof window === 'undefined') return createDefaultFilters();
+    return readFiltersFromQuery(new URLSearchParams(window.location.search));
   });
   const [rawEnergyPrices, setRawEnergyPrices] = useState<EnergyPrice[]>([]);
   const [displayedEnergyPrices, setDisplayedEnergyPrices] = useState<EnergyPrice[]>([]);
@@ -200,11 +188,15 @@ const Index = ({ region }: IndexProps) => {
 
   const [cutoffValue, setCutoffValue] = useState<number | null>(() => {
     if (typeof window === 'undefined') return null;
-    const cv = new URLSearchParams(window.location.search).get('cv');
-    return cv ? Number(cv) : null;
+    return parseQueryNumber(new URLSearchParams(window.location.search).get('cv'));
   });
+  // Raw text of the ruler input so partial input such as "8.", "-" or "8," can be typed.
+  const [cutoffInput, setCutoffInput] = useState<string>(() =>
+    cutoffValue === null ? '' : String(cutoffValue)
+  );
   const [showSpotPriceWithTax, setShowSpotPriceWithTax] = useState(false);
-  const dataCacheRef = useRef<Partial<Record<DataResolution, CachedPriceData>>>({});
+  // Keyed by region + resolution so data of one region is never shown for another.
+  const dataCacheRef = useRef<Record<string, CachedPriceData>>({});
   const hasVisiblePriceDataRef = useRef(false);
   const startDateRef = useRef<Date | null>(startDate);
   const endDateRef = useRef<Date | null>(endDate);
@@ -232,30 +224,6 @@ const Index = ({ region }: IndexProps) => {
     earliestAvailableDate
   );
   
-  // Static starter tariff options with clearer naming that includes provider.
-  const contractOptions: ContractOption[] = [
-    {
-      name: 'Flexibler Stromtarif',
-      provider: 'Energie AG',
-      basePrice: 96,
-      energyPrice: 6.29,
-      networkCosts: (totalConsumption) => 0.027 * totalConsumption + 45,
-    },
-    {
-      name: 'Standard Tarif',
-      provider: 'Wien Energie',
-      basePrice: 102,
-      energyPrice: 5.95,
-      networkCosts: (totalConsumption) => 0.027 * totalConsumption + 45,
-    },
-    {
-      name: 'Öko Strom Basic',
-      provider: 'Grüne Energie GmbH',
-      basePrice: 84,
-      energyPrice: 7.10,
-      networkCosts: (totalConsumption) => 0.027 * totalConsumption + 45,
-    },
-  ];
   
   // Load initial data
   useEffect(() => {
@@ -276,22 +244,18 @@ const Index = ({ region }: IndexProps) => {
   useEffect(() => {
     let isMounted = true;
 
-    const setDateRangeFromData = (data: EnergyPrice[]) => {
-      if (
-        !data.length ||
-        startDateRef.current ||
-        (endDateRef.current && endDateRef.current.toDateString() !== new Date().toDateString())
-      ) {
-        return;
+    const cacheKey = `${region.code}:${dataResolution}`;
+
+    const setDateRangeFromData = (bounds: { earliest: number; latest: number }) => {
+      const latestDay = startOfDay(new Date(bounds.latest));
+
+      if (!startDateRef.current && !endDateRef.current) {
+        const defaultRange = getQuickRangeDates('1y', latestDay, new Date(bounds.earliest));
+        setStartDate(defaultRange.startDate);
+        setEndDate(defaultRange.endDate);
+      } else if (startDateRef.current && !endDateRef.current) {
+        setEndDate(latestDay);
       }
-
-      const timestamps = data.map((record) => new Date(record.timestamp).getTime());
-      const earliest = new Date(Math.min(...timestamps));
-      const today = new Date();
-      const defaultRange = getQuickRangeDates('1y', today, earliest);
-
-      setStartDate(defaultRange.startDate);
-      setEndDate(today);
     };
 
     const applyPriceData = (cachedData: CachedPriceData, resetDateRange: boolean) => {
@@ -299,11 +263,11 @@ const Index = ({ region }: IndexProps) => {
       setRawEnergyPrices(cachedData.data);
       setDataSource(cachedData.dataSource);
       setDataError(null);
-      const timestamps = cachedData.data.map((record) => new Date(record.timestamp).getTime());
-      setEarliestAvailableDate(new Date(Math.min(...timestamps)));
-      setLatestAvailableDate(new Date(cachedData.latestTimestamp));
-      if (resetDateRange) {
-        setDateRangeFromData(cachedData.data);
+      const bounds = getTimestampBounds(cachedData.data);
+      setEarliestAvailableDate(bounds ? new Date(bounds.earliest) : null);
+      setLatestAvailableDate(bounds ? new Date(bounds.latest) : null);
+      if (resetDateRange && bounds) {
+        setDateRangeFromData(bounds);
       }
     };
 
@@ -340,7 +304,7 @@ const Index = ({ region }: IndexProps) => {
           dataSource: `${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel(dataResolution)} Preisdatensätze (${region.countryName})`,
         };
 
-        dataCacheRef.current[dataResolution] = cachedData;
+        dataCacheRef.current[cacheKey] = cachedData;
         applyPriceData(cachedData, !preserveVisibleData);
       } catch (error) {
         console.warn(`Failed to load ${region.code} binary price data:`, error);
@@ -375,7 +339,7 @@ const Index = ({ region }: IndexProps) => {
       }
     };
 
-    const cachedData = dataCacheRef.current[dataResolution];
+    const cachedData = dataCacheRef.current[cacheKey];
     if (cachedData) {
       applyPriceData(cachedData, false);
       setIsLoadingPriceData(false);
@@ -440,12 +404,7 @@ const Index = ({ region }: IndexProps) => {
       params.delete('cv');
     }
     
-    // Serialize filters
-    if (filters.months.length < 12) params.set('f_m', filters.months.join(',')); else params.delete('f_m');
-    if (filters.weekdays.length < 7) params.set('f_wd', filters.weekdays.join(',')); else params.delete('f_wd');
-    if (filters.hours.length < 24) params.set('f_h', filters.hours.join(',')); else params.delete('f_h');
-    if (filters.daysOfMonth.length < 31) params.set('f_dm', filters.daysOfMonth.join(',')); else params.delete('f_dm');
-    if (filters.weeksOfYear.length < 53) params.set('f_w', filters.weeksOfYear.join(',')); else params.delete('f_w');
+    writeFiltersToQuery(params, filters);
 
     if (startDate) params.set('start', formatLocalDateForQuery(startDate)); else params.delete('start');
     if (endDate) params.set('end', formatLocalDateForQuery(endDate)); else params.delete('end');
@@ -496,6 +455,26 @@ const Index = ({ region }: IndexProps) => {
       displayedEnergyPrices.length;
     setCutoffValue(Number(average.toFixed(2)));
   }, [cutoffValue, displayedEnergyPrices]);
+
+  // Keep the ruler text in sync when the value changes elsewhere (chart drag,
+  // auto-average, unit switch) without clobbering partial input like "8.".
+  useEffect(() => {
+    setCutoffInput((current) =>
+      parseQueryNumber(current) === cutoffValue ? current : cutoffValue === null ? '' : String(cutoffValue)
+    );
+  }, [cutoffValue]);
+
+  const handlePriceUnitChange = (nextUnit: PriceUnit) => {
+    if (nextUnit === priceUnit) return;
+    setCutoffValue((current) => (current === null ? null : convertPriceValue(current, priceUnit, nextUnit)));
+    setPriceUnit(nextUnit);
+  };
+
+  const handleCutoffInputChange = (value: string) => {
+    setCutoffInput(value);
+    const parsed = parseQueryNumber(value);
+    if (parsed !== null) setCutoffValue(parsed);
+  };
   
   // Handler for averaging toggle
   const handleAveragingToggle = (enabled: boolean) => {
@@ -576,7 +555,7 @@ const Index = ({ region }: IndexProps) => {
                               size="sm"
                               className={priceUnit === 'EUR_MWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
                               aria-pressed={priceUnit === 'EUR_MWh'}
-                              onClick={() => setPriceUnit('EUR_MWh')}
+                              onClick={() => handlePriceUnitChange('EUR_MWh')}
                             >
                               €/MWh
                             </Button>
@@ -585,7 +564,7 @@ const Index = ({ region }: IndexProps) => {
                               size="sm"
                               className={priceUnit === 'cent_kWh' ? SELECTED_OPTION_BUTTON_CLASS : undefined}
                               aria-pressed={priceUnit === 'cent_kWh'}
-                              onClick={() => setPriceUnit('cent_kWh')}
+                              onClick={() => handlePriceUnitChange('cent_kWh')}
                             >
                               c/kWh
                             </Button>
@@ -659,11 +638,8 @@ const Index = ({ region }: IndexProps) => {
                           <Input
                             id="cutoff-value"
                             inputMode="decimal"
-                            value={cutoffValue === null ? '' : String(cutoffValue)}
-                            onChange={(event) => {
-                              const nextValue = Number(event.target.value);
-                              setCutoffValue(Number.isFinite(nextValue) ? nextValue : null);
-                            }}
+                            value={cutoffInput}
+                            onChange={(event) => handleCutoffInputChange(event.target.value)}
                             placeholder={priceUnit === 'EUR_MWh' ? '€/MWh' : 'c/kWh'}
                             disabled={!cutoffEnabled}
                           />
@@ -750,7 +726,9 @@ const Index = ({ region }: IndexProps) => {
                       smartMeterData={smartMeterData}
                       showSmartMeterData={showSmartMeterData}
                       showTotalCost={showTotalCost}
-                      selectedContract={selectedContract}
+                      selectedContract={region.code === 'at' ? selectedContract : undefined}
+                      annualConsumption={annualConsumption}
+                      vatRate={region.vatRate}
                       averaging={isAveragingEnabled ? averaging : 'none'}
                       showZeroLine={showZeroLine}
                       showAverageLine={showAverageLine}
@@ -797,6 +775,8 @@ const Index = ({ region }: IndexProps) => {
             </CardContent>
           </Card>
           
+          {/* Tariff and network cost data (Wiener Netze, Austrian providers) only apply to Austria. */}
+          {region.code === 'at' && (
           <Card className="animate-fade-in md:rounded-lg rounded-none">
             <CardHeader>
               <CardTitle>Wie viel kosten die günstigsten Tarife?</CardTitle>
@@ -814,9 +794,9 @@ const Index = ({ region }: IndexProps) => {
                   <ContractOptions
                     annualConsumption={annualConsumption}
                     onAnnualConsumptionChange={setAnnualConsumption}
-                    contractOptions={contractOptions}
                     onSelectContract={setSelectedContract}
                     selectedContract={selectedContract}
+                    vatRate={region.vatRate}
                   />
                 </TabsContent>
                 <TabsContent value="upload">
@@ -846,6 +826,7 @@ const Index = ({ region }: IndexProps) => {
               </Tabs>
             </CardContent>
           </Card>
+          )}
         </div>
       </main>
       

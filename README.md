@@ -104,7 +104,7 @@ GET http://coolify1:8000/api/v1/applications
 It matches the current GitHub repository and branch, then calls:
 
 ```text
-GET http://coolify1:8000/api/v1/deploy?uuid=<application-uuid>&force=false
+POST http://coolify1:8000/api/v1/deploy?uuid=<application-uuid>&force=false
 ```
 
 Build locally:

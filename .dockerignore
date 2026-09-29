@@ -4,3 +4,7 @@ dist
 .env
 .env.*
 npm-debug.log*
+__pycache__
+*.pyc
+tests
+.claude

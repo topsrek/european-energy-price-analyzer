@@ -21,8 +21,16 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from price_downloader import retry_delay_from_response
-from smart_batch_downloader import OptimizedEnergyPriceEncoder, trim_to_utc_midnight_start
+from metadata_manager import atomic_write_bytes, atomic_write_text
+from price_downloader import is_retryable_error, retry_delay_from_response
+from smart_batch_downloader import (
+    CorruptArtifactError,
+    OptimizedEnergyPriceEncoder,
+    metadata_record_count,
+    parse_rebuild_flag,
+    series_equal,
+    trim_to_utc_midnight_start,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,7 +96,9 @@ class IntervalPriceDecoder:
 
     def decode_all(self) -> list[tuple[datetime, float]]:
         if len(self.data) < 4:
-            return []
+            # A header-less file is damage, not "no history". Returning [] here made
+            # the caller rebuild from the fetch window and overwrite everything.
+            raise CorruptArtifactError(f"File too small - missing header ({len(self.data)} bytes)")
 
         self.bit_position = 0
         start_date = self.read_date()
@@ -137,7 +147,13 @@ def fetch_chunk_payload(
             response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
             return response.json()
-        except (requests.exceptions.RequestException, ValueError) as exc:
+        except requests.exceptions.RequestException as exc:
+            # Only 429, 5xx and connection problems are transient. A 4xx fails the
+            # same way every time, so retrying it just burned the backoff budget.
+            if not is_retryable_error(exc):
+                raise RuntimeError(
+                    f"Failed to download interval range {chunk_start} to {chunk_end}: {exc}"
+                ) from exc
             if attempt > len(REQUEST_RETRY_DELAYS_SECONDS):
                 raise RuntimeError(
                     f"Failed to download interval range {chunk_start} to {chunk_end} after {attempt} attempts"
@@ -210,12 +226,31 @@ def fetch_interval_records(country_code: str, start_date: date, end_date: date) 
     return all_records
 
 
+def interval_metadata_path(country_code: str) -> Path:
+    return METADATA_DIR / f"{country_code.lower()}_electricity_prices_15min_metadata.json"
+
+
 def load_existing_records(path: Path) -> list[tuple[datetime, float]]:
+    """Decode the stored artifact, raising CorruptArtifactError if it is unusable.
+
+    A missing file is a legitimate fresh start; an existing file that is
+    header-less or decodes to nothing is damage and must not be overwritten
+    with just the fetch window.
+    """
     if not path.exists():
         return []
 
-    decoder = IntervalPriceDecoder(path.read_bytes())
-    return decoder.decode_all()
+    try:
+        records = IntervalPriceDecoder(path.read_bytes()).decode_all()
+    except CorruptArtifactError:
+        raise
+    except Exception as exc:
+        raise CorruptArtifactError(f"Failed to decode {path.name}: {exc}") from exc
+
+    if not records:
+        raise CorruptArtifactError(f"{path.name} exists but decodes to no records")
+
+    return records
 
 
 def merge_records(existing_records: list[tuple[datetime, float]], new_records: list[tuple[datetime, float]]) -> list[tuple[datetime, float]]:
@@ -252,8 +287,8 @@ def write_metadata(country_code: str, binary_file: Path, records: list[tuple[dat
     }
 
     METADATA_DIR.mkdir(parents=True, exist_ok=True)
-    metadata_path = METADATA_DIR / f"{country_code.lower()}_electricity_prices_15min_metadata.json"
-    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    metadata_path = interval_metadata_path(country_code)
+    atomic_write_text(metadata_path, json.dumps(metadata, indent=2))
     logger.info("Wrote interval metadata to %s", metadata_path)
 
 
@@ -271,10 +306,10 @@ def find_gaps(records: list[tuple[datetime, float]], step: timedelta) -> list[tu
     ]
 
 
-def write_binary(binary_file: Path, records: list[tuple[datetime, float]]) -> None:
+def write_binary(binary_file: Path, records: list[tuple[datetime, float]]) -> bool:
     if not records:
         logger.warning("No interval records available; leaving artifact unchanged")
-        return
+        return False
 
     records = trim_to_utc_midnight_start(records)
 
@@ -290,12 +325,13 @@ def write_binary(binary_file: Path, records: list[tuple[datetime, float]]) -> No
 
     encoder = OptimizedEnergyPriceEncoder()
     encoded = encoder.encode_price_data(records)
-    binary_file.write_bytes(encoded)
+    atomic_write_bytes(binary_file, encoded)
     logger.info("Wrote %s (%s bytes)", binary_file, len(encoded))
+    return True
 
 
-def main() -> int:
-    args = sys.argv[1:]
+def main(argv: list[str] | None = None) -> int:
+    args, rebuild = parse_rebuild_flag(sys.argv[1:] if argv is None else argv)
     country_code = (args[0] if args else "AT").upper()
 
     if len(args) >= 3:
@@ -313,7 +349,20 @@ def main() -> int:
         return 0
 
     binary_file = PUBLIC_DIR / f"{country_code.lower()}_electricity_prices_15min.bin"
-    existing_records = load_existing_records(binary_file)
+
+    if rebuild:
+        logger.warning("--rebuild: ignoring the existing %s and rebuilding from the fetch window", binary_file.name)
+        existing_records: list[tuple[datetime, float]] = []
+        existing_count = 0
+    else:
+        try:
+            existing_records = load_existing_records(binary_file)
+        except CorruptArtifactError as exc:
+            logger.error("Refusing to update %s: %s. Pass --rebuild to rebuild it from the fetch window.", binary_file.name, exc)
+            return 2
+        # The metadata count catches a truncated artifact that still decodes.
+        existing_count = max(len(existing_records), metadata_record_count(interval_metadata_path(country_code)))
+
     new_records = fetch_interval_records(country_code, start_date, end_date)
     merged_records = merge_records(existing_records, new_records)
 
@@ -324,8 +373,24 @@ def main() -> int:
     # Align once, here, so the artifact and the metadata describe the same series.
     merged_records = trim_to_utc_midnight_start(merged_records)
 
-    write_binary(binary_file, merged_records)
-    write_metadata(country_code, binary_file, merged_records)
+    if series_equal(merged_records, existing_records):
+        logger.info("No new interval data yet for %s; artifact unchanged", country_code)
+        return 0
+
+    if len(merged_records) < existing_count:
+        logger.error(
+            "Refusing to write %s: merged series has %s records, fewer than the %s already stored. "
+            "Pass --rebuild to allow shrinking it.",
+            binary_file.name,
+            len(merged_records),
+            existing_count,
+        )
+        return 2
+
+    # Binary first, then metadata: the worker's staleness check reads the metadata,
+    # so it must never claim data the artifact does not hold.
+    if write_binary(binary_file, merged_records):
+        write_metadata(country_code, binary_file, merged_records)
     return 0
 
 

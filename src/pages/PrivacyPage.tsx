@@ -68,8 +68,8 @@ const PrivacyPage = () => {
                 <h3 className="font-bold">Lokale Datenverarbeitung</h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                Wenn du eigene **Smart Meter Daten** (z.B. CSV-Dateien) in den Analyzer lädst, werden diese 
-                **ausschließlich lokal in deinem Browser** verarbeitet. Diese Daten werden niemals auf unsere 
+                Wenn du eigene <strong>Smart Meter Daten</strong> (z.B. CSV-Dateien) in den Analyzer lädst, werden diese 
+                <strong>ausschließlich lokal in deinem Browser</strong> verarbeitet. Diese Daten werden niemals auf unsere 
                 Server hochgeladen oder dort gespeichert.
               </p>
             </section>

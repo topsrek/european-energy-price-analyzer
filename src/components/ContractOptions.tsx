@@ -5,26 +5,29 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ContractOption, Tariff } from '@/types/energy-data';
 import { cn } from '@/lib/utils';
-import { useTariffData } from '@/hooks/useTariffData';
+import { ChartContractOption, useTariffData } from '@/hooks/useTariffData';
 import NetworkCostsDisplay from './NetworkCostsDisplay';
 import ConsumptionSlider from './ConsumptionSlider';
 
 interface ContractOptionsProps {
   annualConsumption: number;
   onAnnualConsumptionChange: (value: number) => void;
-  contractOptions: ContractOption[];
   onSelectContract: (contract: ContractOption | undefined) => void;
   selectedContract?: ContractOption;
+  vatRate: number;
 }
+
+const formatVatPercent = (vatRate: number) => `${Number((vatRate * 100).toFixed(1))}%`;
 
 const ContractOptions: React.FC<ContractOptionsProps> = ({
   annualConsumption,
   onAnnualConsumptionChange,
-  contractOptions,
   onSelectContract,
-  selectedContract
+  selectedContract,
+  vatRate
 }) => {
-  const { data, updateCustomTariff, calculateNetworkCostsForConsumption, calculateTariffCostsForConsumption } = useTariffData();
+  const { data, calculateNetworkCostsForConsumption, calculateTariffCostsForConsumption } = useTariffData(vatRate);
+  const vatLabel = `USt. (${formatVatPercent(vatRate)}):`;
   const [editableValues, setEditableValues] = useState({
     provider: 'Eigene Eingabe',
     arbeitspreis_cent_kwh: 27.14,
@@ -42,12 +45,16 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
 
   const handleSelectContract = (tariff: Tariff) => {
     // Convert tariff data to ContractOption format for compatibility
-    const contractOption: ContractOption = {
+    const isSpot = tariff.type === 'spot';
+    const contractOption: ChartContractOption = {
       name: tariff.name,
       provider: tariff.provider,
       basePrice: tariff.calculated?.energiekosten_incl_tax || tariff.grundgebuehr || 0,
-      energyPrice: tariff.arbeitspreis_cent_kwh || 0,
-      networkCosts: () => networkCosts.calculated?.total_incl_tax || 0
+      energyPrice: isSpot ? 0 : tariff.arbeitspreis_cent_kwh || 0,
+      // Net (excl. VAT) network costs for the given yearly consumption; the chart adds VAT once.
+      networkCosts: (consumption) => calculateNetworkCostsForConsumption(consumption).calculated.total_excl_tax,
+      pricing: isSpot ? 'spot' : 'fixed',
+      spotMarkupCentKwh: isSpot ? tariff.verwaltungsgebuehr_cent_kwh ?? 0 : undefined,
     };
 
     if (selectedContract?.name === tariff.name) {
@@ -85,7 +92,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
       
       const arbeitspreisTotal = (editableValues.arbeitspreis_cent_kwh / 100) * annualConsumption;
       const totalExclTax = arbeitspreisTotal + editableValues.grundpauschale;
-      const taxAmount = totalExclTax * 0.2;
+      const taxAmount = totalExclTax * vatRate;
       
       calculatedTariff.calculated = {
         arbeitspreis_total: arbeitspreisTotal,
@@ -191,7 +198,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                     <span className="text-muted-foreground">Netto:</span>
                     <span className="text-right font-semibold">{safeToFixed(calculatedTariff.calculated.energiekosten_excl_tax)} €</span>
                     
-                    <span className="text-muted-foreground">USt. (20%):</span>
+                    <span className="text-muted-foreground">{vatLabel}</span>
                     <span className="text-right">{safeToFixed(calculatedTariff.calculated.tax_amount)} €</span>
                     
                     <span className="font-semibold">Brutto:</span>
@@ -208,7 +215,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                   <span className="text-muted-foreground">Gesamt netto:</span>
                   <span className="text-right font-semibold">{safeToFixed(totalCostsExclTax)} €</span>
                   
-                  <span className="text-muted-foreground">USt. (20%):</span>
+                  <span className="text-muted-foreground">{vatLabel}</span>
                   <span className="text-right">{safeToFixed(totalTaxAmount)} €</span>
                   
                   <span className="font-bold text-lg">Gesamt brutto:</span>
@@ -269,6 +276,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
       <NetworkCostsDisplay 
         networkCosts={networkCosts}
         consumption={annualConsumption}
+        vatRate={vatRate}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

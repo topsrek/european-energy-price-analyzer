@@ -3,6 +3,7 @@
   "lastUpdated": "2024-01-15",
   "networkCosts": {
     "name": "Netzkosten (Normalstrom)",
+    "reference_consumption_kwh": 3500,
     "netztarif": 754.56,
     "breakdown": {
       "netznutzungsentgelt": {
@@ -35,7 +36,8 @@
         "details": [
           {
             "name": "Neukundenrabatt: 6 Monate gratis Energie",
-            "amount": -703.50
+            "amount": -703.50,
+            "cent_kwh": -20.1
           }
         ]
       },
