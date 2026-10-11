@@ -483,7 +483,10 @@ class SeedDataDirTest(unittest.TestCase):
         public.mkdir(parents=True, exist_ok=True)
         metadata.mkdir(parents=True, exist_ok=True)
         (public / f"{stem}.bin").write_bytes(body)
-        (metadata / f"{stem}_metadata.json").write_text(json.dumps({"data_coverage": {"last_timestamp": last_timestamp}}))
+        (metadata / f"{stem}_metadata.json").write_text(json.dumps({
+            "data_coverage": {"last_timestamp": last_timestamp},
+            "file_info": {"file_size": len(body)},
+        }))
 
     def volume_binary(self):
         return (self.volume / "public" / "at_electricity_prices.bin").read_bytes()
@@ -507,6 +510,13 @@ class SeedDataDirTest(unittest.TestCase):
         server.seed_data_dir()
         self.assertEqual(self.volume_binary(), b"image")
 
+    def test_damaged_newer_volume_binary_is_replaced(self):
+        # A truncated binary (size differs from its metadata) is reseeded instead of served.
+        self.write("volume", "at_electricity_prices", b"volume", "2026-06-10T21:00:00+00:00")
+        (self.volume / "public" / "at_electricity_prices.bin").write_bytes(b"vol")
+        server.seed_data_dir()
+        self.assertEqual(self.volume_binary(), b"image")
+
     def test_unusable_volume_falls_back_to_the_image(self):
         blocker = self.tmp / "file-not-dir"
         blocker.write_text("x")
@@ -514,6 +524,80 @@ class SeedDataDirTest(unittest.TestCase):
             server.seed_data_dir()
             self.assertNotIn("DATA_DIR", os.environ)
             self.assertEqual(server.artifact_dir(), self.image_public)
+
+
+class StartupRobustnessTest(unittest.TestCase):
+    """Garbage left by an unclean shutdown must never keep the worker from starting."""
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.state = Path(tmp.name) / "worker-state.json"
+        patcher = mock.patch.object(server, "state_path", return_value=self.state)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_undecodable_or_invalid_state_is_ignored_and_moved_aside(self):
+        for content in (b"\xff\xfe\x00garbage", b"\x00" * 64, b'{"last_update_status": "ru', b"null", b"[1, 2]"):
+            with self.subTest(content=content):
+                self.state.write_bytes(content)
+                state = server.WorkerState()
+                state.load()
+                self.assertEqual(state.last_update_status, "idle")
+                self.assertFalse(self.state.exists())
+                self.assertTrue(self.state.with_name("worker-state.json.corrupt").exists())
+
+    def test_state_round_trip(self):
+        state = server.WorkerState()
+        state.mark_started("test")
+        state.mark_finished("ok", "done")
+        reloaded = server.WorkerState()
+        reloaded.load()
+        self.assertEqual(reloaded.last_update_status, "ok")
+        self.assertEqual(reloaded.last_update_message, "done")
+
+
+class GracefulShutdownTest(unittest.TestCase):
+    def test_restart_with_state_file_starts_and_sigterm_stops_promptly(self):
+        import signal
+        import subprocess
+
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        # A valid state file from a previous run must not break startup (it crash-looped
+        # the worker after the 2026-10-01 reboot: NameError at import time).
+        data_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(data_dir.cleanup)
+        (Path(data_dir.name) / "worker-state.json").write_text(json.dumps({
+            "last_update_status": "running",
+            "last_update_ok": True,
+            "consecutive_update_failures": 2,
+        }))
+        env = {**os.environ, "PORT": str(port), "RUN_SCHEDULER": "false", "DATA_DIR": data_dir.name}
+        process = subprocess.Popen(
+            [sys.executable, str(Path(server.__file__))],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            self.fail("worker did not start")
+
+        started = time.monotonic()
+        process.send_signal(signal.SIGTERM)
+        self.assertEqual(process.wait(timeout=5), 0)
+        self.assertLess(time.monotonic() - started, 3)
 
 
 if __name__ == "__main__":

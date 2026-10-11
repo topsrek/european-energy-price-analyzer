@@ -17,6 +17,7 @@ import os
 import random
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -92,6 +93,14 @@ def state_path() -> Path:
     return (data_dir() or DATA_ROOT) / "worker-state.json"
 
 
+def quarantine_file(path: Path) -> None:
+    """Move an unreadable file aside (kept for inspection) so it is not read again."""
+    try:
+        path.replace(path.with_name(f"{path.name}.corrupt"))
+    except OSError:
+        pass
+
+
 class WorkerState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
@@ -104,7 +113,9 @@ class WorkerState:
         self.last_successful_update_finished_at: str | None = None
         self.consecutive_update_failures = 0
         self.next_retry_not_before: str | None = None
-        self._load()
+        # Not loaded here: STATE is created at import time, before helpers such as
+        # as_optional_str exist, and a failing import crash-looped the container
+        # (2026-10-01..11). main() calls load() once DATA_DIR is settled.
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
@@ -161,11 +172,15 @@ class WorkerState:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError) as exc:
+            # ValueError covers JSONDecodeError and UnicodeDecodeError (e.g. garbage left by
+            # an unclean shutdown). The state is only bookkeeping: never let it stop startup.
             logger.warning("Ignoring unreadable worker state file %s: %s", path, exc)
+            quarantine_file(path)
             return
         if not isinstance(payload, dict):
             logger.warning("Ignoring invalid worker state file %s", path)
+            quarantine_file(path)
             return
 
         self.last_update_started_at = as_optional_str(payload.get("last_update_started_at"))
@@ -199,10 +214,10 @@ class WorkerState:
             "consecutive_update_failures": self.consecutive_update_failures,
             "next_retry_not_before": self.next_retry_not_before,
         }
-        tmp_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, indent=2, sort_keys=True))
+            handle.flush()
+            os.fsync(handle.fileno())
         tmp_path.replace(path)
 
 
@@ -685,6 +700,20 @@ def get_latest_data_timestamp(country_code: str, resolution: str) -> str | None:
     return None
 
 
+def artifact_matches_metadata(binary_path: Path, metadata_path: Path) -> bool:
+    """True if the binary has the size its metadata records (catches truncated/damaged files)."""
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        expected = metadata.get("file_info", {}).get("file_size")
+        actual = binary_path.stat().st_size
+    except (OSError, ValueError, AttributeError):
+        return False
+    if not isinstance(expected, int) or expected != actual:
+        logger.warning("%s is %s bytes but its metadata says %s; treating it as damaged", binary_path, actual, expected)
+        return False
+    return True
+
+
 def metadata_last_timestamp(metadata_path: Path) -> str | None:
     """data_coverage.last_timestamp of a metadata file, or None if missing/unreadable."""
     if not metadata_path.exists():
@@ -692,7 +721,7 @@ def metadata_last_timestamp(metadata_path: Path) -> str | None:
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         latest = metadata.get("data_coverage", {}).get("last_timestamp")
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+    except (OSError, ValueError, AttributeError):
         logger.warning("Failed to parse metadata file: %s", metadata_path)
         return None
     return latest if isinstance(latest, str) and latest else None
@@ -933,7 +962,11 @@ def seed_data_dir() -> None:
             target_metadata_path = target_metadata / metadata_name
 
             image_latest = metadata_last_timestamp(image_metadata)
-            target_latest = metadata_last_timestamp(target_metadata_path) if target_binary.exists() else None
+            target_latest = (
+                metadata_last_timestamp(target_metadata_path)
+                if target_binary.exists() and artifact_matches_metadata(target_binary, target_metadata_path)
+                else None
+            )
             if target_latest and (not image_latest or parse_timestamp(target_latest) >= parse_timestamp(image_latest)):
                 logger.info("Keeping %s from %s (through %s)", image_binary.name, root, target_latest)
                 continue
@@ -1037,19 +1070,48 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
             slot.release()
 
 
+def install_shutdown_handler(server: ThreadingHTTPServer) -> None:
+    """Stop cleanly on SIGTERM/SIGINT.
+
+    As PID 1 in the container Python ignores SIGTERM unless a handler is installed, so
+    `docker stop` (deploys, host reboots) used to end in SIGKILL after 10s, possibly in
+    the middle of a data or state write. shutdown() must run outside the thread that is
+    blocked in serve_forever().
+    """
+
+    def handle(signum: int, _frame: Any) -> None:
+        logger.info("Received %s, shutting down", signal.Signals(signum).name)
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, handle)
+    signal.signal(signal.SIGINT, handle)
+
+
 def main() -> None:
     port = int(os.getenv("PORT", str(DEFAULT_PORT)))
-    seed_data_dir()
-    # DATA_DIR may have changed (seeded or dropped), so read the state from where it now lives.
-    STATE.load()
+    # A damaged data volume or state file must never keep the server from starting: after
+    # the unclean reboot on 2026-10-01 the worker exited with code 1 on every start for 10 days.
+    try:
+        seed_data_dir()
+    except Exception:
+        logger.exception("Seeding DATA_DIR failed; serving the image copies")
+        os.environ.pop("DATA_DIR", None)
+    try:
+        # DATA_DIR may have changed (seeded or dropped), so read the state from where it now lives.
+        STATE.load()
+    except Exception:
+        logger.exception("Loading the worker state failed; starting with a fresh state")
     logger.info("Serving price data from %s (metadata in %s)", artifact_dir(), metadata_dir())
 
     server = BoundedThreadingHTTPServer(("0.0.0.0", port), Handler)
+    install_shutdown_handler(server)
     if os.getenv("RUN_SCHEDULER", "true").lower() == "true":
         threading.Thread(target=scheduler_loop, daemon=True).start()
 
     logger.info("EEPA worker listening on port %s (max %s connections)", port, server.connection_limit)
     server.serve_forever()
+    server.server_close()
+    logger.info("EEPA worker stopped")
 
 
 if __name__ == "__main__":

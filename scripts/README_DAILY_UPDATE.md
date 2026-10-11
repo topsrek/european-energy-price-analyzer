@@ -36,7 +36,8 @@ earlier than the image copy (by `last_timestamp` in the metadata). Newer data in
 directory is never overwritten. If the directory is not writable the worker logs an error
 and falls back to the image copies, i.e. it behaves exactly as without a volume.
 
-To make the data survive redeploys, add one mount in Coolify:
+`eepa-app` has this mount since 2026-10-11 (Coolify volume `nmu27zox7uqup1wngzgf0ie9-eepa-data`,
+added via `POST /api/v1/applications/<uuid>/storages`). To recreate it in the UI:
 
 1. Application `eepa-app` -> **Configuration** -> **Persistent Storage** -> **+ Add**.
 2. Choose **Volume Mount**.
