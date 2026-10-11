@@ -1,6 +1,14 @@
 
-import { getHours, getISOWeek, getMonth, getDay, getDate } from 'date-fns';
 import { AveragingOption, EnergyPrice, FilterOptions, SmartMeterData } from "@/types/energy-data";
+import {
+  MARKET_TIMEZONE,
+  getMarketDateParts,
+  getMarketDayEnd,
+  getMarketDayKey,
+  getMarketDayStart,
+  getMarketTime,
+  getMarketWeekStartKey,
+} from "@/utils/market-time";
 
 const MS_PER_HOUR = 3_600_000;
 
@@ -25,6 +33,12 @@ export const getTimestampBounds = (
   return Number.isFinite(earliest) ? { earliest, latest } : null;
 };
 
+/** ISO timestamp of the latest record, or '' for an empty series. */
+export const getLatestTimestamp = (data: EnergyPrice[]): string => {
+  const bounds = getTimestampBounds(data);
+  return bounds ? new Date(bounds.latest).toISOString() : '';
+};
+
 /** Convert a single price value between €/MWh and ct/kWh (1 ct/kWh = 10 €/MWh). */
 export const convertPriceValue = (
   value: number,
@@ -37,7 +51,11 @@ export const convertPriceValue = (
   return Math.round(converted * 1e6) / 1e6;
 };
 
-export const parseSmartMeterData = (data: ArrayBuffer): SmartMeterData[] => {
+/**
+ * Parse an uploaded smart-meter export (JSON or CSV). Timestamps without an explicit offset are
+ * market wall-clock time in `timeZone`, independent of the viewer's time zone.
+ */
+export const parseSmartMeterData = (data: ArrayBuffer, timeZone: string = MARKET_TIMEZONE): SmartMeterData[] => {
   const text = new TextDecoder().decode(data).trim();
 
   if (!text) {
@@ -56,13 +74,59 @@ export const parseSmartMeterData = (data: ArrayBuffer): SmartMeterData[] => {
       throw new Error("JSON-Dateien müssen ein Array oder ein Objekt mit records enthalten.");
     }
 
-    return records.map(normalizeSmartMeterRecord);
+    return records.map((record) => normalizeSmartMeterRecord(record, timeZone));
   }
 
-  return parseSmartMeterCsv(text);
+  return parseSmartMeterCsv(text, timeZone);
 };
 
-const normalizeSmartMeterRecord = (record: unknown): SmartMeterData => {
+const EXPLICIT_OFFSET_RE = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+const ISO_LOCAL_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?$/;
+const GERMAN_LOCAL_RE = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[ ,]+(\d{1,2}):(\d{2})(?::\d{2})?)?$/;
+
+const marketWallClock = (
+  timeZone: string,
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+): number => {
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return Number.NaN;
+  // Reject rolled-over dates such as 31.02.
+  if (new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day) return Number.NaN;
+  return getMarketTime(timeZone, year, month - 1, day, hour, minute);
+};
+
+/**
+ * Epoch ms of a smart-meter timestamp. Values with an explicit offset (or epoch numbers) are
+ * absolute; `yyyy-MM-dd[ HH:mm[:ss]]` and German `dd.MM.yyyy[ HH:mm[:ss]]` are market wall-clock
+ * time. Anything else is rejected instead of being guessed by the browser's date parser.
+ */
+export const parseSmartMeterTimestamp = (value: string | number, timeZone: string): number => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : Number.NaN;
+  const text = value.trim();
+
+  const iso = ISO_LOCAL_RE.exec(text);
+  if (iso) {
+    const [, y, m, d, h = "0", min = "0"] = iso;
+    return marketWallClock(timeZone, Number(y), Number(m), Number(d), Number(h), Number(min));
+  }
+
+  const german = GERMAN_LOCAL_RE.exec(text);
+  if (german) {
+    const [, d, m, y, h = "0", min = "0"] = german;
+    return marketWallClock(timeZone, Number(y), Number(m), Number(d), Number(h), Number(min));
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text) && EXPLICIT_OFFSET_RE.test(text)) {
+    return Date.parse(text);
+  }
+
+  return Number.NaN;
+};
+
+const normalizeSmartMeterRecord = (record: unknown, timeZone: string): SmartMeterData => {
   if (typeof record !== "object" || record === null) {
     throw new Error("Ungültiger Smart-Meter-Datensatz.");
   }
@@ -75,24 +139,30 @@ const normalizeSmartMeterRecord = (record: unknown): SmartMeterData => {
     throw new Error("Smart-Meter-Datensätze benötigen einen Zeitstempel.");
   }
 
-  const timestamp = new Date(timestampValue);
+  const time = parseSmartMeterTimestamp(timestampValue, timeZone);
   const consumption = Number(
     typeof consumptionValue === "string"
       ? consumptionValue.replace(",", ".")
       : consumptionValue
   );
 
-  if (Number.isNaN(timestamp.getTime()) || !Number.isFinite(consumption)) {
+  if (Number.isNaN(time)) {
+    throw new Error(
+      `Ungültiger Zeitstempel „${timestampValue}“. Unterstützt: yyyy-MM-dd HH:mm, dd.MM.yyyy HH:mm oder ISO 8601 mit Zeitzone.`
+    );
+  }
+
+  if (!Number.isFinite(consumption)) {
     throw new Error("Smart-Meter-Datensatz enthält ungültige Werte.");
   }
 
   return {
-    timestamp: timestamp.toISOString(),
+    timestamp: new Date(time).toISOString(),
     consumption,
   };
 };
 
-const parseSmartMeterCsv = (text: string): SmartMeterData[] => {
+const parseSmartMeterCsv = (text: string, timeZone: string): SmartMeterData[] => {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -116,7 +186,7 @@ const parseSmartMeterCsv = (text: string): SmartMeterData[] => {
     return normalizeSmartMeterRecord({
       timestamp: columns[timestampIndex],
       consumption: columns[consumptionIndex],
-    });
+    }, timeZone);
   });
 };
 
@@ -124,46 +194,50 @@ const findHeaderIndex = (headers: string[], names: string[]) => {
   return headers.findIndex((header) => names.includes(header));
 };
 
-// Filter energy prices by date range
+// Filter energy prices by date range. The dates carry calendar days (local y/m/d) that are
+// interpreted in the market time zone: start 00:00 through the end of the end day.
 export const filterByDateRange = (
   data: EnergyPrice[], 
   startDate: Date | null, 
-  endDate: Date | null
+  endDate: Date | null,
+  timeZone: string
 ): EnergyPrice[] => {
   if (!startDate && !endDate) return data;
-  const inclusiveEndDate = endDate ? new Date(endDate) : null;
-  if (inclusiveEndDate) {
-    inclusiveEndDate.setHours(23, 59, 59, 999);
-  }
+  const startTime = startDate ? getMarketDayStart(startDate, timeZone) : Number.NEGATIVE_INFINITY;
+  const endTime = endDate ? getMarketDayEnd(endDate, timeZone) : Number.POSITIVE_INFINITY;
   
   return data.filter(item => {
-    const itemDate = new Date(item.timestamp);
-    return (
-      (!startDate || itemDate >= startDate) &&
-      (!inclusiveEndDate || itemDate <= inclusiveEndDate)
-    );
+    const time = Date.parse(item.timestamp);
+    return time >= startTime && time <= endTime;
   });
 };
 
-// Filter data by month, weekday, hour, day of month, week of year
+/**
+ * Filter by month, weekday, hour, day of month and ISO week (all in market time). An empty
+ * selection matches nothing. Dimensions that the averaging mode makes meaningless (and the UI
+ * disables) are ignored: months for monthly, weekdays for daily, hours for daily-cycle averages.
+ */
 export const applyFilters = (
-  data: EnergyPrice[], 
-  filters: FilterOptions
+  data: EnergyPrice[],
+  filters: FilterOptions,
+  timeZone: string,
+  averaging?: AveragingOption
 ): EnergyPrice[] => {
+  const months = averaging === 'monthly' ? null : new Set(filters.months);
+  const weekdays = averaging === 'daily' ? null : new Set(filters.weekdays);
+  const hours = averaging === 'daily-cycle' ? null : new Set(filters.hours);
+  const daysOfMonth = new Set(filters.daysOfMonth);
+  const weeksOfYear = new Set(filters.weeksOfYear);
+
   return data.filter(item => {
-    const date = new Date(item.timestamp);
-    const month = getMonth(date);
-    const weekday = getDay(date);
-    const hour = getHours(date);
-    const dayOfMonth = getDate(date);
-    const weekOfYear = getISOWeek(date);
-    
+    const { month, weekday, hour, day, isoWeek } = getMarketDateParts(item.timestamp, timeZone);
+
     return (
-      filters.months.includes(month) &&
-      filters.weekdays.includes(weekday) &&
-      filters.hours.includes(hour) &&
-      (!filters.daysOfMonth || filters.daysOfMonth.length === 0 || filters.daysOfMonth.includes(dayOfMonth)) &&
-      (!filters.weeksOfYear || filters.weeksOfYear.length === 0 || filters.weeksOfYear.includes(weekOfYear))
+      (!months || months.has(month)) &&
+      (!weekdays || weekdays.has(weekday)) &&
+      (!hours || hours.has(hour)) &&
+      daysOfMonth.has(day) &&
+      weeksOfYear.has(isoWeek)
     );
   });
 };
@@ -183,10 +257,26 @@ export const convertEnergyPriceUnit = (
   });
 };
 
-// Average data according to the selected option
+/** Market-time bucket of a timestamp for the daily/weekly/monthly/hourly averaging options. */
+export const getAveragingBucketKey = (
+  averaging: string,
+  time: number,
+  timeZone: string
+): string | number => {
+  // Epoch hours keep both DST fall-back hours apart.
+  if (averaging === 'hourly') return Math.floor(time / MS_PER_HOUR);
+  if (averaging !== 'monthly' && averaging !== 'daily' && averaging !== 'weekly') return time;
+  const parts = getMarketDateParts(time, timeZone);
+  if (averaging === 'monthly') return `${parts.year}-${parts.month + 1}`;
+  if (averaging === 'daily') return getMarketDayKey(parts);
+  return getMarketWeekStartKey(parts);
+};
+
+// Average data according to the selected option (buckets in market time)
 export const calculateAverage = (
   data: EnergyPrice[], 
-  averaging: AveragingOption
+  averaging: AveragingOption,
+  timeZone: string
 ): EnergyPrice[] => {
   if (averaging === 'none') return data;
   
@@ -196,8 +286,7 @@ export const calculateAverage = (
     
     // Calculate the sum and count for each hour of the day
     data.forEach(item => {
-      const date = new Date(item.timestamp);
-      const hour = date.getHours();
+      const { hour } = getMarketDateParts(item.timestamp, timeZone);
       
       if (!hourlyAverages.has(hour)) {
         hourlyAverages.set(hour, { sum: 0, count: 0 });
@@ -208,51 +297,23 @@ export const calculateAverage = (
       current.count += 1;
     });
     
-    // Convert the Map to an array of EnergyPrice objects. Use a fixed base date
+    // Convert the Map to an array of EnergyPrice objects. Use a fixed market-time base date
     // without a DST transition so every hour 0-23 maps to a distinct timestamp.
-    const baseDate = new Date(2000, 0, 1, 0, 0, 0, 0);
-    
     return Array.from(hourlyAverages.entries())
       .sort(([hourA], [hourB]) => hourA - hourB)
       .map(([hour, { sum, count }]) => {
-        const timestamp = new Date(baseDate);
-        timestamp.setHours(hour);
         return {
-          timestamp: timestamp.toISOString(),
+          timestamp: new Date(getMarketTime(timeZone, 2000, 0, 1, hour)).toISOString(),
           price: sum / count,
           unit: data[0].unit,
         };
       });
   }
   
-  const averages = new Map<string, { sum: number; count: number; timestamp: string }>();
+  const averages = new Map<string | number, { sum: number; count: number; timestamp: string }>();
   
   data.forEach(item => {
-    const date = new Date(item.timestamp);
-    let key: string;
-    
-    switch(averaging) {
-      case 'monthly':
-        key = `${date.getFullYear()}-${date.getMonth() + 1}`;
-        break;
-      case 'daily':
-        key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
-        break;
-      case 'weekly': {
-        const weekStart = new Date(date);
-        weekStart.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-        weekStart.setHours(0, 0, 0, 0);
-        key = weekStart.toISOString().slice(0, 10);
-        break;
-      }
-      case 'hourly':
-        // Key by absolute hour so the repeated local hour on DST fall-back
-        // days stays two separate buckets.
-        key = String(Math.floor(date.getTime() / MS_PER_HOUR));
-        break;
-      default:
-        key = item.timestamp;
-    }
+    const key = getAveragingBucketKey(averaging, Date.parse(item.timestamp), timeZone);
     
     if (!averages.has(key)) {
       averages.set(key, { sum: 0, count: 0, timestamp: item.timestamp });
@@ -270,12 +331,47 @@ export const calculateAverage = (
   }));
 };
 
-export const generateDemoSmartMeterData = (prices: EnergyPrice[]): SmartMeterData[] => {
+/**
+ * Sum smart-meter consumption into the rows of the displayed price series, keyed by row timestamp.
+ * Readings are bucketed like the prices (averaging bucket, or the price interval for raw data),
+ * so 15-minute meter data adds up correctly against hourly prices and averaged buckets.
+ */
+export const aggregateConsumptionByPriceRow = (
+  prices: EnergyPrice[],
+  readings: SmartMeterData[],
+  averaging: string | undefined,
+  resolution: 'hourly' | 'interval',
+  timeZone: string
+): Map<string, number> => {
+  const stepMs = resolution === 'interval' ? MS_PER_HOUR / 4 : MS_PER_HOUR;
+  const keyOf = (time: number): string | number => {
+    if (averaging === 'daily-cycle') return getMarketDateParts(time, timeZone).hour;
+    if (averaging === 'hourly' || averaging === 'daily' || averaging === 'weekly' || averaging === 'monthly') {
+      return getAveragingBucketKey(averaging, time, timeZone);
+    }
+    return Math.floor(time / stepMs) * stepMs;
+  };
+
+  const rowByKey = new Map<string | number, string>();
+  for (const price of prices) {
+    const key = keyOf(Date.parse(price.timestamp));
+    if (!rowByKey.has(key)) rowByKey.set(key, price.timestamp);
+  }
+
+  const totals = new Map<string, number>();
+  for (const reading of readings) {
+    const row = rowByKey.get(keyOf(Date.parse(reading.timestamp)));
+    if (row === undefined) continue;
+    totals.set(row, (totals.get(row) ?? 0) + reading.consumption);
+  }
+  return totals;
+};
+
+export const generateDemoSmartMeterData = (prices: EnergyPrice[], timeZone: string): SmartMeterData[] => {
   // Generate a plausible consumption profile based on time of day
   // Morning peak (7-9), Evening peak (17-21)
   return prices.map(price => {
-    const date = new Date(price.timestamp);
-    const hour = date.getHours();
+    const { hour } = getMarketDateParts(price.timestamp, timeZone);
     
     // Base consumption (fridge, standby, etc.)
     let consumption = 0.1 + Math.random() * 0.05;

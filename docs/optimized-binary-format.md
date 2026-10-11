@@ -1,97 +1,87 @@
-# Optimized Binary Energy Price Encoding Format v2.0
+# Optimized Binary Price Format
 
-## Overview
-Ultra-efficient binary encoding that stores date range once in header, followed by consecutive hourly prices.
+Compact encoding used for every price artifact (`public/{country}_electricity_prices.bin`
+and `public/{country}_electricity_prices_15min.bin`). The date range is stored once in a
+header, followed by consecutive prices; timestamps are implied by position.
 
-## File Structure
+Writer: `OptimizedEnergyPriceEncoder` in `scripts/smart_batch_downloader.py` (used by both
+pipeline scripts). Readers: `OptimizedPriceDecoder` / `IntervalPriceDecoder` in the Python
+scripts and `OptimizedBinaryPriceDecoder` in `src/utils/optimized-binary-decoder.ts`.
 
-### Header (32 bits)
+Bits are packed MSB-first with no padding between fields or records. The last byte is
+zero-padded; since a record is at least 15 bits, fewer than 15 remaining bits mark the end.
+
+## Header (32 bits)
+
 ```
-Bits 0-6:   Start Year (7 bits, 2000-2127)
-Bits 7-10:  Start Month (4 bits, 1-12)
-Bits 11-15: Start Day (5 bits, 1-31)
-Bits 16-22: End Year (7 bits, 2000-2127) 
-Bits 23-26: End Month (4 bits, 1-12)
-Bits 27-31: End Day (5 bits, 1-31)
-```
-
-### Price Records (15-21 bits each)
-Consecutive hourly prices from start date 00:00 to end date 23:00:
-
-**Mode 0 (Short Form) - 15 bits:**
-```
-Bit 0:     Mode (0 = short form)
-Bits 1-14: Price in cents (14 bits, 0-163.83 EUR/MWh, positive only)
+Bits 0-6:   Start year - 2000 (7 bits, 2000-2127)
+Bits 7-10:  Start month (4 bits, 1-12)
+Bits 11-15: Start day (5 bits, 1-31)
+Bits 16-22: End year - 2000 (7 bits)
+Bits 23-26: End month (4 bits)
+Bits 27-31: End day (5 bits)
 ```
 
-**Mode 1 (Long Form) - 21 bits:**
+Both dates are UTC dates: the start date is the date of the first record, the end date
+the date of the last record. The last day is often partial (e.g. ending at 21:45Z), so the
+end date is a bound, not a record count.
+
+## Price records (15 or 21 bits)
+
+Prices are EUR/MWh stored as integer cents, `round(price * 100)`.
+
+**Mode 0, short form, 15 bits** - non-negative prices whose cents fit in 14 bits
+(0.00 to 163.83 EUR/MWh):
 ```
-Bit 0:     Mode (1 = long form)  
-Bits 1-19: Price in cents (19 bits, absolute value)
-Bit 20:    Sign bit (0 = positive, 1 = negative)
-```
-
-## Key Advantages
-
-1. **Space Efficiency**: 15-21 bits per record (was 36-42 bits) = ~50% additional compression
-2. **No Redundant Timestamps**: Date calculated from position + start date
-3. **Timezone Aware**: Proper handling of DST transitions and leap years
-4. **Validation**: File length validates against expected hour count
-
-## Timestamp Calculation
-
-For record at position `i`:
-```
-timestamp = start_date + timedelta(hours=i)
+Bit 0:     0
+Bits 1-14: cents (0-16383)
 ```
 
-With proper timezone handling for:
-- **Daylight Saving Time** transitions (March/October in Europe)
-- **Leap years** (February 29th)
-- **Month boundaries** (28/29/30/31 days)
-
-## Validation
-
-File integrity is validated by:
+**Mode 1, long form, 21 bits** - negative prices and anything from 163.84 EUR/MWh up:
 ```
-expected_hours = total_hours_between(start_date, end_date + 1_day)
-actual_records = (file_size_bits - 32) / average_bits_per_record
-assert abs(expected_hours - actual_records) <= tolerance
+Bit 0:     1
+Bits 1-19: absolute value in cents (0-524287, i.e. up to 5242.87 EUR/MWh; larger values are clamped)
+Bit 20:    sign (1 = negative)
 ```
+
+The mode is chosen from the rounded cents value, not from the raw price: 163.835 to
+163.839 round to 16384 cents and therefore use the long form.
+
+## Timestamps
+
+Record `i` has the timestamp
+
+```
+start_date 00:00 UTC + i * intervalMinutes
+```
+
+with `intervalMinutes = 60` for the hourly artifacts and `15` for the `_15min` artifacts
+(the TypeScript decoder takes it as an option; the Python decoders are per-resolution).
+Decoding stops when the data runs out or a timestamp would fall after the end date.
+
+Consequences the writers enforce, because the format cannot express them:
+
+- **The series must start exactly at UTC midnight** of the start date
+  (`trim_to_utc_midnight_start`).
+- **The series must be gapless.** A missing record does not read back as a hole; it
+  shifts every later timestamp earlier. The scripts refuse to write a series with gaps.
+- Everything is UTC. DST needs no special handling because UTC has no DST; local-time
+  presentation is done in the frontend.
+
+There is no record count or checksum in the file. Truncation is detected by the readers
+(a record cut off mid-way is an error in the TypeScript decoder) and by the pipeline
+comparing against `total_records` in the backend metadata (`scripts/data/*_metadata.json`,
+or `$DATA_DIR/metadata/` in production).
 
 ## Example
 
-For May 1-3, 2025 data (72 hours):
-```
-Header (32 bits):
-Start: 2025-05-01 → 25,5,1 → 0011001 0101 00001
-End:   2025-05-03 → 25,5,3 → 0011001 0101 00011
+May 1-3, 2025, 72 hourly prices:
 
-Price Records (72 consecutive hourly values):
-Hour 0 (May 1, 00:00): 99.97 EUR → Mode 0 → 0 + 9997 cents → 0 10011100001101
-Hour 1 (May 1, 01:00): 94.21 EUR → Mode 0 → 0 + 9421 cents → 0 10010011001101
+```
+Header:   2025-05-01 -> 0011001 0101 00001
+          2025-05-03 -> 0011001 0101 00011
+Record 0 (May 1, 00:00Z):  99.97 -> mode 0, 9997 cents  -> 0 10011100001101
+Record 1 (May 1, 01:00Z):  -5.00 -> mode 1, 500 cents, negative -> 1 0000000000111110100 1
 ...
-Hour 71 (May 3, 23:00): 87.45 EUR → Mode 0 → 0 + 8745 cents → 0 10001000101001
-
-Total: 32 + (72 × 15) = 1,112 bits = 139 bytes
-vs Old Format: 72 × 36 = 2,592 bits = 324 bytes
-Improvement: 57% smaller!
+Size: 32 + 72 * 15 = 1112 bits = 139 bytes when every price is in the short range.
 ```
-
-## Timezone Handling (CRITICAL)
-
-**🚨 UTC ONLY STORAGE:**
-- **API provides Unix timestamps in UTC** - we store exactly as received
-- **NO local timezone conversion** in backend/storage
-- **NO DST gap filling** - missing hours during spring forward are natural
-- **NO placeholder data** - only store actual market data from API
-
-**Frontend Conversion:**
-- Storage: UTC timestamps from API
-- Display: Convert UTC to local timezone in web app only
-- Benefits: No data corruption, proper DST handling, exact API fidelity
-
-**Why this matters:**
-- Energy markets operate on real time - missing hours during DST transitions are correct
-- Artificial placeholder data (0.0 EUR/MWh) would corrupt price analysis
-- UTC storage ensures data integrity across all timezones

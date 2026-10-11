@@ -29,7 +29,7 @@ import json
 sys.path.insert(0, str(Path(__file__).parent))
 
 from price_downloader import EnergyPriceDownloader
-from metadata_manager import CountryMetadata, atomic_write_bytes
+from metadata_manager import CountryMetadata, artifact_dir, atomic_write_bytes, metadata_dir as default_metadata_dir
 
 # Configure logging
 logging.basicConfig(
@@ -86,29 +86,26 @@ class OptimizedEnergyPriceEncoder:
     def write_price_record(self, price: float) -> None:
         """Write a single price record (mode + price + optional sign)."""
         is_negative = price < 0
-        price_abs = abs(price)
-        
+        # Round first and pick the mode from the cents value. Choosing it from the
+        # raw price sent 163.835-163.839 to the short form, where it rounds to
+        # 16384 cents and had to be clamped to 163.83.
+        price_cents = int(round(abs(price) * 100))
+
         # Choose encoding mode
-        if price_abs < 163.84 and not is_negative:  # Mode 0: short form (positive only)
+        if not is_negative and price_cents <= self.MAX_CENTS_PRICE:  # Mode 0: short form (positive only)
             self.write_bits(0, 1)  # Mode bit
-            
-            price_cents = int(round(price_abs * 100))
-            if price_cents > self.MAX_CENTS_PRICE:
-                price_cents = self.MAX_CENTS_PRICE
             self.write_bits(price_cents, 14)
-            
+
         else:  # Mode 1: long form (for high prices or negative values)
             self.write_bits(1, 1)  # Mode bit
-            
-            price_cents = int(round(price_abs * 100))
-            
+
             # Clamp to 19-bit range
             if price_cents > (1 << 19) - 1:
                 price_cents = (1 << 19) - 1
-                
+
             self.write_bits(price_cents, 19)
             self.write_bits(1 if is_negative else 0, 1)  # Sign bit
-    
+
     def encode_price_data(self, records: List[Tuple[datetime, float]]) -> bytes:
         """Encode a list of (timestamp, price) records using the optimized format."""
         if not records:
@@ -380,14 +377,14 @@ class SmartBatchDownloader:
     
     def __init__(self, country_code: str = "AT", public_dir: str = None, metadata_dir: str = None):
         self.country_code = country_code.upper()
-        self.public_dir = Path(public_dir) if public_dir else Path(__file__).resolve().parents[1] / "public"
+        self.public_dir = Path(public_dir) if public_dir else artifact_dir()
         self.public_dir.mkdir(parents=True, exist_ok=True)
         
         # Country-specific files  
         self.web_file = self.public_dir / f"{country_code.lower()}_electricity_prices.bin"
         
         # Metadata stored in data directory (backend only, not public)
-        self.metadata_dir = Path(metadata_dir) if metadata_dir else Path(__file__).parent / "data"
+        self.metadata_dir = Path(metadata_dir) if metadata_dir else default_metadata_dir()
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.metadata = CountryMetadata(country_code, str(self.metadata_dir), binary_file=self.web_file)
         

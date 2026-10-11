@@ -385,5 +385,99 @@ class RetryPolicyTest(unittest.TestCase):
         self.assertEqual(session.get.call_count, 2)
 
 
+
+class EncoderModeBoundaryTest(unittest.TestCase):
+    """Prices that round to 163.84 must use the long form, not be clamped to 163.83."""
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+
+    def round_trip(self, prices):
+        records = hourly_series(utc(2026, 7, 31), len(prices), price=lambda i: prices[i])
+        return [price for _, price in sbd.OptimizedPriceDecoder(encode(records)).decode_all()]
+
+    def test_values_rounding_to_16384_cents_survive(self):
+        # 163.8375 is exactly the AT 2026-07-31 23:00Z hourly mean that was stored as 163.83.
+        self.assertEqual(self.round_trip([163.8375, 163.835, 163.839, 163.84]), [163.84] * 4)
+
+    def test_short_form_range_and_neighbours(self):
+        prices = [0.0, 0.01, 163.83, 163.834, 163.85, 1000.0, -0.5, -163.84, 3000.0]
+        self.assertEqual(self.round_trip(prices), [0.0, 0.01, 163.83, 163.83, 163.85, 1000.0, -0.5, -163.84, 3000.0])
+
+    def test_short_form_is_still_used_below_the_limit(self):
+        encoder = sbd.OptimizedEnergyPriceEncoder()
+        encoder.write_price_record(163.83)
+        self.assertEqual(encoder.bit_position, 15)
+        encoder = sbd.OptimizedEnergyPriceEncoder()
+        encoder.write_price_record(163.8375)
+        self.assertEqual(encoder.bit_position, 21)
+
+
+class HourlyIntervalConsistencyTest(PipelineTestCase):
+    """The hourly artifact must equal the mean of the 15-minute one where both exist."""
+
+    def setUp(self):
+        super().setUp()
+        for name, value in (("PUBLIC_DIR", self.public_dir), ("METADATA_DIR", self.metadata_dir)):
+            patcher = mock.patch.object(build_interval_dataset, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.start = utc(2025, 11, 12)
+        self.quarters = [(self.start + timedelta(minutes=15 * i), float(i % 4)) for i in range(96)]
+
+    def test_matching_series_has_no_mismatches(self):
+        hourly = hourly_series(self.start, 24, price=lambda i: 1.5)
+        self.assertEqual(build_interval_dataset.hourly_interval_mismatches(hourly, self.quarters), [])
+
+    def test_half_cent_rounding_is_tolerated(self):
+        quarters = [(ts, 163.8375 if ts.hour == 0 else 1.0) for ts, _ in self.quarters]
+        hourly = hourly_series(self.start, 24, price=lambda i: 163.84 if i == 0 else 1.0)
+        self.assertEqual(build_interval_dataset.hourly_interval_mismatches(hourly, quarters), [])
+
+    def test_stale_hour_is_reported_and_logged(self):
+        # Exactly the FR 2025-11-12 09:00Z case: one artifact missed an upstream correction.
+        hourly = hourly_series(self.start, 24, price=lambda i: 2.09 if i == 9 else 1.5)
+        self.web_file.write_bytes(encode(hourly))
+
+        logging.disable(logging.NOTSET)
+        with self.assertLogs(build_interval_dataset.logger, level="WARNING") as logs:
+            mismatches = build_interval_dataset.check_hourly_consistency("AT", self.quarters)
+
+        self.assertEqual([hour for hour, _, _ in mismatches], [utc(2025, 11, 12, 9)])
+        self.assertIn("1 hour(s)", logs.output[0])
+
+    def test_hours_without_all_quarters_are_skipped(self):
+        hourly = hourly_series(self.start, 25, price=lambda i: 99.0 if i == 24 else 1.5)
+        self.assertEqual(build_interval_dataset.hourly_interval_mismatches(hourly, self.quarters), [])
+
+    def test_builder_runs_the_check_after_writing(self):
+        self.web_file.write_bytes(encode(hourly_series(self.start, 24, price=lambda i: 1.5)))
+        with mock.patch.object(build_interval_dataset, "fetch_interval_records", return_value=self.quarters), \
+                mock.patch.object(build_interval_dataset, "check_hourly_consistency", return_value=[]) as check:
+            self.assertEqual(build_interval_dataset.main(["AT", "2025-11-12", "2025-11-12"]), 0)
+        check.assert_called_once()
+        self.assertEqual(len(check.call_args.args[1]), 96)
+
+
+class DataDirTest(unittest.TestCase):
+    """DATA_DIR moves artifacts and metadata onto a persistent volume."""
+
+    def test_defaults_are_the_repository_paths(self):
+        with mock.patch.dict(os.environ, {"DATA_DIR": ""}):
+            self.assertEqual(metadata_manager.artifact_dir(), metadata_manager.REPO_ROOT / "public")
+            self.assertEqual(metadata_manager.metadata_dir(), metadata_manager.REPO_ROOT / "scripts" / "data")
+
+    def test_data_dir_is_honoured(self):
+        with mock.patch.dict(os.environ, {"DATA_DIR": "/srv/eepa"}):
+            self.assertEqual(metadata_manager.artifact_dir(), Path("/srv/eepa/public"))
+            self.assertEqual(metadata_manager.metadata_dir(), Path("/srv/eepa/metadata"))
+            with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"DATA_DIR": tmp}):
+                downloader = sbd.SmartBatchDownloader("AT")
+                self.assertEqual(downloader.web_file, Path(tmp) / "public" / "at_electricity_prices.bin")
+                self.assertEqual(downloader.metadata.metadata_file.parent, Path(tmp) / "metadata")
+                downloader.close()
+
+
 if __name__ == "__main__":
     unittest.main()

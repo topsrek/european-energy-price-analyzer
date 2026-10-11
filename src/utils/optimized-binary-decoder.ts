@@ -118,7 +118,7 @@ export class OptimizedBinaryPriceDecoder {
       throw new Error("Corrupt price file: header end date precedes start date");
     }
     
-    console.log(`Decoding optimized format: ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`);
+    if (import.meta.env.DEV) console.debug(`Decoding optimized format: ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`);
     
     // Read consecutive price records (actual count, no expectations)
     const records: EnergyPrice[] = [];
@@ -166,7 +166,7 @@ export class OptimizedBinaryPriceDecoder {
       recordOffset++;
     }
 
-    console.log(`Successfully decoded ${records.length} actual records (UTC timestamps, no placeholders)`);
+    if (import.meta.env.DEV) console.debug(`Successfully decoded ${records.length} actual records (UTC timestamps, no placeholders)`);
     
     return records;
   }

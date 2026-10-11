@@ -23,6 +23,24 @@ logger = logging.getLogger(__name__)
 # server could not read if it runs as a different user than the refresh job.
 DEFAULT_FILE_MODE = 0o644
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def artifact_dir() -> Path:
+    """Where the price artifacts live: $DATA_DIR/public if set, else public/.
+
+    DATA_DIR points at a persistent volume in production (see worker/server.py,
+    which seeds it from the image copies on startup).
+    """
+    data_dir = os.getenv("DATA_DIR", "").strip()
+    return Path(data_dir) / "public" if data_dir else REPO_ROOT / "public"
+
+
+def metadata_dir() -> Path:
+    """Where the backend metadata lives: $DATA_DIR/metadata if set, else scripts/data/."""
+    data_dir = os.getenv("DATA_DIR", "").strip()
+    return Path(data_dir) / "metadata" if data_dir else REPO_ROOT / "scripts" / "data"
+
 
 def _fsync_directory(directory: Path) -> None:
     """Persist the rename itself. Not supported everywhere (e.g. Windows)."""

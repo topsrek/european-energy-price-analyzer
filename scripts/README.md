@@ -1,156 +1,78 @@
-# Energy Price Download and Binary Encoding System v2.0
+# Price Data Pipeline
 
-This system downloads daily energy price data from European energy market APIs and encodes it into an **ultra-efficient optimized binary format**.
+Downloads day-ahead electricity prices from the Energy Charts API and maintains the
+compact binary artifacts the frontend loads. Countries (bidding zones): AT, DE-LU, FR.
 
-## Features
+## Artifacts
 
-- ⚡ **Ultra-Efficient Storage**: 16.8x compression vs JSON (~94% space savings!)
-- 🌍 **Multi-Country Support**: Austria ready, expandable to other EU countries  
-- 📊 **Smart Data Management**: No duplicates; re-fetches the requested window so partial days complete and upstream corrections land
-- 🚀 **Lightning-Fast Decoding**: Optimized TypeScript decoder
-- 🛡️ **Error Handling**: Robust retry logic with exponential backoff
-- 🧠 **Intelligent Merging**: Automatically combines new data with existing
+Per country `{cc}` (`at`, `de-lu`, `fr`):
 
-## Optimized Binary Format v2.0
+| File | Content |
+| --- | --- |
+| `public/{cc}_electricity_prices.bin` | hourly prices (UTC); since 2025-10-01 the mean of the four quarter-hours |
+| `public/{cc}_electricity_prices_15min.bin` | 15-minute prices from 2025-10-01 (start of the 15-minute day-ahead MTU) |
+| `scripts/data/{cc}_electricity_prices[_15min]_metadata.json` | backend metadata: record count, first/last timestamp, covered dates |
 
-Revolutionary format with date range header + consecutive hourly prices:
+The metadata is not served to browsers. The worker reads `last_timestamp` from it to
+decide whether data is stale. In production both live under `$DATA_DIR` instead (see
+`README_DAILY_UPDATE.md`). Coverage and record counts change daily; read them from the
+metadata rather than from documentation.
 
-### 🚨 CRITICAL: UTC-Only Storage
-- **API provides Unix timestamps in UTC** - stored exactly as received
-- **NO timezone conversion** in backend - keeps data integrity
-- **NO placeholder data** - only real market prices stored  
-- **Frontend converts UTC→local** for display only
-- **DST transitions handled naturally** - missing hours are correct (spring forward)
+The file format is described in `../docs/optimized-binary-format.md`.
 
-### Header (32 bits - once per file)
-```
-Bits 0-6:   Start Year (7 bits, 2000-2127)
-Bits 7-10:  Start Month (4 bits, 1-12)
-Bits 11-15: Start Day (5 bits, 1-31)
-Bits 16-22: End Year (7 bits, 2000-2127) 
-Bits 23-26: End Month (4 bits, 1-12)
-Bits 27-31: End Day (5 bits, 1-31)
-```
+## Scripts
 
-### Price Records (15-21 bits each, consecutive)
-```
-Mode 0: Bit 0 = 0, Bits 1-14 = Price in cents (positive only)
-Mode 1: Bit 0 = 1, Bits 1-19 = Price in cents, Bit 20 = Sign
-```
-
-### Encoding Modes
-- **Mode 0 (Short)**: Positive values 0-163.83 EUR/MWh → **15 bits per record**
-- **Mode 1 (Long)**: Negative values OR values ≥164 EUR/MWh → **21 bits per record**
-
-### Key Breakthrough
-- **No timestamp per record** - calculated from position + start date
-- **Consecutive hourly data** - no gaps, perfect for time series
-- **~60% smaller than v1.0** - revolutionary space savings
-
-## Setup
-
-### Python Dependencies
-```bash
-cd scripts
-pip install -r requirements.txt
-```
-
-### Directory Structure
 ```
 scripts/
-├── smart_batch_downloader.py # Main intelligent downloader (w/ optimized range downloads)
-├── price_downloader.py       # Core API downloader (supports date ranges)
-├── metadata_manager.py       # Metadata tracking system
-├── daily_update.py           # Daily scheduled updates
-├── requirements.txt          # Python dependencies
-└── data/                     # Backend metadata (not sent to users)
-    └── at_electricity_prices_metadata.json
-
-public/
-└── at_electricity_prices.bin # Austria price data (27KB, 14,352 records!)
+├── smart_batch_downloader.py  # hourly artifact: fetch window, aggregate quarters, merge, write
+├── build_interval_dataset.py  # 15-minute artifact: fetch window, merge, write, check vs hourly
+├── price_downloader.py        # API client with retry / Retry-After handling
+├── metadata_manager.py        # metadata, atomic writes, DATA_DIR-aware paths
+├── daily_update.py            # runs both scripts for each country (same as the worker)
+├── smoke_daily_update.py      # manual smoke check (real download)
+├── coolify-redeploy.sh        # triggers a Coolify redeploy over Tailscale
+├── test-tz.mjs                # frontend unit tests under several time zones (npm run test:tz)
+└── requirements.txt
 ```
 
 ## Usage
 
-### Smart Batch Download
-Download all missing data for Austria:
+From the repository root:
+
 ```bash
-python smart_batch_downloader.py
+pip install -r scripts/requirements.txt
+
+python3 scripts/smart_batch_downloader.py AT 2026-10-01 2026-10-12
+python3 scripts/build_interval_dataset.py AT 2026-10-01 2026-10-12
+python3 scripts/daily_update.py            # all configured countries
 ```
 
-Download specific date range:
+Arguments are `COUNTRY START END` (inclusive dates, YYYY-MM-DD). Without arguments the
+hourly script refreshes AT from 2025-07-01 and the interval script AT from 2025-10-01,
+both through today/tomorrow.
+
+`--rebuild` ignores the existing artifact and writes only the fetched window. Without it
+the scripts:
+
+- exit non-zero without writing if the existing artifact cannot be decoded,
+- never shrink an artifact (compared with the larger of the decoded and the metadata count),
+- refuse to write a series with gaps or one that does not start at UTC midnight
+  (the positional format would shift every later timestamp),
+- write the binary first and the metadata second, each atomically (temp file, fsync, rename).
+
+Fresh values always win over stored ones, so re-running a window applies upstream
+corrections. A run that finds nothing new exits 0 without touching the files.
+
+## API
+
+- `https://api.energy-charts.info/price?bzn=AT&start=YYYY-MM-DD&end=YYYY-MM-DD`
+- JSON with `unix_seconds` and `price` (EUR/MWh); days are market-local (CET/CEST).
+- Only HTTP 429, 5xx and connection errors are retried (5/15/30/60 s, honouring `Retry-After`).
+- License: CC BY 4.0, Bundesnetzagentur | SMARD.de.
+
+## Tests
+
 ```bash
-python smart_batch_downloader.py 2025-05-01 2025-08-20
+python3 -m unittest discover -s tests -p 'test_*.py'   # pipeline (no network)
+(cd worker && python3 -m unittest test_server)         # worker HTTP handler and scheduler helpers
 ```
-
-Download for other countries (future):
-```bash
-python smart_batch_downloader.py DE 2025-05-01 2025-08-20
-```
-
-### Daily Scheduled Updates
-Set up automatic daily updates:
-
-**Windows (Task Scheduler):**
-1. Create a new task  
-2. Set to run daily at 1:30 AM
-3. Action: Start program
-4. Program: `python.exe`
-5. Arguments: `C:\path\to\scripts\daily_update.py`
-
-**Linux/macOS (Cron):**
-```bash
-# Add to crontab (run daily at 1:30 AM)
-30 1 * * * /usr/bin/python3 /path/to/scripts/daily_update.py
-```
-
-## API Details
-
-**Source:** Austrian Energy Charts API
-- **URL**: `https://api.energy-charts.info/price`
-- **Parameters**: `bzn=AT&start=YYYY-MM-DD&end=YYYY-MM-DD`
-- **Format**: JSON with unix timestamps and prices
-- **License**: CC BY 4.0 from Bundesnetzagentur | SMARD.de
-
-## Error Handling
-
-The downloader includes robust error handling:
-- **Retry Logic**: Retries only transient failures (HTTP 429, 5xx, connection errors, timeouts) with 5/15/30/60 s delays, honouring `Retry-After`; other 4xx errors fail immediately
-- **Damaged artifacts**: If an existing `.bin` cannot be decoded (or decodes to nothing) the scripts exit non-zero without writing, and they never shrink an artifact. Pass `--rebuild` to deliberately rebuild it from the requested window
-- **Atomic writes**: Artifacts and metadata are written to a temp file, fsynced and renamed into place (binary first, then metadata)
-- **Quarter-hours**: Since the 15-minute MTU switch (2025-10-01) the hourly artifact stores the mean of the four quarter-hours; hours with fewer than four are left out and re-fetched on a later run
-- **Validation**: Checks for API response format and data consistency
-- **Logging**: Comprehensive logging to console and file
-
-## File Format
-
-Generated binary files are named by country: `{country}_electricity_prices.bin`
-
-Current Austria data (Complete 2024-2025):
-- **Records**: 14,352 hourly prices (598 days = ~1.6 years!)  
-- **File Size**: 27.5 KB (incredibly efficient for 1.6 years of data!)
-- **Date Range**: January 1, 2024 - August 20, 2025
-- **Price Range**: -252.60 to 850.00 EUR/MWh (extreme price volatility included!)
-- **Efficiency**: 15.3 bits per record (revolutionary compression!)
-
-## Integration
-
-The optimized TypeScript decoder (`src/utils/optimized-binary-decoder.ts`) provides:
-- `decodeOptimizedBinaryEnergyPrices(buffer)`: Decode ArrayBuffer to EnergyPrice[]
-- `loadOptimizedBinaryPriceFile(file)`: Load and decode from File object  
-- `fetchOptimizedBinaryPriceData(url)`: Fetch and decode from URL
-- `OptimizedBinaryPriceDecoder` class for advanced usage
-
-## Performance
-
-Ultra-optimized performance:
-- **Processing Speed**: ~1000+ records/second
-- **Memory Usage**: <3 MB for annual data  
-- **Decoding Speed**: ~3000+ records/second (JavaScript)
-- **Network Transfer**: 16.8x faster loading vs JSON
-- **Space Efficiency**: 94% reduction vs uncompressed data
-
-## License
-
-This implementation is provided under MIT License. 
-Energy price data is licensed under CC BY 4.0 from Bundesnetzagentur | SMARD.de.

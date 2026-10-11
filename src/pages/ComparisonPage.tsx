@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/hooks/use-toast';
 import { ArrowUpDown, LineChart, SlidersHorizontal } from 'lucide-react';
 import { ComparisonSeries, DataResolution, EnergyPrice, FilterOptions as FilterOptionsType, AveragingOption } from '@/types/energy-data';
 import { RegionCode, regions } from '@/config/regions';
@@ -26,6 +26,7 @@ import {
   convertEnergyPriceUnit,
   convertPriceValue,
   filterByDateRange,
+  getLatestTimestamp,
   getTimestampBounds,
 } from '@/utils/data-utils';
 import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
@@ -49,7 +50,7 @@ import {
 } from '@/utils/analyzer-state';
 import { CheckedState } from '@radix-ui/react-checkbox';
 import { safeStorageSetItem } from '@/lib/safe-storage';
-import { startOfDay } from 'date-fns';
+import { getMarketCalendarDay, MARKET_TIMEZONE } from '@/utils/market-time';
 
 interface CachedPriceData {
   data: EnergyPrice[];
@@ -60,15 +61,6 @@ const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
 
 const getDataBaseUrl = () => import.meta.env.VITE_DATA_BASE_URL ?? '';
-
-const latestTimestampFromData = (data: EnergyPrice[]) => {
-  return data.reduce<string>((latest, record) => {
-    if (!latest) return record.timestamp;
-    return new Date(record.timestamp).getTime() > new Date(latest).getTime()
-      ? record.timestamp
-      : latest;
-  }, '');
-};
 
 const isCachedDataFresh = async (
   marketCode: string,
@@ -115,8 +107,6 @@ const readInitialSelectedRegions = (): RegionCode[] => {
 };
 
 const ComparisonPage = () => {
-  const { toast } = useToast();
-  const toastRef = useRef(toast);
 
   const [selectedRegionCodes, setSelectedRegionCodes] = useState<RegionCode[]>(readInitialSelectedRegions);
 
@@ -223,13 +213,15 @@ const ComparisonPage = () => {
         const rawSeries = seriesByRegion[region.code] ?? [];
         if (!rawSeries.length) return null;
 
-        const converted = convertEnergyPriceUnit(rawSeries, priceUnit);
-        let filteredData = filterByDateRange(converted, startDate, endDate);
+        let filteredData = convertEnergyPriceUnit(
+          filterByDateRange(rawSeries, startDate, endDate, MARKET_TIMEZONE),
+          priceUnit
+        );
         if (isAveragingEnabled) {
-          filteredData = applyFilters(filteredData, filters);
+          filteredData = applyFilters(filteredData, filters, MARKET_TIMEZONE, averaging);
         }
 
-        const processed = isAveragingEnabled ? calculateAverage(filteredData, averaging) : filteredData;
+        const processed = isAveragingEnabled ? calculateAverage(filteredData, averaging, MARKET_TIMEZONE) : filteredData;
         const series: ComparisonSeries = {
           id: region.code,
           label: region.localName,
@@ -294,9 +286,6 @@ const ComparisonPage = () => {
     document.title = 'Strompreisvergleich Europa - EEPA';
   }, []);
 
-  useEffect(() => {
-    toastRef.current = toast;
-  }, [toast]);
 
   useEffect(() => {
     startDateRef.current = startDate;
@@ -335,7 +324,7 @@ const ComparisonPage = () => {
 
     const search = params.toString();
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', nextUrl);
+    window.history.replaceState(window.history.state, '', nextUrl);
   }, [dataResolution, priceUnit, selectedRegionCodes, yMin, yMax, showZeroLine, showAverageLine, showDelta, cutoffEnabled, cutoffValue]);
 
   useEffect(() => {
@@ -353,7 +342,7 @@ const ComparisonPage = () => {
 
     const search = params.toString();
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', nextUrl);
+    window.history.replaceState(window.history.state, '', nextUrl);
   }, [isAveragingEnabled, averaging, filters, startDate, endDate]);
 
   useEffect(() => {
@@ -382,7 +371,8 @@ const ComparisonPage = () => {
         const nextSeries: Partial<Record<RegionCode, EnergyPrice[]>> = {};
         const nextErrors: Partial<Record<RegionCode, string>> = {};
 
-        for (const region of selectedRegions) {
+        // Download all missing regions in parallel; one failing region doesn't block the others.
+        await Promise.all(selectedRegions.map(async (region) => {
           const cachedEntry = getCachedEntry(region.code);
           if (cachedEntry) {
             nextSeries[region.code] = cachedEntry.data;
@@ -392,14 +382,14 @@ const ComparisonPage = () => {
                   .then((fresh) => ({ code: region.code, fresh }))
               );
             }
-            continue;
+            return;
           }
 
           try {
             const binaryPath = dataResolution === 'interval' ? region.dataFiles.interval : region.dataFiles.hourly;
             if (!binaryPath) {
               nextErrors[region.code] = 'Keine Datendatei verfügbar';
-              continue;
+              return;
             }
 
             const dataBaseUrl = getDataBaseUrl();
@@ -412,7 +402,7 @@ const ComparisonPage = () => {
               ...(cacheRef.current[dataResolution] ?? {}),
               [region.code]: {
                 data: realData,
-                latestTimestamp: latestTimestampFromData(realData),
+                latestTimestamp: getLatestTimestamp(realData),
               },
             };
           } catch (error) {
@@ -422,11 +412,13 @@ const ComparisonPage = () => {
                 ? `Für ${region.localName} wurde noch keine 15-Minuten-Datei gefunden.`
                 : `Für ${region.localName} wurde keine aktuelle Preisdatei gefunden.`;
           }
-        }
+        }));
 
         if (!isMounted) return;
 
-        setSeriesByRegion((previous) => ({ ...previous, ...nextSeries }));
+        // Replace (not merge) so a region that failed to load at this resolution never keeps
+        // showing data of the previous resolution.
+        setSeriesByRegion(nextSeries);
         setSeriesErrors(nextErrors);
 
         let earliest = Infinity;
@@ -442,14 +434,13 @@ const ComparisonPage = () => {
         }
 
         if (loadedSeriesCount > 0) {
-          const earliestDate = new Date(earliest);
-          const latestDate = new Date(latest);
-          setEarliestAvailableDate(earliestDate);
-          setLatestAvailableDate(latestDate);
+          const earliestDay = getMarketCalendarDay(earliest, MARKET_TIMEZONE);
+          const latestDay = getMarketCalendarDay(latest, MARKET_TIMEZONE);
+          setEarliestAvailableDate(earliestDay);
+          setLatestAvailableDate(latestDay);
 
-          const latestDay = startOfDay(latestDate);
           if (!startDateRef.current) {
-            const defaultRange = getQuickRangeDates('1y', latestDay, earliestDate);
+            const defaultRange = getQuickRangeDates('1y', latestDay, earliestDay);
             setStartDate(defaultRange.startDate);
             setEndDate(defaultRange.endDate);
           } else if (!endDateRef.current) {
@@ -458,7 +449,7 @@ const ComparisonPage = () => {
         }
 
         if (Object.keys(nextErrors).length > 0 && loadedSeriesCount === 0) {
-          toastRef.current({
+          toast({
             title: 'Keine Vergleichsdaten verfügbar',
             description: 'Für die ausgewählten Regionen konnten keine Preisdateien geladen werden.',
             variant: 'destructive',
@@ -467,7 +458,7 @@ const ComparisonPage = () => {
       } catch (error) {
         console.error('Failed to prepare comparison data', error);
         if (isMounted) {
-          toastRef.current({
+          toast({
             title: 'Fehler beim Laden der Vergleichsdaten',
             description: 'Die Preisdaten konnten nicht verarbeitet werden.',
             variant: 'destructive',
@@ -522,6 +513,13 @@ const ComparisonPage = () => {
   const handlePriceUnitChange = (nextUnit: PriceUnit) => {
     if (nextUnit === priceUnit) return;
     setCutoffValue((current) => (current === null ? null : convertPriceValue(current, priceUnit, nextUnit)));
+    // Manual axis limits are in the old unit too.
+    const convertLimitInput = (input: string) => {
+      const parsed = parseQueryNumber(input);
+      return parsed === null ? input : String(convertPriceValue(parsed, priceUnit, nextUnit));
+    };
+    setYMinInput(convertLimitInput);
+    setYMaxInput(convertLimitInput);
     setPriceUnit(nextUnit);
   };
 
@@ -564,6 +562,7 @@ const ComparisonPage = () => {
                   maxDate={latestAvailableDate}
                   onStartDateChange={setStartDate}
                   onEndDateChange={setEndDate}
+                  timeZone={MARKET_TIMEZONE}
                 />
               </div>
 
@@ -762,6 +761,7 @@ const ComparisonPage = () => {
                     cutoffValue={cutoffValue}
                     onCutoffValueChange={setCutoffValue}
                     activeRangePreset={activeRangePreset}
+                    timeZone={MARKET_TIMEZONE}
                   />
                 ) : (
                   <div className="flex h-[400px] items-center justify-center rounded-lg bg-muted px-4 text-center">

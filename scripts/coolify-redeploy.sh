@@ -74,10 +74,15 @@ if [[ "$COOLIFY_FORCE" != "true" && "$COOLIFY_FORCE" != "false" ]]; then
   exit 1
 fi
 
+# Inside a quoted curl config value \ and " are escape characters, so escape them
+# (backslashes first) or a token containing them would be mangled or break the line.
+COOLIFY_API_TOKEN_CONFIG="${COOLIFY_API_TOKEN//\\/\\\\}"
+COOLIFY_API_TOKEN_CONFIG="${COOLIFY_API_TOKEN_CONFIG//\"/\\\"}"
+
 # Pass the token through curl's stdin config instead of argv, so it never shows up in `ps`.
 coolify_curl() {
   curl --fail --show-error --silent --location --config - "$@" <<EOF
-header = "Authorization: Bearer ${COOLIFY_API_TOKEN}"
+header = "Authorization: Bearer ${COOLIFY_API_TOKEN_CONFIG}"
 header = "Accept: application/json"
 EOF
 }
@@ -88,9 +93,18 @@ if [[ -z "${COOLIFY_RESOURCE_UUID:-}" ]]; then
   COOLIFY_RESOURCE_UUID="$(APPLICATIONS_JSON="$APPLICATIONS_JSON" python3 - "$COOLIFY_GIT_REPOSITORY" "$COOLIFY_GIT_BRANCH" <<'PY'
 import json
 import os
+import re
 import sys
 
-repo = sys.argv[1]
+
+def repo_slug(value):
+    """owner/name from owner/name, a GitHub https URL or an scp-style SSH URL."""
+    value = re.sub(r"\.git$", "", value.strip().rstrip("/"))
+    value = re.sub(r"^(?:https?://|ssh://)?(?:[^@/]+@)?github\.com[:/]", "", value)
+    return value.lower()
+
+
+repo = repo_slug(sys.argv[1])
 branch = sys.argv[2]
 apps = json.loads(os.environ["APPLICATIONS_JSON"])
 
@@ -101,7 +115,8 @@ for app in apps:
         str(app.get("git_full_url") or ""),
     ]
     branch_matches = not branch or str(app.get("git_branch") or "") == branch
-    repo_matches = any(repo in value for value in app_repo_values)
+    # Exact match: a substring test let "owner/app" also match "owner/app-staging".
+    repo_matches = any(value and repo_slug(value) == repo for value in app_repo_values)
     if repo_matches and branch_matches:
         matches.append(app)
 

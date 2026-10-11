@@ -27,6 +27,10 @@
 
     <link rel="icon" href="/favicon.ico" sizes="any">
 
+    <!-- Apply the stored theme before first paint (no light flash in dark mode). Keep the storage
+         key in sync with main.tsx (ThemeProvider storageKey); the worker's CSP allows this script by its hash. -->
+    <script>try{if(localStorage.getItem('eepa-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
+
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",

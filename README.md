@@ -1,16 +1,19 @@
 # European Energy Price Analyzer
 
-European Energy Price Analyzer is a country-based electricity price calculator and explorer. The first supported country route is Austria at `/at`, titled `Strompreisrechner Österreich - EEPA-AT`.
+European Energy Price Analyzer is a country-based electricity price calculator and explorer for day-ahead spot prices in Austria (AT), Germany-Luxembourg (DE-LU) and France (FR).
 
-The long-term shape is one international application with localized country analyzers:
+Routes:
 
 - `/` lists available countries and suggests one from saved preference, optional GeoIP, browser locale, or timezone.
-- `/at` loads the Austrian analyzer and stores Austria as the selected country.
-- Future country routes can be added in `src/config/regions.ts`.
+- `/at`, `/de-lu`, `/fr` load a country analyzer (hourly and 15-minute prices) and store it as the selected country.
+- `/compare` compares the countries side by side.
+- Country routes are configured in `src/config/regions.ts`.
 
 ## Current Status
 
-This repo contains the frontend plus the recovered Austrian downloader/custom binary data pipeline. The frontend loads country-specific binary price files such as `public/at_electricity_prices.bin`; it does not generate fallback price data when a country artifact is missing.
+This repo contains the React frontend, the Python download/encoding pipeline (`scripts/`) and the worker that serves both (`worker/`). The frontend loads country-specific binary price files such as `/api/at_electricity_prices.bin` and `/api/at_electricity_prices_15min.bin`; it does not generate fallback price data when a country artifact is missing.
+
+Smart-meter upload is live: CSV or JSON files with timestamps as `yyyy-MM-dd HH:mm` or `dd.MM.yyyy HH:mm` (interpreted in the market's local time) or ISO 8601 with an offset. Files are parsed in the browser and never uploaded.
 
 ## Local Development
 
@@ -26,6 +29,10 @@ npm run build
 npm run lint
 npm run typecheck
 npm run test
+npm run test:tz    # unit tests under several viewer time zones
+npm run test:e2e   # Playwright
+python3 -m unittest discover -s tests -p 'test_*.py'
+(cd worker && python3 -m unittest test_server)
 ```
 
 ## Region Selection
@@ -44,15 +51,17 @@ The GeoIP endpoint must return one of these fields: `country_code`, `countryCode
 
 The Coolify deployment architecture is:
 
-- One app container, `eepa-app`, serves the built frontend and the data API.
-- The same app runs the daily dataset updater.
-- The updater writes versioned country artifacts such as `data/at/manifest.json` and the efficient price data file.
+- One app container, `eepa-app`, serves the built frontend and the data API (`worker/server.py`).
+- The same process runs the daily dataset updater for `COUNTRIES` (default `AT,DE-LU,FR`).
+- The updater rewrites the per-country hourly and 15-minute binary artifacts and their backend metadata; see `scripts/README.md` and `docs/optimized-binary-format.md`.
 - Frontend fetches only the selected country dataset through same-origin `/api/...` paths.
 - Smart meter files stay client-side and are never uploaded.
 
 ## Deployment
 
-The included Dockerfile builds the Vite app, copies the static build into the Python app image, and serves the frontend, API, and daily updater from one Coolify application on port `49173`. It is suitable for Coolify deployment at `eepa.topsrek.top`.
+`worker/Dockerfile` (the only Dockerfile; Coolify builds it with the repo root as context) builds the Vite app, copies the static build into a Python image, and serves the frontend, API, and daily updater from one Coolify application on port `49173`, running as a non-root user. It is deployed at `eepa.topsrek.top`. The worker sends a Content-Security-Policy whose script hashes are computed from `dist/index.html` at runtime, and HSTS when the proxy reports `X-Forwarded-Proto: https`.
+
+Downloaded data is kept in `DATA_DIR=/app/storage`. Mount a persistent volume there so it survives redeploys; see `scripts/README_DAILY_UPDATE.md` for the exact Coolify setting. Without a volume each deploy starts from the committed artifacts.
 
 For the current LXC layout:
 
@@ -110,9 +119,11 @@ POST http://coolify1:8000/api/v1/deploy?uuid=<application-uuid>&force=false
 Build locally:
 
 ```sh
-docker build -t european-energy-price-analyzer .
-docker run --rm -p 49173:49173 european-energy-price-analyzer
+docker build -f worker/Dockerfile -t european-energy-price-analyzer .
+docker run --rm -p 49173:49173 -e RUN_SCHEDULER=false european-energy-price-analyzer
 ```
+
+Or without Docker, after `npm run build`: `RUN_SCHEDULER=false PORT=49173 python3 worker/server.py`.
 
 ## Branding Note
 

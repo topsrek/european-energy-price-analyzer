@@ -21,11 +21,12 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from metadata_manager import atomic_write_bytes, atomic_write_text
+from metadata_manager import artifact_dir, atomic_write_bytes, atomic_write_text, metadata_dir
 from price_downloader import is_retryable_error, retry_delay_from_response
 from smart_batch_downloader import (
     CorruptArtifactError,
     OptimizedEnergyPriceEncoder,
+    OptimizedPriceDecoder,
     metadata_record_count,
     parse_rebuild_flag,
     series_equal,
@@ -38,14 +39,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parents[1]
-PUBLIC_DIR = ROOT / "public"
-METADATA_DIR = Path(__file__).parent / "data"
+PUBLIC_DIR = artifact_dir()
+METADATA_DIR = metadata_dir()
 BASE_URL = "https://api.energy-charts.info/price"
 FIRST_INTERVAL_DAY = date(2025, 10, 1)
 CHUNK_DAYS = 31
 REQUEST_TIMEOUT_SECONDS = 45
 REQUEST_RETRY_DELAYS_SECONDS = (5, 15, 30, 60)
+# Hourly prices are stored as the rounded mean of the four quarter-hours, so the
+# two artifacts can differ by at most half a cent where both cover an hour.
+HOURLY_MATCH_TOLERANCE = 0.005
 
 COUNTRY_NAMES = {
     "AT": "Austria",
@@ -330,6 +333,56 @@ def write_binary(binary_file: Path, records: list[tuple[datetime, float]]) -> bo
     return True
 
 
+def hourly_interval_mismatches(
+    hourly_records: list[tuple[datetime, float]],
+    interval_records: list[tuple[datetime, float]],
+    tolerance: float = HOURLY_MATCH_TOLERANCE,
+) -> list[tuple[datetime, float, float]]:
+    """Hours whose hourly price is not the mean of the stored quarter-hours.
+
+    Returns (hour, hourly_price, quarter_mean) for every hour both artifacts cover
+    completely. A mismatch means one artifact missed an upstream correction (or
+    was encoded wrongly) and the views of the same hour disagree.
+    """
+    quarters = dict(interval_records)
+    mismatches = []
+    for hour, price in hourly_records:
+        values = [quarters.get(hour + timedelta(minutes=minute)) for minute in (0, 15, 30, 45)]
+        if any(value is None for value in values):
+            continue
+        mean = sum(values) / len(values)
+        if abs(mean - price) > tolerance + 1e-9:
+            mismatches.append((hour, price, mean))
+    return mismatches
+
+
+def check_hourly_consistency(country_code: str, interval_records: list[tuple[datetime, float]]) -> list:
+    """Log a warning when the hourly artifact disagrees with the 15-minute one."""
+    hourly_file = PUBLIC_DIR / f"{country_code.lower()}_electricity_prices.bin"
+    if not hourly_file.exists() or not interval_records:
+        return []
+    try:
+        hourly_records = OptimizedPriceDecoder(hourly_file.read_bytes()).decode_all()
+    except Exception as exc:
+        logger.warning("Cannot check %s against the 15-minute data: %s", hourly_file.name, exc)
+        return []
+
+    mismatches = hourly_interval_mismatches(hourly_records, interval_records)
+    if mismatches:
+        hour, price, mean = mismatches[0]
+        logger.warning(
+            "%s: %s hour(s) where the hourly price is not the mean of the 15-minute prices "
+            "(first %s: hourly %.2f, quarter mean %.4f). Re-run smart_batch_downloader.py "
+            "and build_interval_dataset.py over the affected days.",
+            country_code,
+            len(mismatches),
+            hour.isoformat(),
+            price,
+            mean,
+        )
+    return mismatches
+
+
 def main(argv: list[str] | None = None) -> int:
     args, rebuild = parse_rebuild_flag(sys.argv[1:] if argv is None else argv)
     country_code = (args[0] if args else "AT").upper()
@@ -375,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if series_equal(merged_records, existing_records):
         logger.info("No new interval data yet for %s; artifact unchanged", country_code)
+        check_hourly_consistency(country_code, existing_records)
         return 0
 
     if len(merged_records) < existing_count:
@@ -391,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
     # so it must never claim data the artifact does not hold.
     if write_binary(binary_file, merged_records):
         write_metadata(country_code, binary_file, merged_records)
+    check_hourly_consistency(country_code, merged_records)
     return 0
 
 

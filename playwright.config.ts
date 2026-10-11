@@ -11,10 +11,11 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 48317',
+    // Test the production build (as served in production) instead of the on-demand dev server.
+    command: 'npm run build && npx vite preview --host 127.0.0.1 --port 48317 --strictPort',
     url: 'http://127.0.0.1:48317',
     reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
+    timeout: 120_000,
   },
   projects: [
     {

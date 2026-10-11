@@ -13,7 +13,7 @@ Allow: /
 User-agent: *
 Allow: /
 
-Sitemap: /sitemap.xml
+Sitemap: https://eepa.topsrek.top/sitemap.xml
 
 User-agent: GPTBot
 Allow: /

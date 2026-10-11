@@ -18,6 +18,7 @@ import {
   convertPriceValue,
   filterByDateRange,
   generateDemoSmartMeterData,
+  getLatestTimestamp,
   getTimestampBounds,
 } from '@/utils/data-utils';
 import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
@@ -27,7 +28,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/hooks/use-toast';
 import { ArrowUpDown, ArrowUpRight, CircleHelp, Info, Lightbulb, LineChart, Loader2, SlidersHorizontal, TrendingDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ContactModal from '@/components/ContactModal';
@@ -52,7 +53,7 @@ import {
 import { getActiveQuickRangePreset, getQuickRangeDates } from '@/utils/date-range-presets';
 import { formatLocalDateForQuery, parseLocalDateFromQuery } from '@/utils/local-date';
 import { safeStorageSetItem } from '@/lib/safe-storage';
-import { startOfDay } from 'date-fns';
+import { getMarketCalendarDay } from '@/utils/market-time';
 
 interface IndexProps {
   region: RegionConfig;
@@ -71,15 +72,6 @@ const getDataBaseUrl = () => import.meta.env.VITE_DATA_BASE_URL ?? '';
 
 const resolutionLabel = (resolution: DataResolution) =>
   resolution === 'interval' ? '15-Minuten' : 'stündliche';
-
-const latestTimestampFromData = (data: EnergyPrice[]) => {
-  return data.reduce<string>((latest, record) => {
-    if (!latest) return record.timestamp;
-    return new Date(record.timestamp).getTime() > new Date(latest).getTime()
-      ? record.timestamp
-      : latest;
-  }, '');
-};
 
 const isCachedDataFresh = async (
   region: RegionConfig,
@@ -108,8 +100,6 @@ const isCachedDataFresh = async (
 };
 
 const Index = ({ region }: IndexProps) => {
-  const { toast } = useToast();
-  const toastRef = useRef(toast);
   
   const [startDate, setStartDate] = useState<Date | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -198,6 +188,8 @@ const Index = ({ region }: IndexProps) => {
   // Keyed by region + resolution so data of one region is never shown for another.
   const dataCacheRef = useRef<Record<string, CachedPriceData>>({});
   const hasVisiblePriceDataRef = useRef(false);
+  /** `${region}:${resolution}` of the prices currently on screen. */
+  const visibleDataKeyRef = useRef<string | null>(null);
   const startDateRef = useRef<Date | null>(startDate);
   const endDateRef = useRef<Date | null>(endDate);
 
@@ -232,9 +224,6 @@ const Index = ({ region }: IndexProps) => {
     document.title = `${region.title} - ${region.appCode}`;
   }, [region]);
 
-  useEffect(() => {
-    toastRef.current = toast;
-  }, [toast]);
 
   useEffect(() => {
     startDateRef.current = startDate;
@@ -247,10 +236,10 @@ const Index = ({ region }: IndexProps) => {
     const cacheKey = `${region.code}:${dataResolution}`;
 
     const setDateRangeFromData = (bounds: { earliest: number; latest: number }) => {
-      const latestDay = startOfDay(new Date(bounds.latest));
+      const latestDay = getMarketCalendarDay(bounds.latest, region.timezone);
 
       if (!startDateRef.current && !endDateRef.current) {
-        const defaultRange = getQuickRangeDates('1y', latestDay, new Date(bounds.earliest));
+        const defaultRange = getQuickRangeDates('1y', latestDay, getMarketCalendarDay(bounds.earliest, region.timezone));
         setStartDate(defaultRange.startDate);
         setEndDate(defaultRange.endDate);
       } else if (startDateRef.current && !endDateRef.current) {
@@ -260,12 +249,13 @@ const Index = ({ region }: IndexProps) => {
 
     const applyPriceData = (cachedData: CachedPriceData, resetDateRange: boolean) => {
       hasVisiblePriceDataRef.current = true;
+      visibleDataKeyRef.current = cacheKey;
       setRawEnergyPrices(cachedData.data);
       setDataSource(cachedData.dataSource);
       setDataError(null);
       const bounds = getTimestampBounds(cachedData.data);
-      setEarliestAvailableDate(bounds ? new Date(bounds.earliest) : null);
-      setLatestAvailableDate(bounds ? new Date(bounds.latest) : null);
+      setEarliestAvailableDate(bounds ? getMarketCalendarDay(bounds.earliest, region.timezone) : null);
+      setLatestAvailableDate(bounds ? getMarketCalendarDay(bounds.latest, region.timezone) : null);
       if (resetDateRange && bounds) {
         setDateRangeFromData(bounds);
       }
@@ -300,7 +290,7 @@ const Index = ({ region }: IndexProps) => {
 
         const cachedData = {
           data: realData,
-          latestTimestamp: latestTimestampFromData(realData),
+          latestTimestamp: getLatestTimestamp(realData),
           dataSource: `${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel(dataResolution)} Preisdatensätze (${region.countryName})`,
         };
 
@@ -320,6 +310,19 @@ const Index = ({ region }: IndexProps) => {
           setEarliestAvailableDate(null);
           setLatestAvailableDate(null);
           setDataSource('Keine Datendatei verfügbar');
+        } else if (visibleDataKeyRef.current && visibleDataKeyRef.current !== cacheKey) {
+          const [visibleRegion, visibleResolution] = visibleDataKeyRef.current.split(':');
+          if (visibleRegion === region.code) {
+            // Still showing the previous resolution; switch back so labels, stats and URL match it.
+            setDataResolution(visibleResolution as DataResolution);
+          } else {
+            // Never leave another region's prices on screen under this region's name.
+            hasVisiblePriceDataRef.current = false;
+            visibleDataKeyRef.current = null;
+            setRawEnergyPrices([]);
+            setDisplayedEnergyPrices([]);
+            setDataSource('Keine Datendatei verfügbar');
+          }
         }
         setDataError(
           dataResolution === 'interval'
@@ -327,7 +330,7 @@ const Index = ({ region }: IndexProps) => {
             : `Für ${region.countryName} wurde keine aktuelle Preisdatei gefunden.`
         );
 
-        toastRef.current({
+        toast({
           title: 'Keine Preisdaten verfügbar',
           description: `Für ${region.countryName} wurde keine Binärdatei gefunden.`,
           variant: 'destructive'
@@ -382,7 +385,7 @@ const Index = ({ region }: IndexProps) => {
 
     const search = params.toString();
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', nextUrl);
+    window.history.replaceState(window.history.state, '', nextUrl);
   }, [dataResolution, priceUnit, yMin, yMax]);
 
   useEffect(() => {
@@ -411,7 +414,7 @@ const Index = ({ region }: IndexProps) => {
 
     const search = params.toString();
     const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', nextUrl);
+    window.history.replaceState(window.history.state, '', nextUrl);
   }, [
     isAveragingEnabled,
     averaging,
@@ -431,19 +434,20 @@ const Index = ({ region }: IndexProps) => {
       return;
     }
 
-    const convertedEnergyPrices = convertEnergyPriceUnit(rawEnergyPrices, priceUnit);
-
-    // Apply date range filter
-    let filteredData = filterByDateRange(convertedEnergyPrices, startDate, endDate);
+    // Narrow to the date range first so the unit conversion only copies the visible rows.
+    let filteredData = convertEnergyPriceUnit(
+      filterByDateRange(rawEnergyPrices, startDate, endDate, region.timezone),
+      priceUnit
+    );
     
     // Apply other filters if averaging is enabled
     if (isAveragingEnabled) {
-      filteredData = applyFilters(filteredData, filters);
+      filteredData = applyFilters(filteredData, filters, region.timezone, averaging);
     }
     
     setFilteredEnergyPrices(filteredData);
-    setDisplayedEnergyPrices(isAveragingEnabled ? calculateAverage(filteredData, averaging) : filteredData);
-  }, [rawEnergyPrices, priceUnit, startDate, endDate, filters, averaging, isAveragingEnabled]);
+    setDisplayedEnergyPrices(isAveragingEnabled ? calculateAverage(filteredData, averaging, region.timezone) : filteredData);
+  }, [rawEnergyPrices, priceUnit, startDate, endDate, filters, averaging, isAveragingEnabled, region.timezone]);
 
   useEffect(() => {
     if (cutoffValue !== null || !displayedEnergyPrices.length) {
@@ -467,6 +471,13 @@ const Index = ({ region }: IndexProps) => {
   const handlePriceUnitChange = (nextUnit: PriceUnit) => {
     if (nextUnit === priceUnit) return;
     setCutoffValue((current) => (current === null ? null : convertPriceValue(current, priceUnit, nextUnit)));
+    // Manual axis limits are in the old unit too.
+    const convertLimitInput = (input: string) => {
+      const parsed = parseQueryNumber(input);
+      return parsed === null ? input : String(convertPriceValue(parsed, priceUnit, nextUnit));
+    };
+    setYMinInput(convertLimitInput);
+    setYMaxInput(convertLimitInput);
     setPriceUnit(nextUnit);
   };
 
@@ -490,7 +501,7 @@ const Index = ({ region }: IndexProps) => {
 
   const handleLoadDemoData = () => {
     if (rawEnergyPrices.length > 0) {
-      const demoData = generateDemoSmartMeterData(rawEnergyPrices);
+      const demoData = generateDemoSmartMeterData(rawEnergyPrices, region.timezone);
       setSmartMeterData(demoData);
       setShowSmartMeterData(true);
       toast({
@@ -538,6 +549,7 @@ const Index = ({ region }: IndexProps) => {
                     maxDate={latestAvailableDate}
                     onStartDateChange={setStartDate}
                     onEndDateChange={setEndDate}
+                    timeZone={region.timezone}
                   />
                 </div>
                 
@@ -741,6 +753,7 @@ const Index = ({ region }: IndexProps) => {
                       onCutoffValueChange={setCutoffValue}
                       activeRangePreset={activeRangePreset}
                       showSpotPriceWithTax={showSpotPriceWithTax}
+                      timeZone={region.timezone}
                     />
                   ) : (
                     <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg">
@@ -819,7 +832,7 @@ const Index = ({ region }: IndexProps) => {
                         Laden Sie Ihre Smart Meter Daten hoch, um Ihren tatsächlichen Verbrauch zu 
                         analysieren und optimale Tarife zu finden.
                       </p>
-                      <FileUpload onFileLoaded={handleSmartMeterDataUpload} />
+                      <FileUpload onFileLoaded={handleSmartMeterDataUpload} timeZone={region.timezone} />
                     </div>
                   </div>
                 </TabsContent>

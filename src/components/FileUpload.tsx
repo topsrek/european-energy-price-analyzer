@@ -8,9 +8,11 @@ import { SmartMeterData } from '@/types/energy-data';
 
 interface FileUploadProps {
   onFileLoaded: (data: SmartMeterData[]) => void;
+  /** Market time zone for timestamps without an explicit offset. */
+  timeZone: string;
 }
 
-const FileUpload: React.FC<FileUploadProps> = ({ onFileLoaded }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ onFileLoaded, timeZone }) => {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,8 +36,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileLoaded }) => {
       // Read the file
       const arrayBuffer = await selectedFile.arrayBuffer();
       
-      // Parse data - in a real app this would be an actual parser
-      const data = parseSmartMeterData(arrayBuffer);
+      const data = parseSmartMeterData(arrayBuffer, timeZone);
       
       // Notify parent component
       onFileLoaded(data);
@@ -48,7 +49,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileLoaded }) => {
       console.error("Error loading file:", error);
       toast({
         title: "Fehler beim Laden",
-        description: "Die Datei konnte nicht verarbeitet werden.",
+        description: error instanceof Error && error.message
+          ? error.message
+          : "Die Datei konnte nicht verarbeitet werden.",
         variant: "destructive"
       });
     } finally {

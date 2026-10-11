@@ -23,7 +23,7 @@ export interface SmartMeterData {
 export interface ContractOption {
   name: string;
   provider: string;
-  basePrice: number; // € per year
+  fixedFeeEurYear: number; // Net (excl. levy/VAT) fixed supplier fee in € per year, incl. fixed discounts
   energyPrice: number; // cent per kWh
   networkCosts: (totalConsumption: number) => number; // Function to calculate network costs
 }
@@ -38,20 +38,6 @@ export type FilterOptions = {
   weeksOfYear: number[]; // 1-53
 };
 
-export interface ChartData {
-  labels: string[];
-  datasets: {
-    label: string;
-    data: number[];
-    borderColor: string;
-    backgroundColor: string;
-    yAxisID: string;
-    borderWidth?: number;
-    pointRadius?: number;
-    fill?: boolean;
-  }[];
-}
-
 export interface TariffRabatte {
   total: number;
   details?: Array<{
@@ -62,6 +48,8 @@ export interface TariffRabatte {
 
 export interface TariffCalculated {
   arbeitspreis_total: number;
+  /** Gebrauchsabgabe (municipal levy) on the energy costs, net of VAT. */
+  gebrauchsabgabe?: number;
   energiekosten_excl_tax: number;
   tax_amount: number;
   energiekosten_incl_tax: number;
@@ -79,42 +67,33 @@ export interface Tariff {
   tax_rate: number;
   type?: 'spot' | 'fixed';
   verwaltungsgebuehr_cent_kwh?: number;
+  /** Date or validity window of the published price. */
+  stand?: string;
+  note?: string;
+  source_url?: string;
   calculated?: TariffCalculated;
 }
 
-export interface NetworkCostsCalculated {
-  arbeitspreis: number;
-  total_excl_tax: number;
-  tax_amount: number;
-  total_incl_tax: number;
-}
-
-export interface NetworkCosts {
+/** Regulated network charges and levies, all net of VAT, as published rates. */
+export interface NetworkCostsConfig {
   name: string;
-  netztarif: number;
-  breakdown: {
-    netznutzungsentgelt: {
-      arbeitspreis: number;
-      grundpauschale: number;
-    };
-    netzverlustentgelt: number;
-    messleistungen: number;
-    abgaben: {
-      elektrizitaetsabgabe: number;
-      erneuerbaren_foerderbeitrag: number;
-      erneuerbaren_foerderpauschale: number;
-      total: number;
-    };
-  };
-  total_excl_tax: number;
-  tax_rate: number;
-  tax_amount: number;
-  total_incl_tax: number;
-  calculated?: NetworkCostsCalculated;
+  validFrom: string;
+  notes?: string[];
+  netznutzung_arbeitspreis_cent_kwh: number;
+  netznutzung_leistungspauschale_eur_jahr: number;
+  netzverlust_cent_kwh: number;
+  messleistung_eur_jahr: number;
+  /** Municipal levy on network charges and on the energy price (Gebrauchsabgabe Wien). */
+  gebrauchsabgabe_rate: number;
+  elektrizitaetsabgabe_cent_kwh: number;
+  erneuerbaren_foerderbeitrag_cent_kwh: number;
+  erneuerbaren_foerderbeitrag_eur_jahr: number;
+  erneuerbaren_foerderpauschale_eur_jahr: number;
+  sources?: Array<{ name: string; url: string }>;
 }
 
 export interface TariffData {
   lastUpdated: string;
-  networkCosts: NetworkCosts;
+  networkCosts: NetworkCostsConfig;
   tariffs: Tariff[];
 }

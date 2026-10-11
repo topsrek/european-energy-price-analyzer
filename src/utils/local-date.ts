@@ -1,5 +1,8 @@
 import { format, startOfDay } from 'date-fns';
 
+// URL start/end params are market calendar days. They round-trip through local-midnight Dates
+// whose local y/m/d is that day (see utils/market-time); the viewer's time zone never shifts them.
+
 export const formatLocalDateForQuery = (date: Date): string =>
   format(startOfDay(date), 'yyyy-MM-dd');
 

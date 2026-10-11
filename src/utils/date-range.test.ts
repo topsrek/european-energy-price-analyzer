@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { setRangeEndpoint } from './DateRangePicker';
+import { setRangeEndpoint } from './date-range';
 
 describe('setRangeEndpoint', () => {
   it('changes the requested end without resetting the start', () => {

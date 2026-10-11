@@ -21,6 +21,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 # Add the scripts directory to the path
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+from metadata_manager import metadata_dir  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,7 +41,7 @@ def configure_logging():
         ]
     )
 
-DEFAULT_COUNTRIES = "AT"
+DEFAULT_COUNTRIES = "AT,DE-LU,FR"
 
 # Re-cover the previous day as well. The most recent stored day is usually partial,
 # because the update runs before upstream has published all of it, and the artifact
@@ -48,7 +50,7 @@ OVERLAP_DAYS = 1
 
 
 def countries_to_update(argv=None):
-    """Countries from the command line, else COUNTRIES, else Austria."""
+    """Countries from the command line, else COUNTRIES, else AT, DE-LU and FR."""
     if argv:
         raw = ",".join(argv)
     else:
@@ -66,7 +68,7 @@ def latest_stored_date(country_code):
     latest = None
 
     for suffix in ("electricity_prices_metadata.json", "electricity_prices_15min_metadata.json"):
-        path = SCRIPTS_DIR / "data" / f"{country_code.lower()}_{suffix}"
+        path = metadata_dir() / f"{country_code.lower()}_{suffix}"
         if not path.exists():
             continue
 

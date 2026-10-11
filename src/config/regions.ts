@@ -142,8 +142,6 @@ export const guessRegionFromBrowser = (): RegionConfig => {
   return (countryCode && regionByCountryCode.get(countryCode)) || defaultRegion;
 };
 
-export const getInitialRegion = () => getStoredRegion() ?? guessRegionFromBrowser();
-
 export const detectRegionFromGeoIp = async (
   endpoint = import.meta.env.VITE_GEOIP_ENDPOINT ?? '/api/geoip'
 ): Promise<RegionConfig | undefined> => {

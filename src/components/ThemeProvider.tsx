@@ -1,24 +1,12 @@
-
-import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
+import { useCallback, useEffect, useState, ReactNode } from 'react';
 import { safeStorageGetItem, safeStorageSetItem } from '@/lib/safe-storage';
+import { ThemeProviderContext } from '@/hooks/useTheme';
 
 type ThemeProviderProps = {
   children: ReactNode;
   defaultTheme?: string;
   storageKey?: string;
 };
-
-type ThemeProviderState = {
-  theme: string;
-  setTheme: (theme: string) => void;
-};
-
-const initialState: ThemeProviderState = {
-  theme: 'light',
-  setTheme: () => null,
-};
-
-const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
 type Theme = 'light' | 'dark';
 
@@ -82,11 +70,3 @@ export function ThemeProvider({
     </ThemeProviderContext.Provider>
   );
 }
-
-export const useTheme = () => {
-  const context = useContext(ThemeProviderContext);
-  if (!context) {
-    throw new Error('useTheme must be used within a ThemeProvider');
-  }
-  return context;
-};

@@ -1,4 +1,13 @@
+import base64
+import hashlib
+import http.client
+import json
+import logging
 import os
+import socket
+import tempfile
+import threading
+import time
 import unittest
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -209,6 +218,303 @@ class RetryAfterTest(unittest.TestCase):
         retry_at = datetime.now(timezone.utc) - timedelta(seconds=30)
         response = self._Response({"Retry-After": retry_at.strftime("%a, %d %b %Y %H:%M:%S GMT")})
         self.assertEqual(retry_delay_from_response(response, 61), 61)
+
+
+
+INDEX_HTML = """<!DOCTYPE html>
+<html><head>
+<script>document.documentElement.dataset.theme = "dark";</script>
+<script type="application/ld+json">{"@type": "WebSite"}</script>
+<script type="module" crossorigin src="/assets/index.js"></script>
+</head><body><div id="root"></div></body></html>
+"""
+THEME_SCRIPT = 'document.documentElement.dataset.theme = "dark";'
+
+
+class HttpServerTestCase(unittest.TestCase):
+    """Runs the real handler on an ephemeral port against temporary directories."""
+
+    connection_limit = 8
+    loopback_reserve = server.LOOPBACK_RESERVED_CONNECTIONS
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+
+        self.dist = self.tmp / "dist"
+        self.dist.mkdir()
+        (self.dist / "index.html").write_text(INDEX_HTML, encoding="utf-8")
+        # The stale build copy that must never be served.
+        (self.dist / "at_electricity_prices.bin").write_bytes(b"stale")
+
+        self.data_dir = self.tmp / "storage"
+        (self.data_dir / "public").mkdir(parents=True)
+        (self.data_dir / "metadata").mkdir(parents=True)
+        (self.data_dir / "public" / "at_electricity_prices.bin").write_bytes(b"live")
+        (self.data_dir / "metadata" / "at_electricity_prices_metadata.json").write_text(
+            json.dumps({"data_coverage": {"last_timestamp": "2026-06-03T21:00:00+00:00"}})
+        )
+
+        for patcher in (
+            mock.patch.object(server, "DIST_ROOT", self.dist),
+            mock.patch.dict(os.environ, {"DATA_DIR": str(self.data_dir), "CORS_ORIGIN": "*"}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+        self.httpd = server.BoundedThreadingHTTPServer(
+            ("127.0.0.1", 0), server.Handler, connection_limit=self.connection_limit
+        )
+        self.httpd._loopback_slots = threading.BoundedSemaphore(self.loopback_reserve) if self.loopback_reserve else threading.Semaphore(0)
+        self.port = self.httpd.server_address[1]
+        thread = threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+        thread.start()
+        self.addCleanup(self.httpd.server_close)
+        self.addCleanup(self.httpd.shutdown)
+
+    def request(self, method, path, body=None, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            conn.request(method, path, body=body, headers=headers or {})
+            response = conn.getresponse()
+            return response.status, {k.lower(): v for k, v in response.getheaders()}, response.read()
+        finally:
+            conn.close()
+
+    def post_json(self, path, payload):
+        body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        return self.request("POST", path, body=body, headers={"Content-Type": "application/json"})
+
+
+class StaticAndBinaryRoutesTest(HttpServerTestCase):
+    def test_binary_path_regex(self):
+        self.assertTrue(server.PUBLIC_BINARY_PATH_RE.fullmatch("/at_electricity_prices.bin"))
+        self.assertTrue(server.PUBLIC_BINARY_PATH_RE.fullmatch("/de-lu_electricity_prices_15min.bin"))
+        for path in ("/at_electricity_prices.bin/", "/../at_electricity_prices.bin", "/AT_electricity_prices.bin",
+                     "/at_electricity_prices.bin\n", "/x/at_electricity_prices.bin"):
+            self.assertIsNone(server.PUBLIC_BINARY_PATH_RE.fullmatch(path), path)
+
+    def test_live_artifact_is_served_from_the_data_dir(self):
+        for path in ("/at_electricity_prices.bin", "/api/at_electricity_prices.bin"):
+            status, headers, body = self.request("GET", path)
+            self.assertEqual((status, body), (200, b"live"), path)
+            self.assertEqual(headers["x-content-type-options"], "nosniff")
+
+    def test_trailing_slash_does_not_reach_the_stale_dist_copy(self):
+        for path in ("/at_electricity_prices.bin/", "/api/at_electricity_prices.bin/", "/fr_electricity_prices.bin"):
+            status, headers, body = self.request("GET", path)
+            self.assertEqual(status, 404, path)
+            self.assertNotIn(b"stale", body)
+            self.assertEqual(headers["x-content-type-options"], "nosniff")
+
+    def test_health_is_200(self):
+        status, headers, body = self.request("GET", "/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["service"], "eepa-worker")
+        self.assertEqual(headers["cache-control"], "no-store")
+
+    def test_html_gets_a_full_csp_with_the_inline_script_hash(self):
+        status, headers, body = self.request("GET", "/at")
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="root"', body)
+        csp = headers["content-security-policy"]
+        expected_hash = base64.b64encode(hashlib.sha256(THEME_SCRIPT.encode()).digest()).decode()
+        self.assertIn(f"script-src 'self' 'sha256-{expected_hash}'", csp)
+        self.assertEqual(csp.count("sha256-"), 1, "JSON-LD and src scripts need no hash")
+        for directive in ("default-src 'self'", "object-src 'none'", "base-uri 'self'", "frame-ancestors 'self'",
+                          "style-src 'self' 'unsafe-inline'", "connect-src 'self'"):
+            self.assertIn(directive, csp)
+        self.assertEqual(headers["x-content-type-options"], "nosniff")
+        self.assertNotIn("strict-transport-security", headers)
+
+    def test_hsts_only_behind_https(self):
+        _, headers, _ = self.request("GET", "/health", headers={"X-Forwarded-Proto": "https"})
+        self.assertIn("max-age=", headers["strict-transport-security"])
+        _, headers, _ = self.request("GET", "/health", headers={"X-Forwarded-Proto": "http"})
+        self.assertNotIn("strict-transport-security", headers)
+
+    def test_json_404_has_security_headers(self):
+        status, headers, _ = self.request("POST", "/nope", body=b"{}")
+        self.assertEqual(status, 404)
+        self.assertEqual(headers["x-content-type-options"], "nosniff")
+        self.assertIn("referrer-policy", headers)
+
+    def test_geoip_header_is_validated(self):
+        _, _, body = self.request("GET", "/geoip", headers={"CF-IPCountry": "at"})
+        self.assertEqual(json.loads(body)["country_code"], "AT")
+        with mock.patch.dict(os.environ, {"GEOIP_PROVIDER_URL": ""}):
+            _, _, body = self.request("GET", "/geoip", headers={"CF-IPCountry": "<script>alert(1)</script>"})
+        self.assertIsNone(json.loads(body)["country_code"])
+
+
+class DataFreshnessHttpTest(HttpServerTestCase):
+    def test_fresh_request(self):
+        status, _, body = self.post_json("/api/data-freshness", {"countryCode": "AT", "latestTimestamp": "2026-06-03T21:00:00Z"})
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)["fresh"])
+
+    def test_body_over_limit_is_rejected(self):
+        status, _, body = self.post_json("/data-freshness", b"{" + b" " * 5000 + b"}")
+        self.assertEqual(status, 400)
+        self.assertEqual(json.loads(body)["message"], "request body too large")
+
+    def test_overflowing_timestamp_is_a_400_not_a_500(self):
+        status, _, body = self.post_json(
+            "/data-freshness", {"countryCode": "AT", "latestTimestamp": "9999-12-31T23:59:59-23:59"}
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(json.loads(body)["message"], "invalid timestamp")
+
+    def test_garbage_timestamp_and_country(self):
+        status, _, body = self.post_json("/data-freshness", {"countryCode": "AT", "latestTimestamp": "yesterday"})
+        self.assertEqual((status, json.loads(body)["message"]), (400, "invalid timestamp"))
+        status, _, body = self.post_json("/data-freshness", {"countryCode": "AT\n", "latestTimestamp": "2026-01-01"})
+        self.assertEqual((status, json.loads(body)["message"]), (400, "invalid country code"))
+
+
+class ErrorAfterHeadersTest(HttpServerTestCase):
+    def test_no_second_response_after_headers_were_sent(self):
+        def broken_get(handler):
+            handler.send_response(200)
+            handler.send_header("Content-Length", "100")
+            handler.end_headers()
+            handler.wfile.write(b"partial")
+            raise RuntimeError("boom")
+
+        with mock.patch.object(server.Handler, "do_GET", broken_get):
+            with socket.create_connection(("127.0.0.1", self.port), timeout=5) as sock:
+                sock.sendall(b"GET / HTTP/1.0\r\n\r\n")
+                raw = b""
+                while chunk := sock.recv(4096):
+                    raw += chunk
+
+        self.assertEqual(raw.count(b"HTTP/1.0 "), 1)
+        self.assertNotIn(b"internal_error", raw)
+
+
+class SlowClientTest(HttpServerTestCase):
+    def test_trickled_headers_hit_the_read_deadline(self):
+        with mock.patch.object(server.Handler, "read_deadline_seconds", 0.5), \
+                mock.patch.object(server.Handler, "do_GET") as do_get:
+            with socket.create_connection(("127.0.0.1", self.port), timeout=5) as sock:
+                started = time.monotonic()
+                sock.sendall(b"GET / HTTP/1.1\r\n")
+                closed = False
+                # Keep trickling well inside the per-read timeout.
+                for _ in range(20):
+                    try:
+                        sock.sendall(b"X-A: b\r\n")
+                        sock.settimeout(0.2)
+                        if sock.recv(1) == b"":
+                            closed = True
+                            break
+                    except socket.timeout:
+                        continue
+                    except OSError:
+                        closed = True
+                        break
+            time.sleep(0.1)
+        self.assertTrue(closed)
+        self.assertLess(time.monotonic() - started, 3)
+        # The cut-short header block must not be dispatched as a request.
+        do_get.assert_not_called()
+
+
+class ConnectionCapTest(HttpServerTestCase):
+    connection_limit = 1
+    loopback_reserve = 0
+
+    def test_connections_over_the_cap_get_a_quick_503(self):
+        idle = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+        self.addCleanup(idle.close)
+        time.sleep(0.2)  # let the server accept it and take the only slot
+
+        status, _, body = self.request("GET", "/health")
+        self.assertEqual((status, body), (503, b"busy\n"))
+
+        idle.close()
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            status, _, _ = self.request("GET", "/health")
+            if status == 200:
+                break
+            time.sleep(0.05)
+        self.assertEqual(status, 200)
+
+    def test_loopback_has_reserved_slots(self):
+        httpd = self.httpd
+        httpd._loopback_slots = threading.BoundedSemaphore(1)
+        self.assertIs(httpd._acquire_slot(("10.0.0.1", 1)), httpd._public_slots)
+        self.assertIsNone(httpd._acquire_slot(("10.0.0.2", 1)))
+        self.assertIs(httpd._acquire_slot(("127.0.0.1", 1)), httpd._loopback_slots)
+        self.assertIsNone(httpd._acquire_slot(("127.0.0.1", 1)))
+
+
+class SeedDataDirTest(unittest.TestCase):
+    """A persistent volume starts from the image data and is never rolled back."""
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.image_public = self.tmp / "image" / "public"
+        self.image_metadata = self.tmp / "image" / "metadata"
+        self.image_public.mkdir(parents=True)
+        self.image_metadata.mkdir(parents=True)
+        self.volume = self.tmp / "volume"
+        self.volume.mkdir()
+        self.write("image", "at_electricity_prices", b"image", "2026-06-03T21:00:00+00:00")
+        (self.image_public / "favicon.bin").write_bytes(b"not an artifact")
+        for patcher in (
+            mock.patch.object(server, "IMAGE_ARTIFACT_DIR", self.image_public),
+            mock.patch.object(server, "IMAGE_METADATA_DIR", self.image_metadata),
+            mock.patch.dict(os.environ, {"DATA_DIR": str(self.volume)}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def write(self, where, stem, body, last_timestamp):
+        public = self.image_public if where == "image" else self.volume / "public"
+        metadata = self.image_metadata if where == "image" else self.volume / "metadata"
+        public.mkdir(parents=True, exist_ok=True)
+        metadata.mkdir(parents=True, exist_ok=True)
+        (public / f"{stem}.bin").write_bytes(body)
+        (metadata / f"{stem}_metadata.json").write_text(json.dumps({"data_coverage": {"last_timestamp": last_timestamp}}))
+
+    def volume_binary(self):
+        return (self.volume / "public" / "at_electricity_prices.bin").read_bytes()
+
+    def test_empty_volume_is_seeded(self):
+        server.seed_data_dir()
+        self.assertEqual(self.volume_binary(), b"image")
+        self.assertEqual(
+            server.metadata_last_timestamp(self.volume / "metadata" / "at_electricity_prices_metadata.json"),
+            "2026-06-03T21:00:00+00:00",
+        )
+        self.assertFalse((self.volume / "public" / "favicon.bin").exists())
+
+    def test_newer_volume_data_is_kept(self):
+        self.write("volume", "at_electricity_prices", b"volume", "2026-06-10T21:00:00+00:00")
+        server.seed_data_dir()
+        self.assertEqual(self.volume_binary(), b"volume")
+
+    def test_older_volume_data_is_replaced(self):
+        self.write("volume", "at_electricity_prices", b"volume", "2026-06-01T21:00:00+00:00")
+        server.seed_data_dir()
+        self.assertEqual(self.volume_binary(), b"image")
+
+    def test_unusable_volume_falls_back_to_the_image(self):
+        blocker = self.tmp / "file-not-dir"
+        blocker.write_text("x")
+        with mock.patch.dict(os.environ, {"DATA_DIR": str(blocker)}):
+            server.seed_data_dir()
+            self.assertNotIn("DATA_DIR", os.environ)
+            self.assertEqual(server.artifact_dir(), self.image_public)
 
 
 if __name__ == "__main__":

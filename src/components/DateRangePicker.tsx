@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { CalendarIcon, ChevronDown } from 'lucide-react';
-import { format, isAfter, startOfDay } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import {
@@ -20,34 +20,20 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Drawer,
   DrawerContent,
+  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
 } from '@/components/ui/drawer';
 import type { DateRange } from 'react-day-picker';
+import { getMarketCalendarDay } from '@/utils/market-time';
+import { setRangeEndpoint, type RangeEndpoint } from '@/utils/date-range';
 
 const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
 const MOBILE_VISIBLE_PRESET_IDS: QuickRangePresetId[] = ['1d', '3d', '1m'];
 const MOBILE_MENU_PRESET_IDS: QuickRangePresetId[] = ['1w', '3m', '6m', '1y', '5y'];
-type RangeEndpoint = 'from' | 'to';
-
-export const setRangeEndpoint = (
-  range: DateRange | undefined,
-  endpoint: RangeEndpoint,
-  date: Date,
-): DateRange => {
-  const day = startOfDay(date);
-
-  if (endpoint === 'from') {
-    const to = range?.to && !isAfter(day, range.to) ? range.to : day;
-    return { from: day, to };
-  }
-
-  const from = range?.from && !isAfter(range.from, day) ? range.from : day;
-  return { from, to: day };
-};
-
+// All dates are calendar days: local-midnight Dates whose y/m/d is the market calendar day.
 interface DateRangePickerProps {
   startDate: Date | null;
   endDate: Date | null;
@@ -55,6 +41,8 @@ interface DateRangePickerProps {
   maxDate?: Date | null;
   onStartDateChange: (date: Date | null) => void;
   onEndDateChange: (date: Date | null) => void;
+  /** Market time zone, used for "today" when no data bounds are known yet. */
+  timeZone: string;
 }
 
 const DateRangePicker: React.FC<DateRangePickerProps> = ({
@@ -64,14 +52,15 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   maxDate,
   onStartDateChange,
   onEndDateChange,
+  timeZone,
 }) => {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isMoreRangesOpen, setIsMoreRangesOpen] = useState(false);
   const [activeEndpoint, setActiveEndpoint] = useState<RangeEndpoint>('to');
   const isMobile = useIsMobile();
   const latestSelectableDate = useMemo(
-    () => startOfDay(maxDate ?? new Date()),
-    [maxDate]
+    () => startOfDay(maxDate ?? getMarketCalendarDay(Date.now(), timeZone)),
+    [maxDate, timeZone]
   );
   const earliestSelectableDate = useMemo(
     () => (minDate ? startOfDay(minDate) : null),
@@ -233,6 +222,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               <DrawerContent>
                 <DrawerHeader>
                   <DrawerTitle>Zeitraum wählen</DrawerTitle>
+                  <DrawerDescription className="sr-only">Start- und Enddatum für die Preisanzeige auswählen.</DrawerDescription>
                 </DrawerHeader>
                 <div className="mx-auto pb-4">
                   {renderRangeCalendar()}

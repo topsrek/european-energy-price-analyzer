@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { ComparisonSeries, DataResolution, EnergyPrice, SmartMeterData } from '@/types/energy-data';
-import type { ChartContractOption } from '@/hooks/useTariffData';
+import { contractPricePerKwh, type ChartContractOption } from '@/hooks/useTariffData';
 import { toast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { downsampleMinMax } from '@/utils/chart-downsample';
 import {
   ResponsiveContainer,
@@ -15,8 +16,8 @@ import {
   ReferenceLine,
   ReferenceArea
 } from 'recharts';
-import { format, parseISO, getDay, differenceInDays, differenceInMonths, getHours, getISOWeek, getQuarter } from 'date-fns';
-import { de } from 'date-fns/locale';
+import { aggregateConsumptionByPriceRow, getAveragingBucketKey } from '@/utils/data-utils';
+import { formatMarketDate, getMarketDateParts, getMarketDayKey, type MarketDateParts } from '@/utils/market-time';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { CheckedState } from "@radix-ui/react-checkbox";
@@ -36,7 +37,7 @@ import {
 interface ExtendedChartDataPoint {
   timestamp: string;
   time: number; // Epoch milliseconds, precomputed once per data change
-  date: Date; // Parsed date object for easier manipulation
+  market: MarketDateParts; // Calendar fields in the market time zone, precomputed once per data change
   price: number;
   netPrice?: number; // Spot price without VAT (single-series chart only)
   unit: 'EUR_MWh' | 'cent_kWh';
@@ -75,6 +76,8 @@ interface EnergyChartProps {
   onCutoffValueChange?: (value: number | null) => void;
   activeRangePreset?: string | null;
   showSpotPriceWithTax?: boolean;
+  /** IANA time zone of the market; all labels, bands and buckets use its calendar. */
+  timeZone: string;
 }
 
 type ZoomRange = {
@@ -89,27 +92,17 @@ const COMPARISON_COLORS = ['#e11d48', '#2563eb', '#0f766e', '#d97706', '#7c3aed'
 const MAX_DRAW_POINTS = 3000;
 const PRICE_LIST_DISPLAY_LIMIT = 2000;
 const DEFAULT_ANNUAL_CONSUMPTION = 3500;
-const HOUR_MS = 3_600_000;
+const MAX_X_TICKS = 12;
+const MAX_X_TICKS_NARROW = 6;
+// Hoisted so recharts does not see new objects (and re-register/re-animate lines) on every render.
+const DEFAULT_DOT = {};
+const ACTIVE_DOT = { r: 5 };
+const COMPARISON_ACTIVE_DOT = { r: 4 };
 // Stable defaults so memoized chart data is not invalidated by a new [] on every render.
 const EMPTY_PRICES: EnergyPrice[] = [];
 const EMPTY_SERIES: ComparisonSeries[] = [];
 
 type BucketKey = string | number;
-
-const getAveragingBucketKey = (averaging: string, time: number): BucketKey => {
-  // Epoch hours keep both DST fall-back hours apart.
-  if (averaging === 'hourly') return Math.floor(time / HOUR_MS);
-  const date = new Date(time);
-  if (averaging === 'monthly') return `${date.getFullYear()}-${date.getMonth() + 1}`;
-  if (averaging === 'daily') return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
-  if (averaging === 'weekly') {
-    const weekStart = new Date(date);
-    weekStart.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-    weekStart.setHours(0, 0, 0, 0);
-    return weekStart.toISOString().slice(0, 10);
-  }
-  return time;
-};
 
 type AverageSource = {
   prices: EnergyPrice[];
@@ -117,7 +110,7 @@ type AverageSource = {
   keys: BucketKey[] | null;
 };
 
-const buildAverageSource = (prices: EnergyPrice[], averaging: string): AverageSource => {
+const buildAverageSource = (prices: EnergyPrice[], averaging: string, timeZone: string): AverageSource => {
   const times = new Float64Array(prices.length);
   prices.forEach((item, index) => {
     times[index] = Date.parse(item.timestamp);
@@ -126,38 +119,51 @@ const buildAverageSource = (prices: EnergyPrice[], averaging: string): AverageSo
   return {
     prices,
     times,
-    keys: usesBucketKeys ? Array.from(times, (time) => getAveragingBucketKey(averaging, time)) : null,
+    keys: usesBucketKeys ? Array.from(times, (time) => getAveragingBucketKey(averaging, time, timeZone)) : null,
   };
 };
 
-const getMonthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}`;
+const getMonthKey = (parts: MarketDateParts) => `${parts.year}-${String(parts.month + 1).padStart(2, '0')}`;
+const getQuarter = (parts: MarketDateParts) => Math.floor(parts.month / 3) + 1;
+// Whole calendar months between two market days (like date-fns differenceInMonths, day precision).
+const getMonthSpan = (first: MarketDateParts, last: MarketDateParts) =>
+  Math.max(0, (last.year - first.year) * 12 + last.month - first.month - (last.day < first.day ? 1 : 0));
+const pad2 = (value: number) => String(value).padStart(2, '0');
 
-const formatPriceListDate = (averaging: string, date: Date) => {
-  if (averaging === 'monthly') return format(date, 'MMMM yyyy', { locale: de });
-  if (averaging === 'weekly') return `KW ${getISOWeek(date)} ${format(date, 'yyyy')}`;
-  if (averaging === 'daily-cycle') return format(date, 'HH:00');
-  return format(date, averaging === 'daily' ? 'dd.MM.yyyy' : 'dd.MM.yyyy HH:mm');
+// Hand-built for the numeric formats: the price list formats every visible row.
+const formatPriceListDate = (averaging: string, item: ExtendedChartDataPoint, timeZone: string) => {
+  const { year, month, day, hour, minute, isoWeek } = item.market;
+  if (averaging === 'monthly') return formatMarketDate(item.time, 'MMMM yyyy', timeZone);
+  if (averaging === 'weekly') return `KW ${isoWeek} ${year}`;
+  if (averaging === 'daily-cycle') return `${pad2(hour)}:00`;
+  const date = `${pad2(day)}.${pad2(month + 1)}.${year}`;
+  return averaging === 'daily' ? date : `${date} ${pad2(hour)}:${pad2(minute)}`;
 };
 
 // Generate dynamic ticks for XAxis
+/** Keep at most `max` ticks, evenly spaced, always including the first one. */
+const capTicks = (ticks: string[], max: number) => {
+  if (ticks.length <= max) return ticks;
+  const step = Math.ceil(ticks.length / max);
+  return ticks.filter((_, index) => index % step === 0);
+};
+
 const getXAxisTicks = (axisData: ExtendedChartDataPoint[], averaging: string) => {
   if (!axisData || axisData.length === 0) {
     return [];
   }
 
   const ticks: string[] = [];
-  const firstDate = axisData[0].date;
-  const lastDate = axisData[axisData.length - 1].date;
-  const daysDiff = differenceInDays(lastDate, firstDate);
+  const daysDiff = axisData[axisData.length - 1].market.dayIndex - axisData[0].market.dayIndex;
 
   // Handle cases based on 'averaging' prop first
   if (averaging === 'daily-cycle') {
     // For daily-cycle, show specific hours if data covers them
-    const uniqueHours = new Set(axisData.map(d => getHours(d.date)));
+    const uniqueHours = new Set(axisData.map(d => d.market.hour));
     const tickHours = [0, 6, 12, 18]; // Default hours to show
     tickHours.forEach(hour => {
       if (uniqueHours.has(hour)) {
-         const firstMatch = axisData.find(d => getHours(d.date) === hour);
+         const firstMatch = axisData.find(d => d.market.hour === hour);
          if (firstMatch) ticks.push(firstMatch.timestamp);
       }
     });
@@ -195,11 +201,11 @@ const getXAxisTicks = (axisData: ExtendedChartDataPoint[], averaging: string) =>
     if (daysDiff > 30) step = 3;
     if (daysDiff > 90) step = 7; // Every week
 
-    let lastPushedDate: Date | null = null;
+    let lastPushedDay: number | null = null;
     axisData.forEach(item => {
-      if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= step) {
+      if (lastPushedDay === null || item.market.dayIndex - lastPushedDay >= step) {
         ticks.push(item.timestamp);
-        lastPushedDate = item.date;
+        lastPushedDay = item.market.dayIndex;
       }
     });
      if (ticks.length === 0 && axisData.length > 0) ticks.push(axisData[0].timestamp);
@@ -218,7 +224,7 @@ const getXAxisTicks = (axisData: ExtendedChartDataPoint[], averaging: string) =>
 
   if (averaging === 'monthly') {
     const monthTicks = axisData
-      .filter((item, index) => index === 0 || getMonthKey(item.date) !== getMonthKey(axisData[index - 1].date))
+      .filter((item, index) => index === 0 || getMonthKey(item.market) !== getMonthKey(axisData[index - 1].market))
       .map((item) => item.timestamp);
     if (monthTicks.length < 2 && axisData.length > 0) {
       monthTicks.push(axisData[0].timestamp, axisData[axisData.length - 1].timestamp);
@@ -232,7 +238,7 @@ const getXAxisTicks = (axisData: ExtendedChartDataPoint[], averaging: string) =>
   // Default dynamic ticks if no specific averaging mode dictates them
   if (daysDiff < 3) { // Less than 3 days: potentially more ticks
     axisData.forEach(item => {
-      const hour = getHours(item.date);
+      const hour = item.market.hour;
       if (hour % 6 === 0) { // Ticks at 00:00, 06:00, 12:00, 18:00
         ticks.push(item.timestamp);
       }
@@ -247,28 +253,28 @@ const getXAxisTicks = (axisData: ExtendedChartDataPoint[], averaging: string) =>
   } else if (daysDiff <= 10) { // 3-10 days: a tick per day (midnight or first data point of day)
     const dailyTicks = new Map<string, string>();
     axisData.forEach(item => {
-      const dayKey = format(item.date, 'yyyy-MM-dd');
-      if (!dailyTicks.has(dayKey) || getHours(item.date) === 0) {
+      const dayKey = getMarketDayKey(item.market);
+      if (!dailyTicks.has(dayKey) || item.market.hour === 0) {
         dailyTicks.set(dayKey, item.timestamp);
       }
     });
     ticks.push(...Array.from(dailyTicks.values()));
   } else if (daysDiff <= 30) { // 10-30 days: every 2nd day
-    let lastPushedDate: Date | null = null;
+    let lastPushedDay: number | null = null;
     axisData.forEach(item => {
-      if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= 2) {
+      if (lastPushedDay === null || item.market.dayIndex - lastPushedDay >= 2) {
         ticks.push(item.timestamp);
-        lastPushedDate = item.date;
+        lastPushedDay = item.market.dayIndex;
       }
     });
   } else { // More than 30 days: every Nth day (e.g. 3rd, 7th)
     let step = 3;
     if (daysDiff > 90) step = 7; // weekly for very long ranges
-    let lastPushedDate: Date | null = null;
+    let lastPushedDay: number | null = null;
     axisData.forEach(item => {
-      if (!lastPushedDate || differenceInDays(item.date, lastPushedDate) >= step) {
+      if (lastPushedDay === null || item.market.dayIndex - lastPushedDay >= step) {
         ticks.push(item.timestamp);
-        lastPushedDate = item.date;
+        lastPushedDay = item.market.dayIndex;
       }
     });
   }
@@ -310,6 +316,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   onCutoffValueChange,
   activeRangePreset = null,
   showSpotPriceWithTax: controlledShowSpotPriceWithTax,
+  timeZone,
 }) => {
   const isComparisonChart = comparisonSeries.length > 0;
   const plotSeries = useMemo(() => (isComparisonChart ? comparisonSeries : []), [comparisonSeries, isComparisonChart]);
@@ -341,6 +348,23 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const priceUnitLabel = referenceEnergyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'c/kWh';
 
   // Full-resolution chart rows. Zoom indices refer to this array; only drawing is downsampled.
+  // Time and market calendar fields only depend on the prices; computed once so slider/contract
+  // changes don't redo the time-zone math for every row.
+  const baseRows = useMemo<ExtendedChartDataPoint[]>(() => {
+    if (isComparisonChart) return [];
+    return energyPrices.map(item => {
+      const time = Date.parse(item.timestamp);
+      return {
+        timestamp: item.timestamp,
+        time,
+        market: getMarketDateParts(time, timeZone),
+        price: item.price,
+        netPrice: item.price,
+        unit: item.unit,
+      };
+    });
+  }, [energyPrices, isComparisonChart, timeZone]);
+
   const chartData = useMemo(() => {
     if (isComparisonChart) {
       const rowMap = new Map<string, ExtendedChartDataPoint>();
@@ -357,7 +381,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           rowMap.set(item.timestamp, {
             timestamp: item.timestamp,
             time,
-            date: new Date(time),
+            market: getMarketDateParts(time, timeZone),
             price: item.price,
             unit: item.unit,
             [series.id]: item.price,
@@ -369,23 +393,19 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     }
 
     const vatFactor = 1 + vatRate;
-    const internalChartData: ExtendedChartDataPoint[] = energyPrices.map(item => {
-      const time = Date.parse(item.timestamp);
-      return {
-        timestamp: item.timestamp,
-        time,
-        date: new Date(time),
-        price: showSpotPriceWithTax ? item.price * vatFactor : item.price,
-        netPrice: item.price,
-        unit: item.unit,
-      };
-    });
+    const internalChartData: ExtendedChartDataPoint[] = baseRows.map(row => ({
+      ...row,
+      price: showSpotPriceWithTax ? row.price * vatFactor : row.price,
+    }));
 
     if (showSmartMeterData && smartMeterData && smartMeterData.length > 0) {
-      const consumptionMap = new Map<string, number>();
-      smartMeterData.forEach(item => {
-        consumptionMap.set(item.timestamp, item.consumption);
-      });
+      const consumptionMap = aggregateConsumptionByPriceRow(
+        energyPrices,
+        smartMeterData,
+        averaging,
+        dataResolution,
+        timeZone
+      );
 
       internalChartData.forEach(item => {
         const consumption = consumptionMap.get(item.timestamp);
@@ -402,27 +422,23 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
 
     if (selectedContract) {
       const consumption = annualConsumption > 0 ? annualConsumption : DEFAULT_ANNUAL_CONSUMPTION;
-      // networkCosts() returns net (excl. VAT) yearly network costs; VAT is applied once below.
-      const netNetworkCentPerKwh = (selectedContract.networkCosts(consumption) / consumption) * 100;
-      const isSpotContract = selectedContract.pricing === 'spot';
-      const spotMarkupCentPerKwh = selectedContract.spotMarkupCentKwh ?? 0;
 
       internalChartData.forEach(item => {
         const unitFactor = item.unit === 'EUR_MWh' ? 10 : 1; // cent/kWh -> chart unit
-        // Spot contracts follow the (net) market price plus the provider markup.
-        const energyPrice = isSpotContract
-          ? (item.netPrice ?? item.price) + spotMarkupCentPerKwh * unitFactor
-          : selectedContract.energyPrice * unitFactor;
-        const withNetwork = energyPrice + netNetworkCentPerKwh * unitFactor;
-        item.contractEnergyPrice = energyPrice;
-        item.contractNetworkCosts = withNetwork;
-        item.contractTotalPriceTaxed = withNetwork * vatFactor;
+        const marketNetCentPerKwh = (item.netPrice ?? item.price) / unitFactor;
+        const prices = contractPricePerKwh(selectedContract, consumption, vatRate, marketNetCentPerKwh);
+        item.contractEnergyPrice = prices.energy * unitFactor;
+        item.contractNetworkCosts = prices.withNetwork * unitFactor;
+        item.contractTotalPriceTaxed = prices.totalTaxed * unitFactor;
       });
     }
 
     return internalChartData;
   }, [
     annualConsumption,
+    averaging,
+    baseRows,
+    dataResolution,
     energyPrices,
     isComparisonChart,
     plotSeries,
@@ -431,6 +447,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     showSpotPriceWithTax,
     showTotalCost,
     smartMeterData,
+    timeZone,
     vatRate,
   ]);
 
@@ -750,23 +767,23 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   }, [chartData.length, fullDataEndIndex, minVisiblePoints, panFromClientDelta, zoomFromRange]);
 
   const dataTimeSpanMonths = visibleFullData.length > 0
-    ? differenceInMonths(visibleFullData[visibleFullData.length - 1].date, visibleFullData[0].date)
+    ? getMonthSpan(visibleFullData[0].market, visibleFullData[visibleFullData.length - 1].market)
     : 0;
 
   const visibleStart = visibleFullData[0]?.time ?? Number.NEGATIVE_INFINITY;
   const visibleEnd = visibleFullData[visibleFullData.length - 1]?.time ?? Number.POSITIVE_INFINITY;
   const visibleBucketKeys = useMemo(() => {
     if (averaging === 'none' || averaging === 'daily-cycle') return null;
-    return new Set(visibleFullData.map((item) => getAveragingBucketKey(averaging, item.time)));
-  }, [averaging, visibleFullData]);
+    return new Set(visibleFullData.map((item) => getAveragingBucketKey(averaging, item.time, timeZone)));
+  }, [averaging, timeZone, visibleFullData]);
 
   // Epoch times and bucket keys of the unaveraged source data, computed once per data change
   // instead of parsing every timestamp on each pan/zoom frame.
   const averageSources = useMemo(
     () => (isComparisonChart
-      ? plotSeries.map((series) => buildAverageSource(series.energyPrices, averaging))
-      : [buildAverageSource(averageEnergyPrices, averaging)]),
-    [averageEnergyPrices, averaging, isComparisonChart, plotSeries]
+      ? plotSeries.map((series) => buildAverageSource(series.energyPrices, averaging, timeZone))
+      : [buildAverageSource(averageEnergyPrices, averaging, timeZone)]),
+    [averageEnergyPrices, averaging, isComparisonChart, plotSeries, timeZone]
   );
 
   const averageVisible = useCallback((source: AverageSource, transform: (value: number) => number = (value) => value) => {
@@ -839,10 +856,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const shouldShowWeekSeparators = showWeekSeparators && canShowWeekSeparators;
   const shouldShowMonthSeparators = showMonthSeparators && canShowMonthSeparators;
   const hasMultipleQuarters = useMemo(() => {
-    const first = visibleFullData[0]?.date;
-    const last = visibleFullData[visibleFullData.length - 1]?.date;
+    const first = visibleFullData[0]?.market;
+    const last = visibleFullData[visibleFullData.length - 1]?.market;
     if (!first || !last) return false;
-    return first.getFullYear() !== last.getFullYear() || getQuarter(first) !== getQuarter(last);
+    return first.year !== last.year || getQuarter(first) !== getQuarter(last);
   }, [visibleFullData]);
   const canShowQuarterSeparators = averaging !== 'daily-cycle' && hasMultipleQuarters;
   const shouldShowQuarterSeparators = showQuarterSeparators && canShowQuarterSeparators;
@@ -851,41 +868,47 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     if (activeRangePreset === '1w' && canShowDaySeparators) setShowDaySeparators(true);
   }, [activeRangePreset, canShowDaySeparators]);
 
-  const xAxisTicks = useMemo(() => getXAxisTicks(visibleChartData, averaging), [averaging, visibleChartData]);
+  const isNarrowViewport = useIsMobile();
+  // Ticks are capped here so recharts can render them as-is (interval={0}) instead of measuring
+  // every label in the DOM to drop overlapping ones, which dominated re-render time.
+  const xAxisTicks = useMemo(
+    () => capTicks(getXAxisTicks(visibleChartData, averaging), isNarrowViewport ? MAX_X_TICKS_NARROW : MAX_X_TICKS),
+    [averaging, isNarrowViewport, visibleChartData]
+  );
 
   // Format date tick based on selected time unit and averaging
   const visibleDaysDiff = visibleFullData.length > 0
-    ? differenceInDays(visibleFullData[visibleFullData.length - 1].date, visibleFullData[0].date)
+    ? visibleFullData[visibleFullData.length - 1].market.dayIndex - visibleFullData[0].market.dayIndex
     : 0;
   const formatXAxis = (timestamp: string) => {
-    const date = parseISO(timestamp);
     const daysDiff = visibleDaysDiff;
+    const format = (pattern: string) => formatMarketDate(timestamp, pattern, timeZone);
 
     switch (averaging) {
       case 'monthly':
-        return format(date, 'MMM yy', { locale: de });
+        return format('MMM yy');
       case 'daily':
         // If many days, only show month for first tick of a new month
-        if (daysDiff > 30 && date.getDate() === 1) return format(date, 'MMM', { locale: de });
-        return format(date, 'dd.MM.', { locale: de });
+        if (daysDiff > 30 && getMarketDateParts(timestamp, timeZone).day === 1) return format('MMM');
+        return format('dd.MM.');
       case 'weekly':
-        return `KW ${getISOWeek(date)}`;
+        return `KW ${getMarketDateParts(timestamp, timeZone).isoWeek}`;
       case 'daily-cycle':
-        return format(date, 'HH:00', { locale: de });
+        return format('HH:00');
       case 'hourly':
-         if (daysDiff > 2) return format(date, 'dd.MM. HH:00', { locale: de });
-        return format(date, 'HH:00', { locale: de });
+         if (daysDiff > 2) return format('dd.MM. HH:00');
+        return format('HH:00');
       default: // Auto mode based on daysDiff (not specific averaging)
         if (daysDiff < 1) { // Less than a day
-            return format(date, 'HH:mm', { locale: de });
+            return format('HH:mm');
         } else if (daysDiff < 3) { // Less than 3 days
-            return format(date, 'dd.MM. HH:00', { locale: de });
+            return format('dd.MM. HH:00');
         } else if (daysDiff <= 10) {
-            return format(date, 'dd.MM.', { locale: de });
+            return format('dd.MM.');
         } else if (daysDiff <= 90) { // Up to ~3 months
-            return format(date, 'dd.MM.', { locale: de });
+            return format('dd.MM.');
         } else { // More than 3 months
-            return format(date, 'MMM yy', { locale: de });
+            return format('MMM yy');
         }
     }
   };
@@ -1082,28 +1105,28 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
 
   const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
     if (active && payload && payload.length && label) {
-      const date = parseISO(label);
+      const format = (pattern: string) => formatMarketDate(label, pattern, timeZone);
 
       // Format date based on averaging
       let formattedDate;
       switch (averaging) {
         case 'monthly':
-          formattedDate = format(date, 'MMMM yyyy', { locale: de });
+          formattedDate = format('MMMM yyyy');
           break;
         case 'daily':
-          formattedDate = format(date, 'dd.MM.yyyy', { locale: de });
+          formattedDate = format('dd.MM.yyyy');
           break;
         case 'weekly':
-          formattedDate = `KW ${getISOWeek(date)} ${format(date, 'yyyy', { locale: de })}`;
+          formattedDate = `KW ${getMarketDateParts(label, timeZone).isoWeek} ${format('yyyy')}`;
           break;
         case 'daily-cycle':
-          formattedDate = format(date, 'HH:00 \'Uhr\'', { locale: de });
+          formattedDate = format('HH:00 \'Uhr\'');
           break;
         case 'hourly':
-          formattedDate = format(date, 'dd.MM.yyyy HH:00 \'Uhr\'', { locale: de });
+          formattedDate = format('dd.MM.yyyy HH:00 \'Uhr\'');
           break;
         default:
-          formattedDate = format(date, 'dd.MM.yyyy HH:mm', { locale: de });
+          formattedDate = format('dd.MM.yyyy HH:mm');
       }
 
       return (
@@ -1136,7 +1159,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Netzkosten`;
             } else if (entry.dataKey === 'contractTotalPriceTaxed') {
               unit = priceUnitLabel;
-              name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Steuern`;
+              name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Abgaben & USt.`;
             }
 
             return (
@@ -1163,10 +1186,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const priceListRows = useMemo(() => {
     if (!isPriceListOpen) return [];
     return visibleFullData.map((item) => ({
-      date: formatPriceListDate(averaging, item.date),
+      date: formatPriceListDate(averaging, item, timeZone),
       price: item.price.toFixed(2),
     }));
-  }, [averaging, isPriceListOpen, visibleFullData]);
+  }, [averaging, isPriceListOpen, timeZone, visibleFullData]);
   const priceListHeader = `Preis (${priceUnitLabel})`;
 
   const copyPriceList = async (copyFormat: 'excel' | 'markdown') => {
@@ -1209,7 +1232,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     // Group all data points by month - don't rely on isFirstDataPointOfMonth flag
     const monthGroups = new Map<string, ExtendedChartDataPoint[]>();
     visibleChartData.forEach(dataPoint => {
-      const monthKey = format(dataPoint.date, 'yyyy-MM');
+      const monthKey = getMonthKey(dataPoint.market);
       if (!monthGroups.has(monthKey)) {
         monthGroups.set(monthKey, []);
       }
@@ -1226,7 +1249,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       const monthDataPoints = monthGroups.get(monthKey)!;
       if (monthDataPoints.length === 0) return;
 
-      const monthName = format(monthDataPoints[0].date, sortedMonthKeys.length > 12 ? 'MMM yy' : 'MMMM', { locale: de });
+      const monthName = formatMarketDate(monthDataPoints[0].time, sortedMonthKeys.length > 12 ? 'MMM yy' : 'MMMM', timeZone);
       const firstTimestamp = monthDataPoints[0].timestamp;
       const lastTimestamp = monthDataPoints[monthDataPoints.length - 1].timestamp;
 
@@ -1287,7 +1310,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     });
 
     return <>{monthElements}</>;
-  }, [shouldShowMonthSeparators, visibleChartData]);
+  }, [shouldShowMonthSeparators, timeZone, visibleChartData]);
 
   const quarterBands = useMemo(() => {
     if (!shouldShowQuarterSeparators || visibleChartData.length === 0) {
@@ -1298,7 +1321,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     const quarterGroups = new Map<string, ExtendedChartDataPoint[]>();
 
     visibleChartData.forEach((dataPoint) => {
-      const quarterKey = `${format(dataPoint.date, 'yyyy')}-Q${getQuarter(dataPoint.date)}`;
+      const quarterKey = `${dataPoint.market.year}-Q${getQuarter(dataPoint.market)}`;
       if (!quarterGroups.has(quarterKey)) {
         quarterGroups.set(quarterKey, []);
       }
@@ -1315,7 +1338,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
 
       const firstPoint = quarterDataPoints[0];
       const lastPoint = quarterDataPoints[quarterDataPoints.length - 1];
-      const quarterLabel = `Q${getQuarter(firstPoint.date)} ${format(firstPoint.date, 'yyyy')}`;
+      const quarterLabel = `Q${getQuarter(firstPoint.market)} ${firstPoint.market.year}`;
       const middlePoint = quarterDataPoints[Math.floor(quarterDataPoints.length / 2)];
 
       quarterElements.push(
@@ -1379,8 +1402,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     const markers: React.JSX.Element[] = [];
     let lastWeekKey: string | null = null;
     visibleChartData.forEach((item) => {
-      if (getDay(item.date) !== 1) return;
-      const weekKey = format(item.date, 'RRRR-II');
+      if (item.market.weekday !== 1) return;
+      const weekKey = `${item.market.isoWeekYear}-${item.market.isoWeek}`;
       if (weekKey === lastWeekKey) return;
       lastWeekKey = weekKey;
       markers.push(
@@ -1395,7 +1418,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
           ifOverflow="hidden"
           style={{ pointerEvents: 'none' }}
           label={{
-            value: `KW ${getISOWeek(item.date)}`,
+            value: `KW ${item.market.isoWeek}`,
             position: 'insideTop',
             fill: 'var(--week-label-color)',
             fontSize: 10,
@@ -1415,7 +1438,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     }
     const days: Array<{ key: string; first: string; last: string }> = [];
     visibleChartData.forEach((item) => {
-      const dayKey = format(item.date, 'yyyy-MM-dd');
+      const dayKey = getMarketDayKey(item.market);
       const current = days[days.length - 1];
       if (current?.key === dayKey) {
         current.last = item.timestamp;
@@ -1507,8 +1530,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
             data={visibleChartData}
             margin={{
               top: 20,
-              right: window.innerWidth < 768 ? 3 : 10,
-              left: window.innerWidth < 768 ? 3 : 10,
+              right: isNarrowViewport ? 3 : 10,
+              left: isNarrowViewport ? 3 : 10,
               bottom: 20
             }}
             className="bg-card md:border border-none"
@@ -1565,7 +1588,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               ticks={xAxisTicks}
               tickFormatter={formatXAxis}
               label={{ value: averaging === 'daily-cycle' ? 'Stunde des Tages' : getXAxisLabel(), position: 'bottom', offset: 0 }}
-              minTickGap={ averaging === 'daily-cycle' ? 15 : 30} // Smaller gap for hourly view
+              interval={0}
               height={30}
               tick={{ fontSize: 12 }}
             />
@@ -1649,9 +1672,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                   yAxisId="price"
                   stroke={series.color || COMPARISON_COLORS[index % COMPARISON_COLORS.length]}
                   strokeWidth={2}
-                  dot={series.energyPrices.length > 100 ? false : {}}
-                  activeDot={{ r: 4 }}
-                  animationDuration={200}
+                  dot={series.energyPrices.length > 100 ? false : DEFAULT_DOT}
+                  activeDot={COMPARISON_ACTIVE_DOT}
+                  isAnimationActive={false}
                   connectNulls
                 />
               ))
@@ -1664,9 +1687,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 yAxisId="price"
                 stroke="#8E512C"
                 strokeWidth={2}
-                dot={energyPrices.length > 100 ? false : {}}
-                activeDot={{ r: 5 }}
-                animationDuration={200}
+                dot={energyPrices.length > 100 ? false : DEFAULT_DOT}
+                activeDot={ACTIVE_DOT}
+                isAnimationActive={false}
               />
             )}
             {!isComparisonChart && showSmartMeterData && smartMeterData && smartMeterData.length > 0 && (
@@ -1678,8 +1701,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 yAxisId="consumption"
                 stroke="#7A8370"
                 strokeWidth={2}
-                dot={smartMeterData.length > 100 ? false : {}}
-                animationDuration={200}
+                dot={smartMeterData.length > 100 ? false : DEFAULT_DOT}
+                isAnimationActive={false}
                 hide={!showConsumption}
               />
             )}
@@ -1692,8 +1715,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 yAxisId="cost"
                 stroke="#B8733A"
                 strokeWidth={2}
-                dot={smartMeterData.length > 100 ? false : {}}
-                animationDuration={200}
+                dot={smartMeterData.length > 100 ? false : DEFAULT_DOT}
+                isAnimationActive={false}
                 hide={!showCost}
               />
             )}
@@ -1708,7 +1731,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 strokeWidth={3}
                 strokeDasharray="5 5"
                 dot={false}
-                animationDuration={200}
+                isAnimationActive={false}
                 hide={!showBasePrice}
               />
             )}
@@ -1723,7 +1746,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 strokeWidth={3}
                 strokeDasharray="5 5"
                 dot={false}
-                animationDuration={200}
+                isAnimationActive={false}
                 hide={!showNetworkCosts}
               />
             )}
@@ -1732,13 +1755,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 key="contractTotalPriceTaxed-line"
                 type="monotone"
                 dataKey="contractTotalPriceTaxed"
-                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Steuern`}
+                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Abgaben & USt.`}
                 yAxisId="price"
                 stroke="#6F6252"
                 strokeWidth={3}
                 strokeDasharray="5 5"
                 dot={false}
-                animationDuration={200}
+                isAnimationActive={false}
                 hide={!showWithTaxes}
               />
             )}
@@ -1929,7 +1952,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               checked={showWithTaxes}
               onCheckedChange={handleCheckedChange(setShowWithTaxes)}
             />
-            <Label htmlFor="show-with-taxes" className="text-sm">Inkl. Steuern</Label>
+            <Label htmlFor="show-with-taxes" className="text-sm">Inkl. Abgaben & USt.</Label>
           </div>
         </div>
       )}

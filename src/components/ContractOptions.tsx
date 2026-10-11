@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ContractOption, Tariff } from '@/types/energy-data';
 import { cn } from '@/lib/utils';
-import { ChartContractOption, useTariffData } from '@/hooks/useTariffData';
+import { ChartContractOption, effectiveEnergyCentPerKwh, fixedFeeEurPerYear, useTariffData } from '@/hooks/useTariffData';
 import NetworkCostsDisplay from './NetworkCostsDisplay';
 import ConsumptionSlider from './ConsumptionSlider';
 
@@ -26,41 +26,59 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
   selectedContract,
   vatRate
 }) => {
-  const { data, calculateNetworkCostsForConsumption, calculateTariffCostsForConsumption } = useTariffData(vatRate);
+  const { data, energyLevyRate, calculateNetworkCostsForConsumption, calculateTariffCostsForConsumption } = useTariffData(vatRate);
   const vatLabel = `USt. (${formatVatPercent(vatRate)}):`;
+  const levyLabel = `Gebrauchsabgabe (${Number((energyLevyRate * 100).toFixed(2))} %):`;
+  const customDefaults = data.tariffs.find((tariff) => tariff.id === 'custom');
   const [editableValues, setEditableValues] = useState({
-    provider: 'Eigene Eingabe',
-    arbeitspreis_cent_kwh: 27.14,
-    grundpauschale: 50
+    provider: customDefaults?.provider ?? 'Eigene Eingabe',
+    arbeitspreis_cent_kwh: customDefaults?.arbeitspreis_cent_kwh ?? 12,
+    grundpauschale: customDefaults?.grundpauschale ?? 50
   });
 
   const networkCosts = calculateNetworkCostsForConsumption(annualConsumption);
 
-  const handleEditableChange = (field: string, value: string | number) => {
-    setEditableValues(prev => ({
-      ...prev,
-      [field]: typeof value === 'string' ? value : Number(value)
-    }));
-  };
+  const withEditableValues = (tariff: Tariff, values: typeof editableValues): Tariff => ({
+    ...tariff,
+    provider: values.provider,
+    arbeitspreis_cent_kwh: Number.isFinite(values.arbeitspreis_cent_kwh) ? values.arbeitspreis_cent_kwh : 0,
+    grundpauschale: Number.isFinite(values.grundpauschale) ? values.grundpauschale : 0,
+  });
 
-  const handleSelectContract = (tariff: Tariff) => {
-    // Convert tariff data to ContractOption format for compatibility
+  const buildContractOption = (tariff: Tariff): ChartContractOption => {
     const isSpot = tariff.type === 'spot';
-    const contractOption: ChartContractOption = {
+    return {
       name: tariff.name,
       provider: tariff.provider,
-      basePrice: tariff.calculated?.energiekosten_incl_tax || tariff.grundgebuehr || 0,
-      energyPrice: isSpot ? 0 : tariff.arbeitspreis_cent_kwh || 0,
+      fixedFeeEurYear: fixedFeeEurPerYear(tariff),
+      // Per-kWh discounts (e.g. a first-year bonus) are part of the effective energy price.
+      energyPrice: isSpot ? 0 : effectiveEnergyCentPerKwh(tariff),
       // Net (excl. VAT) network costs for the given yearly consumption; the chart adds VAT once.
       networkCosts: (consumption) => calculateNetworkCostsForConsumption(consumption).calculated.total_excl_tax,
       pricing: isSpot ? 'spot' : 'fixed',
       spotMarkupCentKwh: isSpot ? tariff.verwaltungsgebuehr_cent_kwh ?? 0 : undefined,
+      energyLevyRate,
     };
+  };
 
+  const handleEditableChange = (field: keyof typeof editableValues, value: string | number) => {
+    const nextValues = {
+      ...editableValues,
+      [field]: typeof value === 'string' ? value : Number(value)
+    };
+    setEditableValues(nextValues);
+
+    // Keep the chart in sync while the selected custom tariff is being edited.
+    if (customDefaults && selectedContract?.name === customDefaults.name) {
+      onSelectContract(buildContractOption(withEditableValues(customDefaults, nextValues)));
+    }
+  };
+
+  const handleSelectContract = (tariff: Tariff) => {
     if (selectedContract?.name === tariff.name) {
       onSelectContract(undefined);
     } else {
-      onSelectContract(contractOption);
+      onSelectContract(buildContractOption(tariff));
     }
   };
 
@@ -72,7 +90,10 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
     const isSelected = selectedContract?.name === tariff.name;
     const isCustom = tariff.id === 'custom';
     const isSpot = tariff.type === 'spot';
-    const calculatedTariff = calculateTariffCostsForConsumption(tariff, annualConsumption);
+    const calculatedTariff = calculateTariffCostsForConsumption(
+      isCustom ? withEditableValues(tariff, editableValues) : tariff,
+      annualConsumption
+    );
     
     // Ensure calculated object exists
     if (!calculatedTariff.calculated) {
@@ -81,24 +102,6 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
         energiekosten_excl_tax: 0,
         tax_amount: 0,
         energiekosten_incl_tax: 0
-      };
-    }
-    
-    if (isCustom) {
-      // Use editable values for custom tariff
-      calculatedTariff.provider = editableValues.provider;
-      calculatedTariff.arbeitspreis_cent_kwh = editableValues.arbeitspreis_cent_kwh;
-      calculatedTariff.grundpauschale = editableValues.grundpauschale;
-      
-      const arbeitspreisTotal = (editableValues.arbeitspreis_cent_kwh / 100) * annualConsumption;
-      const totalExclTax = arbeitspreisTotal + editableValues.grundpauschale;
-      const taxAmount = totalExclTax * vatRate;
-      
-      calculatedTariff.calculated = {
-        arbeitspreis_total: arbeitspreisTotal,
-        energiekosten_excl_tax: totalExclTax,
-        tax_amount: taxAmount,
-        energiekosten_incl_tax: totalExclTax + taxAmount
       };
     }
 
@@ -134,7 +137,20 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
             ) : (
               <CardDescription className="font-medium">{tariff.provider}</CardDescription>
             )}
-            <div className="text-xs text-muted-foreground">Stand: {data.lastUpdated}</div>
+            {!isCustom && (
+              <div className="text-xs text-muted-foreground">
+                Stand: {tariff.stand ?? data.lastUpdated}
+                {tariff.source_url && (
+                  <>
+                    {' · '}
+                    <a href={tariff.source_url} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
+                      Quelle
+                    </a>
+                  </>
+                )}
+              </div>
+            )}
+            {tariff.note && <div className="text-xs text-muted-foreground">{tariff.note}</div>}
           </div>
         </CardHeader>
         
@@ -185,10 +201,17 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                     )}
                   </span>
                   
-                  {calculatedTariff.rabatte?.total !== 0 && (
+                  {calculatedTariff.rabatte?.details?.map((detail) => (
+                    <React.Fragment key={detail.name}>
+                      <span className="text-primary">{detail.name}:</span>
+                      <span className="text-right font-medium text-primary">{safeToFixed(detail.amount)} €</span>
+                    </React.Fragment>
+                  ))}
+
+                  {energyLevyRate > 0 && (
                     <>
-                      <span className="text-primary">Rabatte:</span>
-                      <span className="text-right font-medium text-primary">{safeToFixed(calculatedTariff.rabatte?.total)} €</span>
+                      <span className="text-muted-foreground">{levyLabel}</span>
+                      <span className="text-right font-medium">{safeToFixed(calculatedTariff.calculated.gebrauchsabgabe)} €</span>
                     </>
                   )}
                 </div>
@@ -231,15 +254,22 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 <span className="text-muted-foreground">Grundgebühr:</span>
                 <span className="text-right font-medium">{safeToFixed(tariff.grundgebuehr)} € / Jahr</span>
                 
-                <span className="text-muted-foreground">Verwaltungsgebühr:</span>
+                <span className="text-muted-foreground">Aufschlag auf Spotpreis:</span>
                 <span className="text-right font-medium">{safeToFixed(tariff.verwaltungsgebuehr_cent_kwh)} cent/kWh</span>
                 
-                <span className="text-muted-foreground">Verwaltung gesamt:</span>
+                <span className="text-muted-foreground">Aufschlag gesamt:</span>
                 <span className="text-right font-medium">{safeToFixed(calculatedTariff.calculated?.arbeitspreis_total)} € / Jahr</span>
+
+                {energyLevyRate > 0 && (
+                  <>
+                    <span className="text-muted-foreground">{levyLabel}</span>
+                    <span className="text-right font-medium">{safeToFixed(calculatedTariff.calculated?.gebrauchsabgabe)} € / Jahr</span>
+                  </>
+                )}
               </div>
               
               <div className="text-xs text-secondary mt-2 p-2 bg-secondary/15 dark:bg-secondary/20 rounded">
-                + aktueller Spotpreis + Netzkosten + Steuern
+                + stündlicher Spotpreis (inkl. Gebrauchsabgabe) + Netzkosten + Steuern
               </div>
             </div>
           )}
@@ -275,6 +305,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
 
       <NetworkCostsDisplay 
         networkCosts={networkCosts}
+        config={data.networkCosts}
         consumption={annualConsumption}
         vatRate={vatRate}
       />

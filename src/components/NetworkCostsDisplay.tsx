@@ -1,72 +1,41 @@
-
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { NetworkCosts } from '@/types/energy-data';
+import type { CalculatedNetworkCosts } from '@/hooks/useTariffData';
+import type { NetworkCostsConfig } from '@/types/energy-data';
 
 interface NetworkCostsDisplayProps {
-  networkCosts: NetworkCosts;
+  networkCosts: CalculatedNetworkCosts;
+  config: NetworkCostsConfig;
   consumption: number;
   vatRate: number;
 }
 
 const formatVatPercent = (vatRate: number) => `${Number((vatRate * 100).toFixed(1))}%`;
 
-const NetworkCostsDisplay: React.FC<NetworkCostsDisplayProps> = ({ networkCosts, consumption, vatRate }) => {
+const NetworkCostsDisplay: React.FC<NetworkCostsDisplayProps> = ({ networkCosts, config, consumption, vatRate }) => {
   return (
     <Card className="mb-6">
       <CardHeader>
         <CardTitle>{networkCosts.name}</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Gültig für alle Tarife - Jahresverbrauch: {consumption} kWh
+          Gültig für alle Tarife - Jahresverbrauch: {consumption} kWh - Tarife gültig ab {config.validFrom}
         </p>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="space-y-2">
-            <div className="font-medium text-sm">Netznutzungsentgelt:</div>
-            <div className="pl-4 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span>Arbeitspreis</span>
-                <span>{networkCosts.calculated.arbeitspreis.toFixed(2)} €</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Grundpauschale</span>
-                <span>{networkCosts.breakdown.netznutzungsentgelt.grundpauschale.toFixed(2)} €</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="font-medium text-sm">Weitere Kosten:</div>
-            <div className="pl-4 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span>Netzverlustentgelt</span>
-                <span>{networkCosts.breakdown.netzverlustentgelt.toFixed(2)} €</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Entgelt für Messleistungen</span>
-                <span>{networkCosts.breakdown.messleistungen.toFixed(2)} €</span>
+          {networkCosts.groups.map((group) => (
+            <div key={group.label} className="space-y-2">
+              <div className="font-medium text-sm">{group.label}:</div>
+              <div className="pl-4 space-y-1 text-sm">
+                {group.items.map((item) => (
+                  <div key={item.label} className="flex justify-between gap-4">
+                    <span>{item.label}</span>
+                    <span className="whitespace-nowrap">{item.amount.toFixed(2)} €</span>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="font-medium text-sm">Abgaben:</div>
-            <div className="pl-4 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span>Elektrizitätsabgabe</span>
-                <span>{networkCosts.breakdown.abgaben.elektrizitaetsabgabe.toFixed(2)} €</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Erneuerbaren-Förderbeitrag</span>
-                <span>{networkCosts.breakdown.abgaben.erneuerbaren_foerderbeitrag.toFixed(2)} €</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Erneuerbaren-Förderpauschale</span>
-                <span>{networkCosts.breakdown.abgaben.erneuerbaren_foerderpauschale.toFixed(2)} €</span>
-              </div>
-            </div>
-          </div>
+          ))}
 
           <div className="border-t pt-2">
             <div className="flex justify-between font-medium">
@@ -82,6 +51,22 @@ const NetworkCostsDisplay: React.FC<NetworkCostsDisplayProps> = ({ networkCosts,
               <span>{networkCosts.calculated.total_incl_tax.toFixed(2)} €</span>
             </div>
           </div>
+
+          {(config.notes?.length || config.sources?.length) ? (
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer">Hinweise &amp; Quellen</summary>
+              <ul className="mt-2 space-y-1 list-disc pl-4">
+                {config.notes?.map((note) => <li key={note}>{note}</li>)}
+                {config.sources?.map((source) => (
+                  <li key={source.url}>
+                    <a href={source.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
+                      {source.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </div>
       </CardContent>
     </Card>

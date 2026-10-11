@@ -66,7 +66,8 @@ describe('optimized binary decoder', () => {
       const intervalMinutes = file.includes('15min') ? 15 : 60;
       expect(() => decodeOptimizedBinaryEnergyPrices(toArrayBuffer(artifact), { intervalMinutes })).not.toThrow();
     }
-  });
+    // Decodes several years of hourly and 15-minute data; can exceed 5s on a busy machine.
+  }, 30_000);
 
   it('decodes the committed Austrian price artifact from its fixed history start', () => {
     const artifact = readFileSync(resolve(process.cwd(), 'public/at_electricity_prices.bin'));

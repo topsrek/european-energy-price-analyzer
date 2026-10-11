@@ -8,13 +8,18 @@ background update loop.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
 import mimetypes
 import os
 import random
 import re
+import shutil
+import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -29,12 +34,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 ROOT = Path(__file__).resolve().parents[1]
 DIST_ROOT = ROOT / "dist"
 DATA_ROOT = ROOT / "data"
-STATE_PATH = DATA_ROOT / "worker-state.json"
+# Price artifacts and their metadata as shipped in the image (or the checkout).
+IMAGE_ARTIFACT_DIR = ROOT / "public"
+IMAGE_METADATA_DIR = ROOT / "scripts" / "data"
 DEFAULT_PORT = 49173
 DEFAULT_UPDATE_TIMEZONE = "Europe/Vienna"
 DEFAULT_UPDATE_HOUR_LOCAL = 13
 DEFAULT_UPDATE_MINUTE_LOCAL = 7
-DEFAULT_COUNTRIES = "AT"
+DEFAULT_COUNTRIES = "AT,DE-LU,FR"
 UPDATE_OVERLAP_DAYS = 1
 SCHEDULER_POLL_SECONDS = 5 * 60
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 25 * 60
@@ -43,6 +50,17 @@ COMMAND_RETRY_DELAYS_SECONDS = (60, 180)
 PUBLIC_BINARY_PATH_RE = re.compile(r"^/[a-z0-9-]+_electricity_prices(?:_15min)?\.bin$")
 COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}(?:-[A-Z]{2})?$")
 REQUEST_TIMEOUT_SECONDS = 15
+# Whole request line + headers + body must arrive within this, however slowly the
+# client trickles bytes; the per-read timeout alone let a slowloris hold a thread forever.
+REQUEST_READ_DEADLINE_SECONDS = 10
+DEFAULT_MAX_CONNECTIONS = 64
+# Extra slots for loopback clients, so the container health check still gets
+# through while public connections are at the cap.
+LOOPBACK_RESERVED_CONNECTIONS = 4
+ARTIFACT_NAME_RE = re.compile(r"^([a-z0-9-]+)_electricity_prices(_15min)?\.bin$")
+INLINE_SCRIPT_RE = re.compile(r"<script\b([^>]*)>(.*?)</script\s*>", re.IGNORECASE | re.DOTALL)
+SCRIPT_TYPE_RE = re.compile(r"""\btype\s*=\s*["']?([^"'\s>]+)""", re.IGNORECASE)
+SCRIPT_SRC_RE = re.compile(r"\bsrc\s*=", re.IGNORECASE)
 DEFAULT_FRAME_ANCESTORS = (
     "'self' https://machine-literacy.com https://www.machine-literacy.com http://localhost:5173"
 )
@@ -52,6 +70,26 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 logger = logging.getLogger("eepa-worker")
+
+
+def data_dir() -> Path | None:
+    """Writable data root (e.g. a persistent volume), or None to use the image paths."""
+    value = os.getenv("DATA_DIR", "").strip()
+    return Path(value) if value else None
+
+
+def artifact_dir() -> Path:
+    root = data_dir()
+    return root / "public" if root else IMAGE_ARTIFACT_DIR
+
+
+def metadata_dir() -> Path:
+    root = data_dir()
+    return root / "metadata" if root else IMAGE_METADATA_DIR
+
+
+def state_path() -> Path:
+    return (data_dir() or DATA_ROOT) / "worker-state.json"
 
 
 class WorkerState:
@@ -113,13 +151,21 @@ class WorkerState:
         with self.lock:
             return self.last_update_status == "running"
 
+    def load(self) -> None:
+        with self.lock:
+            self._load()
+
     def _load(self) -> None:
+        path = state_path()
         try:
-            payload = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+            payload = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return
-        except json.JSONDecodeError as exc:
-            logger.warning("Ignoring invalid worker state file %s: %s", STATE_PATH, exc)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Ignoring unreadable worker state file %s: %s", path, exc)
+            return
+        if not isinstance(payload, dict):
+            logger.warning("Ignoring invalid worker state file %s", path)
             return
 
         self.last_update_started_at = as_optional_str(payload.get("last_update_started_at"))
@@ -139,8 +185,9 @@ class WorkerState:
             self.last_update_message = "interrupted by restart"
 
     def _persist_locked(self) -> None:
-        DATA_ROOT.mkdir(parents=True, exist_ok=True)
-        tmp_path = STATE_PATH.with_suffix(".tmp")
+        path = state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(".tmp")
         payload = {
             "last_update_started_at": self.last_update_started_at,
             "last_update_finished_at": self.last_update_finished_at,
@@ -156,7 +203,7 @@ class WorkerState:
             json.dumps(payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        tmp_path.replace(STATE_PATH)
+        tmp_path.replace(path)
 
 
 STATE = WorkerState()
@@ -167,23 +214,76 @@ class Handler(BaseHTTPRequestHandler):
     sys_version = ""
     # Drop idle or slow clients instead of holding a thread open forever.
     timeout = REQUEST_TIMEOUT_SECONDS
+    read_deadline_seconds = REQUEST_READ_DEADLINE_SECONDS
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        # The request has been read once we answer; from here on a slow client is
+        # only bounded by the per-write timeout.
+        self._stop_read_deadline()
+        self._response_started = True
+        super().send_response(code, message)
 
     def end_headers(self) -> None:
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        for name, value in common_security_headers(getattr(self, "headers", None)):
+            self.send_header(name, value)
         super().end_headers()
 
+    def parse_request(self) -> bool:
+        ok = super().parse_request()
+        if self._read_aborted:
+            # The shutdown made the header read end early; that is not a request.
+            self.close_connection = True
+            return False
+        return ok
+
     def handle_one_request(self) -> None:
+        self._response_started = False
+        self._read_aborted = False
+        self._deadline_lock = threading.Lock()
+        self._deadline_timer: threading.Timer | None = threading.Timer(
+            self.read_deadline_seconds, self._abort_slow_request
+        )
+        self._deadline_timer.daemon = True
+        self._deadline_timer.start()
         try:
             super().handle_one_request()
         except (ConnectionError, TimeoutError):
             raise
         except Exception:
             logger.exception("Unhandled error while serving %s", getattr(self, "path", "?"))
+            if self._response_started:
+                # Status line and headers (maybe part of the body) are already out;
+                # a second response would corrupt the stream, so just hang up.
+                self.close_connection = True
+                return
             try:
                 self.send_json({"error": "internal_error"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
             except OSError:
-                pass
+                self.close_connection = True
+        finally:
+            self._stop_read_deadline()
+
+    def _stop_read_deadline(self) -> None:
+        lock = getattr(self, "_deadline_lock", None)
+        if lock is None:
+            return
+        with lock:
+            if self._deadline_timer is not None:
+                self._deadline_timer.cancel()
+                self._deadline_timer = None
+
+    def _abort_slow_request(self) -> None:
+        with self._deadline_lock:
+            if self._deadline_timer is None:
+                return
+            self._deadline_timer = None
+            self._read_aborted = True
+        logger.info("Dropping %s: request not received within %ss", self.address_string(), self.read_deadline_seconds)
+        try:
+            # Unblocks the pending read with EOF; the handler then closes normally.
+            self.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
     def do_HEAD(self) -> None:
         path = self.normalized_path()
@@ -288,7 +388,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = self.read_json_body()
             country_code = str(payload.get("countryCode") or payload.get("country") or "AT").upper()
-            if not COUNTRY_CODE_RE.match(country_code):
+            if not COUNTRY_CODE_RE.fullmatch(country_code):
                 raise ValueError("invalid country code")
             resolution = str(payload.get("resolution") or "hourly").lower()
             client_latest = first_nonempty(
@@ -300,6 +400,11 @@ class Handler(BaseHTTPRequestHandler):
             if not client_latest:
                 self.send_json({"error": "latest_timestamp_required"}, status=HTTPStatus.BAD_REQUEST)
                 return
+            try:
+                parse_timestamp(client_latest)
+            except (ValueError, OverflowError):
+                # OverflowError: e.g. 9999-12-31T23:59:59-23:59 overflows on conversion to UTC.
+                raise ValueError("invalid timestamp") from None
 
             server_latest = get_latest_data_timestamp(country_code, resolution)
             if not server_latest:
@@ -326,7 +431,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         except (json.JSONDecodeError, UnicodeDecodeError):
             self.send_json({"error": "bad_request", "message": "invalid JSON body"}, status=HTTPStatus.BAD_REQUEST)
-        except ValueError as exc:
+        except (ValueError, OverflowError) as exc:
             # Our own validation messages are safe to echo; parser internals are not.
             message = str(exc) if str(exc) in SAFE_ERROR_MESSAGES else "invalid request"
             self.send_json({"error": "bad_request", "message": message}, status=HTTPStatus.BAD_REQUEST)
@@ -357,6 +462,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
             return
 
+        # Price data is only ever served from the live artifact directory. The build
+        # copies public/*.bin into dist/, and those copies go stale after the first
+        # refresh (reachable e.g. as /at_electricity_prices.bin/ with a trailing slash).
+        if candidate.suffix == ".bin" or Path(request_path).suffix == ".bin":
+            self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+            return
+
         if not candidate.exists() or not candidate.is_file():
             # Only extension-less paths are client-side routes. Serving index.html for a
             # missing hashed asset (e.g. after a redeploy) would be cached as "JS" for a year.
@@ -375,7 +487,10 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Security-Policy", f"frame-ancestors {frame_ancestors()}")
+        if candidate.suffix == ".html":
+            self.send_header("Content-Security-Policy", content_security_policy())
+        else:
+            self.send_header("Content-Security-Policy", f"frame-ancestors {frame_ancestors()}")
         self.send_header("Cache-Control", cache_control)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -388,11 +503,90 @@ SAFE_ERROR_MESSAGES = {
     "request body too large",
     "request body must be a JSON object",
     "invalid country code",
+    "invalid timestamp",
 }
 
 
 def frame_ancestors() -> str:
     return os.getenv("FRAME_ANCESTORS", "").strip() or DEFAULT_FRAME_ANCESTORS
+
+
+def common_security_headers(request_headers: Any) -> list[tuple[str, str]]:
+    """Headers sent on every response (HTML, JSON, binaries and errors alike)."""
+    headers = [
+        ("X-Content-Type-Options", "nosniff"),
+        ("Referrer-Policy", "strict-origin-when-cross-origin"),
+        ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
+    ]
+    # Only claim HSTS when the request really arrived over TLS at the proxy; on
+    # plain-HTTP LAN or local access the header would be wrong (and ignored).
+    forwarded_proto = request_headers.get("X-Forwarded-Proto", "") if request_headers is not None else ""
+    if forwarded_proto.split(",", 1)[0].strip().lower() == "https":
+        headers.append(("Strict-Transport-Security", "max-age=31536000"))
+    return headers
+
+
+_script_hash_cache: dict[str, Any] = {"key": None, "hashes": []}
+_script_hash_lock = threading.Lock()
+
+
+def inline_script_hashes(html: str) -> list[str]:
+    """CSP hash sources for the executable inline <script> blocks of a page.
+
+    Data blocks (JSON-LD and other JSON types) are not executed, so CSP does not
+    apply to them; scripts with src are covered by 'self'.
+    """
+    hashes = []
+    for attributes, body in INLINE_SCRIPT_RE.findall(html):
+        if SCRIPT_SRC_RE.search(attributes):
+            continue
+        type_match = SCRIPT_TYPE_RE.search(attributes)
+        script_type = type_match.group(1).lower() if type_match else ""
+        if script_type.endswith("json"):
+            continue
+        digest = hashlib.sha256(body.encode("utf-8")).digest()
+        hashes.append(f"'sha256-{base64.b64encode(digest).decode('ascii')}'")
+    return sorted(set(hashes))
+
+
+def index_script_hashes() -> list[str]:
+    """Hashes for dist/index.html, recomputed only when the file changes."""
+    index_path = DIST_ROOT / "index.html"
+    try:
+        stat_result = index_path.stat()
+        key = (stat_result.st_mtime_ns, stat_result.st_size)
+    except OSError:
+        return []
+    with _script_hash_lock:
+        if _script_hash_cache["key"] != key:
+            try:
+                html = index_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                logger.warning("Cannot read %s for CSP script hashes: %s", index_path, exc)
+                return []
+            _script_hash_cache["key"] = key
+            _script_hash_cache["hashes"] = inline_script_hashes(html)
+        return list(_script_hash_cache["hashes"])
+
+
+def content_security_policy() -> str:
+    # Radix and recharts set inline style attributes, so styles need 'unsafe-inline'.
+    # The contact links open mailto: via window.location, not a form submission.
+    extra_connect = os.getenv("CSP_CONNECT_SRC", "").strip()
+    directives = [
+        "default-src 'self'",
+        " ".join(["script-src 'self'", *index_script_hashes()]),
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        f"connect-src 'self'{' ' + extra_connect if extra_connect else ''}",
+        "manifest-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        f"frame-ancestors {frame_ancestors()}",
+    ]
+    return "; ".join(directives)
 
 
 def now_iso() -> str:
@@ -414,8 +608,9 @@ def resolve_geoip(headers: Any) -> dict[str, Any]:
         headers.get("X-Country-Code"),
     )
 
+    country = valid_country_code(country)
     if country:
-        return {"country_code": country.upper(), "source": "edge-header"}
+        return {"country_code": country, "source": "edge-header"}
 
     provider_url = os.getenv("GEOIP_PROVIDER_URL", "").strip()
     if provider_url:
@@ -431,12 +626,21 @@ def resolve_geoip(headers: Any) -> dict[str, Any]:
                 payload.get("countryCode"),
                 payload.get("country"),
             )
+            country = valid_country_code(country)
             if country:
-                return {"country_code": str(country).upper(), "source": "provider"}
-        except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+                return {"country_code": country, "source": "provider"}
+        except (OSError, urllib.error.URLError, json.JSONDecodeError, AttributeError) as exc:
             logger.warning("GeoIP provider failed: %s", exc)
 
     return {"country_code": None, "source": "unavailable"}
+
+
+def valid_country_code(value: Any) -> str | None:
+    """Upper-cased country code, or None for anything that is not one (e.g. "XX<script>")."""
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip().upper()
+    return candidate if COUNTRY_CODE_RE.fullmatch(candidate) else None
 
 
 def first_nonempty(*values: Any) -> str | None:
@@ -447,10 +651,10 @@ def first_nonempty(*values: Any) -> str | None:
 
 
 def resolve_public_binary_path(path: str) -> Path | None:
-    if not PUBLIC_BINARY_PATH_RE.match(path):
+    if not PUBLIC_BINARY_PATH_RE.fullmatch(path):
         return None
 
-    candidate = ROOT / "public" / path.lstrip("/")
+    candidate = artifact_dir() / path.lstrip("/")
     if not candidate.exists() or not candidate.is_file():
         return None
 
@@ -477,22 +681,24 @@ def get_latest_data_timestamp(country_code: str, resolution: str) -> str | None:
 
     for suffix in suffixes:
         file_name = f"{country}_{suffix}"
-        for metadata_dir in (ROOT / "scripts" / "data", ROOT / "public"):
-            metadata_path = metadata_dir / file_name
-            if not metadata_path.exists():
-                continue
-
-            try:
-                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse metadata file: %s", metadata_path)
-                continue
-
-            latest = metadata.get("data_coverage", {}).get("last_timestamp")
-            if isinstance(latest, str) and latest:
-                return latest
+        latest = metadata_last_timestamp(metadata_dir() / file_name)
+        if latest:
+            return latest
 
     return None
+
+
+def metadata_last_timestamp(metadata_path: Path) -> str | None:
+    """data_coverage.last_timestamp of a metadata file, or None if missing/unreadable."""
+    if not metadata_path.exists():
+        return None
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        latest = metadata.get("data_coverage", {}).get("last_timestamp")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+        logger.warning("Failed to parse metadata file: %s", metadata_path)
+        return None
+    return latest if isinstance(latest, str) and latest else None
 
 
 def parse_timestamp(value: str) -> datetime:
@@ -696,14 +902,156 @@ def run_update(*, reason: str, expected_date: date) -> None:
     STATE.mark_finished("ok", f"updated {','.join(countries)}")
 
 
+def copy_file_atomic(source: Path, target: Path) -> None:
+    tmp_path = target.with_name(f".{target.name}.seed.tmp")
+    shutil.copyfile(source, tmp_path)
+    tmp_path.replace(target)
+
+
+def seed_data_dir() -> None:
+    """Fill DATA_DIR (a persistent volume) from the artifacts baked into the image.
+
+    An artifact is copied when the volume lacks it or holds older data than the
+    image (by metadata last_timestamp), so a fresh volume starts from the committed
+    data and a volume that has been refreshed since is never rolled back by a
+    redeploy. If the directory is unusable the worker falls back to the image
+    copies, which is exactly how it behaves without a volume.
+    """
+    root = data_dir()
+    if root is None:
+        return
+
+    try:
+        target_artifacts = artifact_dir()
+        target_metadata = metadata_dir()
+        target_artifacts.mkdir(parents=True, exist_ok=True)
+        target_metadata.mkdir(parents=True, exist_ok=True)
+
+        for image_binary in sorted(IMAGE_ARTIFACT_DIR.glob("*.bin")):
+            if not ARTIFACT_NAME_RE.fullmatch(image_binary.name):
+                continue
+            metadata_name = f"{image_binary.stem}_metadata.json"
+            image_metadata = IMAGE_METADATA_DIR / metadata_name
+            target_binary = target_artifacts / image_binary.name
+            target_metadata_path = target_metadata / metadata_name
+
+            image_latest = metadata_last_timestamp(image_metadata)
+            target_latest = metadata_last_timestamp(target_metadata_path) if target_binary.exists() else None
+            if target_latest and (not image_latest or parse_timestamp(target_latest) >= parse_timestamp(image_latest)):
+                logger.info("Keeping %s from %s (through %s)", image_binary.name, root, target_latest)
+                continue
+
+            # Binary first, then metadata, as in the pipeline.
+            copy_file_atomic(image_binary, target_binary)
+            if image_metadata.exists():
+                copy_file_atomic(image_metadata, target_metadata_path)
+            logger.info(
+                "Seeded %s into %s from the image (image through %s, volume had %s)",
+                image_binary.name,
+                root,
+                image_latest,
+                target_latest or "nothing",
+            )
+    except (OSError, ValueError, OverflowError) as exc:
+        logger.error("DATA_DIR=%s is not usable (%s); serving the image copies without persistence", root, exc)
+        # Subprocesses inherit the environment, so this also points the refresh
+        # scripts back at the image paths.
+        os.environ.pop("DATA_DIR", None)
+
+
+def max_connections() -> int:
+    try:
+        return max(1, int(os.getenv("MAX_CONNECTIONS", str(DEFAULT_MAX_CONNECTIONS))))
+    except ValueError:
+        return DEFAULT_MAX_CONNECTIONS
+
+
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a cap on concurrently handled connections.
+
+    The stock server starts a thread per connection without limit. Over the cap a
+    connection gets an immediate 503 and is closed. Loopback clients (the
+    container health check) get a few reserved slots of their own.
+    """
+
+    daemon_threads = True
+    BUSY_RESPONSE = (
+        b"HTTP/1.0 503 Service Unavailable\r\n"
+        b"Content-Type: text/plain\r\n"
+        b"Content-Length: 5\r\n"
+        b"Retry-After: 5\r\n"
+        b"Connection: close\r\n\r\n"
+        b"busy\n"
+    )
+
+    def __init__(self, server_address: Any, handler_class: Any, connection_limit: int | None = None) -> None:
+        self.connection_limit = connection_limit or max_connections()
+        self._public_slots = threading.BoundedSemaphore(self.connection_limit)
+        self._loopback_slots = threading.BoundedSemaphore(LOOPBACK_RESERVED_CONNECTIONS)
+        super().__init__(server_address, handler_class)
+
+    def _acquire_slot(self, client_address: Any) -> threading.BoundedSemaphore | None:
+        if self._public_slots.acquire(blocking=False):
+            return self._public_slots
+        host = client_address[0] if isinstance(client_address, tuple) and client_address else ""
+        if host in {"127.0.0.1", "::1", "::ffff:127.0.0.1"} and self._loopback_slots.acquire(blocking=False):
+            return self._loopback_slots
+        return None
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        slot = self._acquire_slot(client_address)
+        if slot is None:
+            logger.warning("Connection limit (%s) reached; rejecting %s", self.connection_limit, client_address)
+            try:
+                # Never block the accept loop on a client that is not reading.
+                request.setblocking(False)
+                request.send(self.BUSY_RESPONSE)
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+
+        thread = threading.Thread(
+            target=self._handle_with_slot,
+            args=(request, client_address, slot),
+            daemon=self.daemon_threads,
+        )
+        try:
+            thread.start()
+        except RuntimeError:
+            # Could not start a thread (resource exhaustion): drop this connection
+            # rather than taking the whole accept loop down.
+            slot.release()
+            logger.exception("Could not start a handler thread for %s", client_address)
+            self.shutdown_request(request)
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        # Clients hanging up mid-response are routine; don't dump a traceback for them.
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionError, TimeoutError)):
+            logger.debug("Connection from %s ended early: %s", client_address, exc)
+            return
+        logger.exception("Error while handling a request from %s", client_address)
+
+    def _handle_with_slot(self, request: Any, client_address: Any, slot: threading.BoundedSemaphore) -> None:
+        try:
+            self.process_request_thread(request, client_address)
+        finally:
+            slot.release()
+
+
 def main() -> None:
     port = int(os.getenv("PORT", str(DEFAULT_PORT)))
+    seed_data_dir()
+    # DATA_DIR may have changed (seeded or dropped), so read the state from where it now lives.
+    STATE.load()
+    logger.info("Serving price data from %s (metadata in %s)", artifact_dir(), metadata_dir())
+
+    server = BoundedThreadingHTTPServer(("0.0.0.0", port), Handler)
     if os.getenv("RUN_SCHEDULER", "true").lower() == "true":
         threading.Thread(target=scheduler_loop, daemon=True).start()
 
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    server.daemon_threads = True
-    logger.info("EEPA worker listening on port %s", port)
+    logger.info("EEPA worker listening on port %s (max %s connections)", port, server.connection_limit)
     server.serve_forever()
 
 

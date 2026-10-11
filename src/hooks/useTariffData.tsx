@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import tariffDataJson from '@/config/tariff-costs.json';
-import { ContractOption, NetworkCosts, Tariff, TariffData, TariffRabatte } from '@/types/energy-data';
+import { ContractOption, NetworkCostsConfig, Tariff, TariffData, TariffRabatte } from '@/types/energy-data';
 
 /**
  * Contract option handed to the chart. `pricing: 'spot'` means the energy price follows
  * the day-ahead market price plus `spotMarkupCentKwh` instead of a fixed `energyPrice`.
+ * `energyLevyRate` is a surcharge on the energy price (Gebrauchsabgabe Wien), applied before VAT.
  */
 export interface ChartContractOption extends ContractOption {
   pricing?: 'fixed' | 'spot';
   spotMarkupCentKwh?: number;
+  energyLevyRate?: number;
 }
 
 type RabattDetailConfig = NonNullable<TariffRabatte['details']>[number] & {
@@ -16,63 +18,87 @@ type RabattDetailConfig = NonNullable<TariffRabatte['details']>[number] & {
   cent_kwh?: number;
 };
 
-type NetworkCostsConfig = NetworkCosts & {
-  /**
-   * Consumption the absolute per-kWh components in `breakdown` were quoted for.
-   * Per-kWh rates are derived as amount / reference_consumption_kwh.
-   */
-  reference_consumption_kwh?: number;
-};
-
-export type TariffDataConfig = Omit<TariffData, 'networkCosts'> & { networkCosts: NetworkCostsConfig };
+export type TariffDataConfig = TariffData;
 
 const tariffData = tariffDataJson as TariffDataConfig;
 
-const DEFAULT_REFERENCE_CONSUMPTION_KWH = 3500;
+export interface CostLineItem {
+  label: string;
+  amount: number;
+}
+
+export interface CostGroup {
+  label: string;
+  items: CostLineItem[];
+}
+
+export interface CalculatedNetworkCosts {
+  name: string;
+  groups: CostGroup[];
+  calculated: {
+    total_excl_tax: number;
+    tax_amount: number;
+    total_incl_tax: number;
+  };
+}
+
+const perKwh = (centPerKwh: number, consumption: number) => (centPerKwh / 100) * consumption;
+
+const formatCent = (value: number) =>
+  `${value.toLocaleString('de-AT', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} ct/kWh`;
+
+const formatPercent = (rate: number) => `${Number((rate * 100).toFixed(2)).toLocaleString('de-AT')} %`;
 
 /**
- * Scales the consumption-dependent network components (Netznutzung-Arbeitspreis,
- * Netzverlustentgelt, Elektrizitätsabgabe, Erneuerbaren-Förderbeitrag) linearly with
- * consumption; Grundpauschale, Messleistungen and Förderpauschale stay fixed per year.
+ * Yearly network costs (net of VAT) for the given consumption. The Gebrauchsabgabe is levied
+ * on the network charges (Netznutzung, Netzverluste, Messleistung) but not on the federal
+ * levies (Elektrizitätsabgabe, EAG-Förderbeitrag/-pauschale).
  */
 export const calculateNetworkCosts = (
-  networkCosts: NetworkCostsConfig,
+  config: NetworkCostsConfig,
   consumption: number,
   vatRate: number,
-) => {
-  const reference = networkCosts.reference_consumption_kwh ?? DEFAULT_REFERENCE_CONSUMPTION_KWH;
-  const scale = (referenceAmount: number) => (referenceAmount / reference) * consumption;
-  const { breakdown } = networkCosts;
+): CalculatedNetworkCosts => {
+  const arbeitspreis = perKwh(config.netznutzung_arbeitspreis_cent_kwh, consumption);
+  const netzverlust = perKwh(config.netzverlust_cent_kwh, consumption);
+  const networkCharges = arbeitspreis + config.netznutzung_leistungspauschale_eur_jahr + netzverlust + config.messleistung_eur_jahr;
+  const gebrauchsabgabe = networkCharges * config.gebrauchsabgabe_rate;
+  const elektrizitaetsabgabe = perKwh(config.elektrizitaetsabgabe_cent_kwh, consumption);
+  const foerderbeitrag = perKwh(config.erneuerbaren_foerderbeitrag_cent_kwh, consumption) + config.erneuerbaren_foerderbeitrag_eur_jahr;
 
-  const arbeitspreis = scale(breakdown.netznutzungsentgelt.arbeitspreis);
-  const netzverlustentgelt = scale(breakdown.netzverlustentgelt);
-  const elektrizitaetsabgabe = scale(breakdown.abgaben.elektrizitaetsabgabe);
-  const erneuerbarenFoerderbeitrag = scale(breakdown.abgaben.erneuerbaren_foerderbeitrag);
-  const abgabenTotal = elektrizitaetsabgabe + erneuerbarenFoerderbeitrag + breakdown.abgaben.erneuerbaren_foerderpauschale;
+  const groups: CostGroup[] = [
+    {
+      label: 'Netznutzungsentgelt',
+      items: [
+        { label: `Arbeitspreis (${formatCent(config.netznutzung_arbeitspreis_cent_kwh)})`, amount: arbeitspreis },
+        { label: 'Leistungspauschale', amount: config.netznutzung_leistungspauschale_eur_jahr },
+      ],
+    },
+    {
+      label: 'Weitere Netzentgelte',
+      items: [
+        { label: `Netzverlustentgelt (${formatCent(config.netzverlust_cent_kwh)})`, amount: netzverlust },
+        { label: 'Entgelt für Messleistungen', amount: config.messleistung_eur_jahr },
+      ],
+    },
+    {
+      label: 'Abgaben',
+      items: [
+        { label: `Gebrauchsabgabe Wien (${formatPercent(config.gebrauchsabgabe_rate)} auf Netzentgelte)`, amount: gebrauchsabgabe },
+        { label: `Elektrizitätsabgabe (${formatCent(config.elektrizitaetsabgabe_cent_kwh)})`, amount: elektrizitaetsabgabe },
+        { label: 'Erneuerbaren-Förderbeitrag', amount: foerderbeitrag },
+        { label: 'Erneuerbaren-Förderpauschale', amount: config.erneuerbaren_foerderpauschale_eur_jahr },
+      ],
+    },
+  ];
 
-  const totalExclTax = arbeitspreis +
-    breakdown.netznutzungsentgelt.grundpauschale +
-    netzverlustentgelt +
-    breakdown.messleistungen +
-    abgabenTotal;
+  const totalExclTax = networkCharges + gebrauchsabgabe + elektrizitaetsabgabe + foerderbeitrag + config.erneuerbaren_foerderpauschale_eur_jahr;
   const taxAmount = totalExclTax * vatRate;
 
   return {
-    ...networkCosts,
-    breakdown: {
-      ...breakdown,
-      netznutzungsentgelt: { ...breakdown.netznutzungsentgelt, arbeitspreis },
-      netzverlustentgelt,
-      abgaben: {
-        ...breakdown.abgaben,
-        elektrizitaetsabgabe,
-        erneuerbaren_foerderbeitrag: erneuerbarenFoerderbeitrag,
-        total: abgabenTotal,
-      },
-    },
-    tax_rate: vatRate,
+    name: config.name,
+    groups,
     calculated: {
-      arbeitspreis,
       total_excl_tax: totalExclTax,
       tax_amount: taxAmount,
       total_incl_tax: totalExclTax + taxAmount,
@@ -91,11 +117,22 @@ const scaleRabatte = (rabatte: TariffRabatte | undefined, consumption: number): 
   return { ...rabatte, details, total: details.reduce((sum, detail) => sum + detail.amount, 0) };
 };
 
-export const calculateTariffCosts = (tariff: Tariff, consumption: number, vatRate: number): Tariff => {
+/**
+ * Yearly energy costs. `energyLevyRate` is the Gebrauchsabgabe on the energy price (incl.
+ * base fee), which suppliers delivering in Vienna add before VAT.
+ */
+export const calculateTariffCosts = (
+  tariff: Tariff,
+  consumption: number,
+  vatRate: number,
+  energyLevyRate = 0,
+): Tariff => {
   if (tariff.type === 'spot') {
-    // Spot tariffs: only the fixed fee and the per-kWh admin markup are known in advance.
-    const verwaltungskosten = ((tariff.verwaltungsgebuehr_cent_kwh ?? 0) / 100) * consumption;
-    const totalExclTax = (tariff.grundgebuehr ?? 0) + verwaltungskosten;
+    // Spot tariffs: only the fixed fee and the per-kWh markup are known in advance.
+    const verwaltungskosten = perKwh(tariff.verwaltungsgebuehr_cent_kwh ?? 0, consumption);
+    const energyNet = (tariff.grundgebuehr ?? 0) + verwaltungskosten;
+    const levy = energyNet * energyLevyRate;
+    const totalExclTax = energyNet + levy;
     const taxAmount = totalExclTax * vatRate;
 
     return {
@@ -103,6 +140,7 @@ export const calculateTariffCosts = (tariff: Tariff, consumption: number, vatRat
       tax_rate: vatRate,
       calculated: {
         arbeitspreis_total: verwaltungskosten,
+        gebrauchsabgabe: levy,
         energiekosten_excl_tax: totalExclTax,
         tax_amount: taxAmount,
         energiekosten_incl_tax: totalExclTax + taxAmount,
@@ -110,9 +148,11 @@ export const calculateTariffCosts = (tariff: Tariff, consumption: number, vatRat
     };
   }
 
-  const arbeitspreisTotal = ((tariff.arbeitspreis_cent_kwh ?? 0) / 100) * consumption;
+  const arbeitspreisTotal = perKwh(tariff.arbeitspreis_cent_kwh ?? 0, consumption);
   const rabatte = scaleRabatte(tariff.rabatte, consumption);
-  const totalExclTax = arbeitspreisTotal + (tariff.grundpauschale ?? 0) + (rabatte?.total || 0);
+  const energyNet = arbeitspreisTotal + (tariff.grundpauschale ?? 0) + (rabatte?.total || 0);
+  const levy = energyNet * energyLevyRate;
+  const totalExclTax = energyNet + levy;
   const taxAmount = totalExclTax * vatRate;
 
   return {
@@ -121,6 +161,7 @@ export const calculateTariffCosts = (tariff: Tariff, consumption: number, vatRat
     tax_rate: vatRate,
     calculated: {
       arbeitspreis_total: arbeitspreisTotal,
+      gebrauchsabgabe: levy,
       energiekosten_excl_tax: totalExclTax,
       tax_amount: taxAmount,
       energiekosten_incl_tax: totalExclTax + taxAmount,
@@ -128,29 +169,68 @@ export const calculateTariffCosts = (tariff: Tariff, consumption: number, vatRat
   };
 };
 
-export const useTariffData = (vatRate: number) => {
-  const [data, setData] = useState<TariffDataConfig>(tariffData);
+/** Net fixed supplier fee per year (Grundpauschale/Grundgebühr) plus fixed (non per-kWh) discounts. */
+export const fixedFeeEurPerYear = (tariff: Tariff) => {
+  const fixedDiscounts = ((tariff.rabatte?.details ?? []) as RabattDetailConfig[])
+    .reduce((sum, detail) => sum + (typeof detail.cent_kwh === 'number' ? 0 : detail.amount), 0);
+  const baseFee = (tariff.type === 'spot' ? tariff.grundgebuehr : tariff.grundpauschale) ?? 0;
+  return baseFee + fixedDiscounts;
+};
 
-  const updateCustomTariff = (updates: Partial<Tariff>) => {
-    setData(prev => ({
-      ...prev,
-      tariffs: prev.tariffs.map(tariff =>
-        tariff.id === 'custom'
-          ? { ...tariff, ...updates }
-          : tariff
-      )
-    }));
+/** Effective net energy price per kWh after per-kWh discounts (e.g. a first-year bonus). */
+export const effectiveEnergyCentPerKwh = (tariff: Tariff) => {
+  const perKwhDiscount = ((tariff.rabatte?.details ?? []) as RabattDetailConfig[])
+    .reduce((sum, detail) => sum + (detail.cent_kwh ?? 0), 0);
+  return (tariff.arbeitspreis_cent_kwh ?? 0) + perKwhDiscount;
+};
+
+export interface ContractPricePerKwh {
+  /** Net energy price incl. the fixed fee spread over the consumption (ct/kWh). */
+  energy: number;
+  /** `energy` plus net network costs (ct/kWh). */
+  withNetwork: number;
+  /** Everything incl. Gebrauchsabgabe and VAT (ct/kWh); matches the card's yearly total / kWh. */
+  totalTaxed: number;
+}
+
+/**
+ * Per-kWh contract prices for one market interval. `marketNetCentPerKwh` is the net spot price and
+ * is only used by spot contracts. The fixed supplier fee is spread over the yearly consumption.
+ */
+export const contractPricePerKwh = (
+  contract: ChartContractOption,
+  consumption: number,
+  vatRate: number,
+  marketNetCentPerKwh: number,
+): ContractPricePerKwh => {
+  const netNetwork = (contract.networkCosts(consumption) / consumption) * 100;
+  const fixedFee = (contract.fixedFeeEurYear / consumption) * 100;
+  const variable = contract.pricing === 'spot'
+    ? marketNetCentPerKwh + (contract.spotMarkupCentKwh ?? 0)
+    : contract.energyPrice;
+  const energy = variable + fixedFee;
+  // Gebrauchsabgabe on the energy price; network costs already include their own share.
+  const energyLevyFactor = 1 + (contract.energyLevyRate ?? 0);
+  return {
+    energy,
+    withNetwork: energy + netNetwork,
+    totalTaxed: (energy * energyLevyFactor + netNetwork) * (1 + vatRate),
   };
+};
+
+export const useTariffData = (vatRate: number) => {
+  const [data] = useState<TariffDataConfig>(tariffData);
+  const energyLevyRate = data.networkCosts.gebrauchsabgabe_rate;
 
   const calculateNetworkCostsForConsumption = (consumption: number) =>
     calculateNetworkCosts(data.networkCosts, consumption, vatRate);
 
   const calculateTariffCostsForConsumption = (tariff: Tariff, consumption: number) =>
-    calculateTariffCosts(tariff, consumption, vatRate);
+    calculateTariffCosts(tariff, consumption, vatRate, energyLevyRate);
 
   return {
     data,
-    updateCustomTariff,
+    energyLevyRate,
     calculateNetworkCostsForConsumption,
     calculateTariffCostsForConsumption
   };

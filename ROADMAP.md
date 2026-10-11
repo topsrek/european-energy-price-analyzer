@@ -29,9 +29,10 @@ This document outlines the long-term vision and potential features for the Europ
 ## 4. Smart Meter Integration (V2)
 *   **Concept:** Seamless integration of personal consumption data.
 *   **Features:**
+    *   **File Upload (done):** Smart-meter CSV/JSON files are parsed in the browser and never uploaded.
     *   **API Connectors:** Direct connection to grid provider portals (where APIs exist).
     *   **Demo Mode:** A pre-loaded dataset to show users the value of the analysis without needing their own file yet.
-*   **Status:** Demo mode implemented (hidden); real upload pending.
+*   **Status:** File upload is live; demo mode implemented (hidden); API connectors pending.
 
 ## 5. Educational Onboarding
 *   **Concept:** Helping users understand the complex energy market.

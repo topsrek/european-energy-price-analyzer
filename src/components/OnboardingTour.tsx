@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, ChevronRight, ChevronLeft, Info } from 'lucide-react';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { safeStorageGetItem, safeStorageSetItem } from '@/lib/safe-storage';
+import { ChevronRight, ChevronLeft, Info } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { safeStorageSetItem } from '@/lib/safe-storage';
+import { TOUR_SEEN_STORAGE_KEY } from '@/lib/onboarding';
 
 interface Step {
   title: string;
@@ -39,26 +39,21 @@ const steps: Step[] = [
 ];
 
 const OnboardingTour: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(false);
+  // Only mounted (and downloaded) when the tour has not been seen yet; see App.tsx.
+  const [isOpen, setIsOpen] = useState(true);
   const [currentStep, setCurrentStep] = useState(0);
 
-  useEffect(() => {
-    const hasSeenTour = safeStorageGetItem('eepa.hasSeenTour');
-    if (!hasSeenTour) {
-      setIsOpen(true);
-    }
-  }, []);
-
-  const handleClose = () => {
+  const handleOpenChange = (open: boolean) => {
+    if (open) return;
     setIsOpen(false);
-    safeStorageSetItem('eepa.hasSeenTour', 'true');
+    safeStorageSetItem(TOUR_SEEN_STORAGE_KEY, 'true');
   };
 
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
     } else {
-      handleClose();
+      handleOpenChange(false);
     }
   };
 
@@ -69,65 +64,44 @@ const OnboardingTour: React.FC = () => {
   };
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="w-full max-w-md"
-          >
-            <Card className="shadow-2xl border-primary/20">
-              <CardHeader className="relative">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-2"
-                  onClick={handleClose}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-                <CardTitle className="flex items-center gap-2">
-                  <Info className="h-5 w-5 text-primary" />
-                  {steps[currentStep].title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground leading-relaxed">
-                  {steps[currentStep].content}
-                </p>
-                <div className="mt-6 flex justify-center gap-1">
-                  {steps.map((_, i) => (
-                    <div
-                      key={i}
-                      className={`h-1.5 rounded-full transition-all ${
-                        i === currentStep ? 'w-6 bg-primary' : 'w-1.5 bg-muted'
-                      }`}
-                    />
-                  ))}
-                </div>
-              </CardContent>
-              <CardFooter className="flex justify-between border-t pt-4">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handlePrev}
-                  disabled={currentStep === 0}
-                >
-                  <ChevronLeft className="h-4 w-4 mr-1" />
-                  Zurück
-                </Button>
-                <Button size="sm" onClick={handleNext}>
-                  {currentStep === steps.length - 1 ? 'Starten' : 'Weiter'}
-                  <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-              </CardFooter>
-            </Card>
-          </motion.div>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-w-md border-primary/20 shadow-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 pr-6">
+            <Info className="h-5 w-5 text-primary" aria-hidden="true" />
+            {steps[currentStep].title}
+          </DialogTitle>
+          <DialogDescription className="leading-relaxed pt-2">
+            {steps[currentStep].content}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-center gap-1" aria-label={`Schritt ${currentStep + 1} von ${steps.length}`} role="img">
+          {steps.map((_, i) => (
+            <div
+              key={i}
+              className={`h-1.5 rounded-full transition-all ${
+                i === currentStep ? 'w-6 bg-primary' : 'w-1.5 bg-muted'
+              }`}
+            />
+          ))}
         </div>
-      )}
-    </AnimatePresence>
+        <DialogFooter className="flex-row justify-between border-t pt-4 sm:justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handlePrev}
+            disabled={currentStep === 0}
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />
+            Zurück
+          </Button>
+          <Button size="sm" onClick={handleNext}>
+            {currentStep === steps.length - 1 ? 'Starten' : 'Weiter'}
+            <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 
