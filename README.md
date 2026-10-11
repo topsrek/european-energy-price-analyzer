@@ -59,7 +59,7 @@ The Coolify deployment architecture is:
 
 ## Deployment
 
-`worker/Dockerfile` (the only Dockerfile; Coolify builds it with the repo root as context) builds the Vite app, copies the static build into a Python image, and serves the frontend, API, and daily updater from one Coolify application on port `49173`, running as a non-root user. It is deployed at `eepa.topsrek.top`. The worker sends a Content-Security-Policy whose script hashes are computed from `dist/index.html` at runtime, and HSTS when the proxy reports `X-Forwarded-Proto: https`.
+`worker/Dockerfile` (the only Dockerfile; Coolify builds it with the repo root as context) builds the Vite app, copies the static build into a Python image, and serves the frontend, API, and daily updater from one Coolify application on port `49173`, running as a non-root user. It is deployed at `eepa.topsrek.top`. The worker sends a Content-Security-Policy whose script hashes are computed from `dist/index.html` at runtime; HSTS is left to the TLS proxy.
 
 Downloaded data is kept in `DATA_DIR=/app/storage`. Mount a persistent volume there so it survives redeploys; see `scripts/README_DAILY_UPDATE.md` for the exact Coolify setting. Without a volume each deploy starts from the committed artifacts.
 

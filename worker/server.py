@@ -518,11 +518,8 @@ def common_security_headers(request_headers: Any) -> list[tuple[str, str]]:
         ("Referrer-Policy", "strict-origin-when-cross-origin"),
         ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
     ]
-    # Only claim HSTS when the request really arrived over TLS at the proxy; on
-    # plain-HTTP LAN or local access the header would be wrong (and ignored).
-    forwarded_proto = request_headers.get("X-Forwarded-Proto", "") if request_headers is not None else ""
-    if forwarded_proto.split(",", 1)[0].strip().lower() == "https":
-        headers.append(("Strict-Transport-Security", "max-age=31536000"))
+    # No HSTS here: the TLS proxy sends a stronger one (includeSubDomains; preload), and
+    # browsers honour only the first HSTS header, so a second one would weaken it.
     return headers
 
 

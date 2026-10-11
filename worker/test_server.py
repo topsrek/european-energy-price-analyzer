@@ -330,10 +330,9 @@ class StaticAndBinaryRoutesTest(HttpServerTestCase):
         self.assertEqual(headers["x-content-type-options"], "nosniff")
         self.assertNotIn("strict-transport-security", headers)
 
-    def test_hsts_only_behind_https(self):
+    def test_no_hsts_from_worker(self):
+        # The TLS proxy owns HSTS; a weaker duplicate from the worker would take precedence.
         _, headers, _ = self.request("GET", "/health", headers={"X-Forwarded-Proto": "https"})
-        self.assertIn("max-age=", headers["strict-transport-security"])
-        _, headers, _ = self.request("GET", "/health", headers={"X-Forwarded-Proto": "http"})
         self.assertNotIn("strict-transport-security", headers)
 
     def test_json_404_has_security_headers(self):
