@@ -72,6 +72,74 @@ class UpdateWindowTest(unittest.TestCase):
         self.assertEqual(start_date, end_date)
 
 
+class MarketDayCoverageTest(unittest.TestCase):
+    """A day counts only when the series reaches 00:00 market time of the next day."""
+
+    HOUR = server.HOURLY_STEP
+    QUARTER = server.INTERVAL_STEP
+
+    def utc(self, value):
+        return server.parse_timestamp(value)
+
+    def test_market_day_start_follows_dst(self):
+        self.assertEqual(server.market_day_start_utc(date(2026, 3, 29)), self.utc("2026-03-28T23:00:00Z"))
+        self.assertEqual(server.market_day_start_utc(date(2026, 3, 30)), self.utc("2026-03-29T22:00:00Z"))
+        self.assertEqual(server.market_day_start_utc(date(2026, 10, 25)), self.utc("2026-10-24T22:00:00Z"))
+        self.assertEqual(server.market_day_start_utc(date(2026, 10, 26)), self.utc("2026-10-25T23:00:00Z"))
+
+    def test_ordinary_summer_day(self):
+        day = date(2026, 6, 3)
+        self.assertTrue(server.covers_market_day(self.utc("2026-06-03T21:00:00Z"), self.HOUR, day))
+        self.assertTrue(server.covers_market_day(self.utc("2026-06-03T21:45:00Z"), self.QUARTER, day))
+        self.assertFalse(server.covers_market_day(self.utc("2026-06-03T20:00:00Z"), self.HOUR, day))
+        self.assertFalse(server.covers_market_day(self.utc("2026-06-03T21:30:00Z"), self.QUARTER, day))
+
+    def test_partially_published_day_is_not_covered(self):
+        # 2026-06-03 11:00 local: has the market date of the expected day, but half of it is missing.
+        self.assertFalse(server.covers_market_day(self.utc("2026-06-03T09:00:00Z"), self.HOUR, date(2026, 6, 3)))
+
+    def test_spring_forward_day_has_23_hours(self):
+        day = date(2026, 3, 29)
+        self.assertTrue(server.covers_market_day(self.utc("2026-03-29T21:00:00Z"), self.HOUR, day))
+        self.assertTrue(server.covers_market_day(self.utc("2026-03-29T21:45:00Z"), self.QUARTER, day))
+        self.assertFalse(server.covers_market_day(self.utc("2026-03-29T20:00:00Z"), self.HOUR, day))
+        self.assertFalse(server.covers_market_day(self.utc("2026-03-29T21:30:00Z"), self.QUARTER, day))
+
+    def test_fall_back_day_has_25_hours(self):
+        day = date(2026, 10, 25)
+        self.assertTrue(server.covers_market_day(self.utc("2026-10-25T22:00:00Z"), self.HOUR, day))
+        self.assertTrue(server.covers_market_day(self.utc("2026-10-25T22:45:00Z"), self.QUARTER, day))
+        # 21:00Z is 22:00 CET on the 25th: the old date-of-last-record rule called this fresh.
+        self.assertFalse(server.covers_market_day(self.utc("2026-10-25T21:00:00Z"), self.HOUR, day))
+        self.assertFalse(server.covers_market_day(self.utc("2026-10-25T22:30:00Z"), self.QUARTER, day))
+
+    def stale(self, now, latest):
+        def fake_latest(country, resolution):
+            return latest[resolution]
+
+        with mock.patch.object(server, "get_latest_data_timestamp", side_effect=fake_latest), mock.patch.dict(
+            os.environ, {"COUNTRIES": "AT", "UPDATE_HOUR_LOCAL": "13", "UPDATE_MINUTE_LOCAL": "7"}
+        ):
+            return server.stale_country_details(now)
+
+    def test_stale_details_require_the_whole_expected_day(self):
+        vienna = server.update_timezone()
+        after_auction = datetime(2026, 10, 24, 14, 0, tzinfo=vienna)  # expects 2026-10-25 (25 h)
+        complete = {"hourly": "2026-10-25T22:00:00+00:00", "interval": "2026-10-25T22:45:00+00:00"}
+        self.assertEqual(self.stale(after_auction, complete), [])
+
+        partial = {"hourly": "2026-10-25T21:00:00+00:00", "interval": "2026-10-25T22:45:00+00:00"}
+        self.assertEqual(
+            self.stale(after_auction, partial),
+            ["AT(hourly=2026-10-25T21:00:00+00:00,interval=2026-10-25T22:45:00+00:00,expected=2026-10-25)"],
+        )
+        self.assertEqual(len(self.stale(after_auction, {"hourly": None, "interval": None})), 1)
+        self.assertEqual(len(self.stale(after_auction, {"hourly": "garbage", "interval": "garbage"})), 1)
+
+        before_auction = datetime(2026, 10, 25, 9, 0, tzinfo=vienna)  # still expects 2026-10-25
+        self.assertEqual(self.stale(before_auction, complete), [])
+
+
 class GapDetectionTest(unittest.TestCase):
     STEP = timedelta(minutes=15)
 
@@ -316,6 +384,29 @@ class StaticAndBinaryRoutesTest(HttpServerTestCase):
         self.assertEqual(json.loads(body)["service"], "eepa-worker")
         self.assertEqual(headers["cache-control"], "no-store")
 
+    def test_loopback_health_has_the_details(self):
+        status, _, body = self.request("GET", "/api/health")
+        payload = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertFalse(payload["ok"])  # the test data dir ends 2026-06-03
+        self.assertIn("stale_countries", payload)
+        self.assertIn("last_update_status", payload["state"])
+
+    def test_public_health_is_only_the_summary(self):
+        # The proxy connects from a LAN address; a forged X-Forwarded-For must not matter.
+        with mock.patch.object(server, "is_loopback_address", return_value=False) as is_loopback:
+            for path in ("/health", "/api/health"):
+                status, _, body = self.request("GET", path, headers={"X-Forwarded-For": "127.0.0.1"})
+                self.assertEqual(status, 200, path)
+                self.assertEqual(set(json.loads(body)), {"ok", "service", "time"}, path)
+        is_loopback.assert_called_with("127.0.0.1")
+
+    def test_loopback_address_detection(self):
+        for host in ("127.0.0.1", "127.0.0.11", "::1", "::ffff:127.0.0.1"):
+            self.assertTrue(server.is_loopback_address(host), host)
+        for host in ("192.168.1.20", "10.0.0.1", "172.17.0.1", "::ffff:192.168.1.20", "fe80::1", "", "localhost", None):
+            self.assertFalse(server.is_loopback_address(host), host)
+
     def test_html_gets_a_full_csp_with_the_inline_script_hash(self):
         status, headers, body = self.request("GET", "/at")
         self.assertEqual(status, 200)
@@ -516,6 +607,59 @@ class SeedDataDirTest(unittest.TestCase):
         (self.volume / "public" / "at_electricity_prices.bin").write_bytes(b"vol")
         server.seed_data_dir()
         self.assertEqual(self.volume_binary(), b"image")
+
+    def set_image_revision(self, value):
+        (self.image_metadata / "HISTORY_REVISION").write_text(f"{value}\n")
+
+    def applied_revision(self):
+        path = self.volume / "history-revision"
+        return path.read_text().strip() if path.exists() else None
+
+    def test_newer_history_revision_reseeds_newer_volume_data(self):
+        self.write("volume", "at_electricity_prices", b"volume", "2026-06-10T21:00:00+00:00")
+        self.write("volume", "fr_electricity_prices", b"volume-fr", "2026-06-10T21:00:00+00:00")
+        self.write("image", "fr_electricity_prices", b"image-fr", "2026-06-03T21:00:00+00:00")
+        self.set_image_revision(2)
+        server.seed_data_dir()
+        self.assertEqual(self.volume_binary(), b"image")
+        self.assertEqual((self.volume / "public" / "fr_electricity_prices.bin").read_bytes(), b"image-fr")
+        self.assertEqual(
+            server.metadata_last_timestamp(self.volume / "metadata" / "at_electricity_prices_metadata.json"),
+            "2026-06-03T21:00:00+00:00",
+        )
+        self.assertEqual(self.applied_revision(), "2")
+
+        # Applied once: data the scheduler fetched afterwards is kept on the next start.
+        self.write("volume", "at_electricity_prices", b"volume2", "2026-06-11T21:00:00+00:00")
+        server.seed_data_dir()
+        self.assertEqual(self.volume_binary(), b"volume2")
+
+    def test_same_or_older_history_revision_keeps_newer_volume_data(self):
+        self.write("volume", "at_electricity_prices", b"volume", "2026-06-10T21:00:00+00:00")
+        (self.volume / "history-revision").write_text("3\n")
+        for image_revision in (2, 3):
+            self.set_image_revision(image_revision)
+            server.seed_data_dir()
+            self.assertEqual(self.volume_binary(), b"volume")
+            self.assertEqual(self.applied_revision(), "3")
+
+    def test_missing_image_revision_counts_as_one(self):
+        self.write("volume", "at_electricity_prices", b"volume", "2026-06-10T21:00:00+00:00")
+        server.seed_data_dir()
+        self.assertEqual(self.volume_binary(), b"volume")
+        self.assertIsNone(self.applied_revision())
+
+    def test_unreadable_applied_revision_counts_as_one(self):
+        self.write("volume", "at_electricity_prices", b"volume", "2026-06-10T21:00:00+00:00")
+        (self.volume / "history-revision").write_text("garbage")
+        self.set_image_revision(2)
+        server.seed_data_dir()
+        self.assertEqual(self.volume_binary(), b"image")
+        self.assertEqual(self.applied_revision(), "2")
+
+    def test_committed_history_revision_is_an_integer_above_one(self):
+        revision = server.read_history_revision(server.ROOT / "scripts" / "data" / server.HISTORY_REVISION_FILE)
+        self.assertGreaterEqual(revision, 2)
 
     def test_unusable_volume_falls_back_to_the_image(self):
         blocker = self.tmp / "file-not-dir"

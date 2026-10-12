@@ -5,7 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ContractOption, Tariff } from '@/types/energy-data';
 import { cn } from '@/lib/utils';
-import { ChartContractOption, effectiveEnergyCentPerKwh, fixedFeeEurPerYear, useTariffData } from '@/hooks/useTariffData';
+import {
+  ChartContractOption,
+  effectiveEnergyCentPerKwh,
+  fixedFeeEurPerYear,
+  hasFirstYearBonus,
+  useTariffData,
+  withoutDiscounts,
+} from '@/hooks/useTariffData';
 import NetworkCostsDisplay from './NetworkCostsDisplay';
 import ConsumptionSlider from './ConsumptionSlider';
 
@@ -58,6 +65,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
       pricing: isSpot ? 'spot' : 'fixed',
       spotMarkupCentKwh: isSpot ? tariff.verwaltungsgebuehr_cent_kwh ?? 0 : undefined,
       energyLevyRate,
+      priceNote: hasFirstYearBonus(tariff) ? '1. Lieferjahr' : undefined,
     };
   };
 
@@ -115,6 +123,12 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
     const totalCostsExclTax = (calculatedTariff.calculated.energiekosten_excl_tax || 0) + (safeNetworkCosts.total_excl_tax || 0);
     const totalTaxAmount = (calculatedTariff.calculated.tax_amount || 0) + (safeNetworkCosts.tax_amount || 0);
     const totalCostsInclTax = totalCostsExclTax + totalTaxAmount;
+    // Per-kWh bonuses only apply in the first supply year; also show the regular yearly total.
+    const firstYearBonus = !isSpot && hasFirstYearBonus(calculatedTariff);
+    const regularTotalInclTax = firstYearBonus
+      ? (calculateTariffCostsForConsumption(withoutDiscounts(calculatedTariff), annualConsumption).calculated?.energiekosten_incl_tax ?? 0)
+        + (safeNetworkCosts.total_incl_tax || 0)
+      : null;
 
     return (
       <Card 
@@ -241,8 +255,15 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                   <span className="text-muted-foreground">{vatLabel}</span>
                   <span className="text-right">{safeToFixed(totalTaxAmount)} €</span>
                   
-                  <span className="font-bold text-lg">Gesamt brutto:</span>
+                  <span className="font-bold text-lg">{firstYearBonus ? 'Gesamt brutto (1. Lieferjahr):' : 'Gesamt brutto:'}</span>
                   <span className="text-right font-bold text-lg text-primary">{safeToFixed(totalCostsInclTax)} €</span>
+
+                  {regularTotalInclTax !== null && (
+                    <>
+                      <span className="text-muted-foreground">Ab 2. Lieferjahr (ohne Bonus):</span>
+                      <span className="text-right font-medium">{safeToFixed(regularTotalInclTax)} €</span>
+                    </>
+                  )}
                 </div>
               </div>
             </>

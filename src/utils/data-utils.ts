@@ -358,13 +358,32 @@ export const aggregateConsumptionByPriceRow = (
     if (!rowByKey.has(key)) rowByKey.set(key, price.timestamp);
   }
 
+  // Readings coarser than the price interval (e.g. hourly meter data vs 15-minute prices) are
+  // spread evenly over the price intervals they cover; a reading's timestamp is its interval start.
+  const readingTimes = readings.map((reading) => Date.parse(reading.timestamp));
+  const parts = Math.max(1, Math.round(smallestStep(readingTimes) / stepMs));
+
   const totals = new Map<string, number>();
-  for (const reading of readings) {
-    const row = rowByKey.get(keyOf(Date.parse(reading.timestamp)));
-    if (row === undefined) continue;
-    totals.set(row, (totals.get(row) ?? 0) + reading.consumption);
-  }
+  readings.forEach((reading, index) => {
+    const share = reading.consumption / parts;
+    for (let part = 0; part < parts; part += 1) {
+      const row = rowByKey.get(keyOf(readingTimes[index] + part * stepMs));
+      if (row === undefined) continue;
+      totals.set(row, (totals.get(row) ?? 0) + share);
+    }
+  });
   return totals;
+};
+
+/** Smallest positive gap between the (unsorted) times, or 0 for fewer than two distinct times. */
+const smallestStep = (times: number[]): number => {
+  const sorted = times.filter(Number.isFinite).sort((a, b) => a - b);
+  let step = Infinity;
+  for (let index = 1; index < sorted.length; index += 1) {
+    const gap = sorted[index] - sorted[index - 1];
+    if (gap > 0 && gap < step) step = gap;
+  }
+  return Number.isFinite(step) ? step : 0;
 };
 
 export const generateDemoSmartMeterData = (prices: EnergyPrice[], timeZone: string): SmartMeterData[] => {

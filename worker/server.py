@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -43,6 +44,15 @@ DEFAULT_UPDATE_TIMEZONE = "Europe/Vienna"
 DEFAULT_UPDATE_HOUR_LOCAL = 13
 DEFAULT_UPDATE_MINUTE_LOCAL = 7
 DEFAULT_COUNTRIES = "AT,DE-LU,FR"
+# Day-ahead delivery days for AT, DE-LU and FR are CET/CEST days, whatever
+# UPDATE_TIMEZONE says about when the refresh runs.
+MARKET_TIMEZONE = "Europe/Vienna"
+HOURLY_STEP = timedelta(hours=1)
+INTERVAL_STEP = timedelta(minutes=15)
+# Bump scripts/data/HISTORY_REVISION in any commit that changes past data; a volume
+# holding an older revision is then reseeded from the image (see seed_data_dir).
+HISTORY_REVISION_FILE = "HISTORY_REVISION"
+APPLIED_HISTORY_REVISION_FILE = "history-revision"
 UPDATE_OVERLAP_DAYS = 1
 SCHEDULER_POLL_SECONDS = 5 * 60
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 25 * 60
@@ -323,16 +333,7 @@ class Handler(BaseHTTPRequestHandler):
             # fine, and a non-200 would make the orchestrator restart-loop the
             # container over a data problem it cannot fix by restarting. Monitoring
             # should alert on "ok": false / "stale_countries" instead.
-            stale = stale_country_details(datetime.now(update_timezone()))
-            self.send_json(
-                {
-                    "ok": not stale,
-                    "service": "eepa-worker",
-                    "time": now_iso(),
-                    "stale_countries": stale,
-                    "state": STATE.snapshot(),
-                }
-            )
+            self.send_json(health_payload(detailed=is_loopback_address(self.client_address[0])))
             return
 
         if path == "/geoip":
@@ -601,6 +602,31 @@ def content_security_policy() -> str:
     return "; ".join(directives)
 
 
+def is_loopback_address(host: Any) -> bool:
+    """Whether a peer address is loopback (127.0.0.0/8, ::1 or IPv4-mapped 127.x).
+
+    Only the socket peer counts, never X-Forwarded-For: the reverse proxy reaches
+    the worker from a LAN address, so loopback means a client inside the container
+    (the Docker and Coolify health checks).
+    """
+    try:
+        address = ipaddress.ip_address(str(host).split("%", 1)[0])
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return (mapped or address).is_loopback
+
+
+def health_payload(detailed: bool) -> dict[str, Any]:
+    """Health summary; the stale countries and update state only for loopback clients."""
+    stale = stale_country_details(datetime.now(update_timezone()))
+    payload: dict[str, Any] = {"ok": not stale, "service": "eepa-worker", "time": now_iso()}
+    if detailed:
+        payload["stale_countries"] = stale
+        payload["state"] = STATE.snapshot()
+    return payload
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -810,28 +836,53 @@ def expected_latest_date(now: datetime) -> date:
     return now.date()
 
 
-def latest_data_date(country_code: str, resolution: str, tz: ZoneInfo) -> date | None:
-    latest_timestamp = get_latest_data_timestamp(country_code, resolution)
-    if not latest_timestamp:
-        return None
+def market_timezone() -> ZoneInfo:
     try:
-        return parse_timestamp(latest_timestamp).astimezone(tz).date()
-    except ValueError:
-        logger.warning("Invalid last_timestamp for %s %s: %r", country_code, resolution, latest_timestamp)
-        return None
+        return ZoneInfo(MARKET_TIMEZONE)
+    except ZoneInfoNotFoundError:
+        logger.warning("Time zone %s not available, falling back to UTC for market days", MARKET_TIMEZONE)
+        return ZoneInfo("UTC")
+
+
+def market_day_start_utc(day: date) -> datetime:
+    """00:00 market time of day, in UTC (22:00Z or 23:00Z the day before, by DST)."""
+    return datetime.combine(day, datetime.min.time(), tzinfo=market_timezone()).astimezone(timezone.utc)
+
+
+def covers_market_day(last_timestamp: datetime, step: timedelta, day: date) -> bool:
+    """Whether a series whose last record starts at last_timestamp covers all of day.
+
+    The series runs until last_timestamp + step, which has to reach the start of the
+    following market day (in UTC, so DST days of 23 or 25 hours come out right).
+    Counting the date of the last record instead made a partially published day
+    look fresh.
+    """
+    return last_timestamp + step >= market_day_start_utc(day + timedelta(days=1))
+
+
+def is_stale_timestamp(latest_timestamp: str | None, step: timedelta, expected_date: date) -> bool:
+    if not latest_timestamp:
+        return True
+    try:
+        return not covers_market_day(parse_timestamp(latest_timestamp), step, expected_date)
+    except (ValueError, OverflowError):
+        logger.warning("Invalid last_timestamp %r", latest_timestamp)
+        return True
 
 
 def stale_country_details(now: datetime) -> list[str]:
-    tz = update_timezone()
+    """Countries whose hourly or 15-minute series does not cover the whole expected day."""
     expected_date = expected_latest_date(now)
     details: list[str] = []
 
     for country in countries_to_update():
-        hourly_date = latest_data_date(country, "hourly", tz)
-        interval_date = latest_data_date(country, "interval", tz)
-        if hourly_date is None or hourly_date < expected_date or interval_date is None or interval_date < expected_date:
+        hourly_latest = get_latest_data_timestamp(country, "hourly")
+        interval_latest = get_latest_data_timestamp(country, "interval")
+        if is_stale_timestamp(hourly_latest, HOURLY_STEP, expected_date) or is_stale_timestamp(
+            interval_latest, INTERVAL_STEP, expected_date
+        ):
             details.append(
-                f"{country}(hourly={hourly_date or 'none'},interval={interval_date or 'none'},expected={expected_date})"
+                f"{country}(hourly={hourly_latest or 'none'},interval={interval_latest or 'none'},expected={expected_date})"
             )
 
     return details
@@ -928,10 +979,28 @@ def run_update(*, reason: str, expected_date: date) -> None:
     STATE.mark_finished("ok", f"updated {','.join(countries)}")
 
 
+def atomic_write_text(path: Path, text: str) -> None:
+    tmp_path = path.with_name(f".{path.name}.tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    tmp_path.replace(path)
+
+
 def copy_file_atomic(source: Path, target: Path) -> None:
     tmp_path = target.with_name(f".{target.name}.seed.tmp")
     shutil.copyfile(source, tmp_path)
     tmp_path.replace(target)
+
+
+def read_history_revision(path: Path) -> int:
+    """Integer in a history revision file; 1 (the implicit first revision) if missing or invalid."""
+    try:
+        value = int(path.read_text(encoding="utf-8").strip())
+    except FileNotFoundError:
+        return 1
+    except (OSError, ValueError) as exc:
+        logger.warning("Ignoring unreadable history revision %s: %s", path, exc)
+        return 1
+    return value if value >= 1 else 1
 
 
 def seed_data_dir() -> None:
@@ -942,6 +1011,11 @@ def seed_data_dir() -> None:
     data and a volume that has been refreshed since is never rolled back by a
     redeploy. If the directory is unusable the worker falls back to the image
     copies, which is exactly how it behaves without a volume.
+
+    That rule alone never lets a correction of past data reach a volume that is
+    already ahead. So when the image's HISTORY_REVISION is greater than the one
+    recorded in the volume, every artifact is reseeded from the image regardless
+    of timestamps; the scheduler then catches up the days since the commit.
     """
     root = data_dir()
     if root is None:
@@ -952,6 +1026,19 @@ def seed_data_dir() -> None:
         target_metadata = metadata_dir()
         target_artifacts.mkdir(parents=True, exist_ok=True)
         target_metadata.mkdir(parents=True, exist_ok=True)
+
+        revision_path = root / APPLIED_HISTORY_REVISION_FILE
+        image_revision = read_history_revision(IMAGE_METADATA_DIR / HISTORY_REVISION_FILE)
+        applied_revision = read_history_revision(revision_path)
+        reseed_all = image_revision > applied_revision
+        if reseed_all:
+            logger.warning(
+                "History revision %s in the image is newer than %s in %s: reseeding ALL artifacts "
+                "from the image; the scheduler will re-fetch the days since",
+                image_revision,
+                applied_revision,
+                root,
+            )
 
         for image_binary in sorted(IMAGE_ARTIFACT_DIR.glob("*.bin")):
             if not ARTIFACT_NAME_RE.fullmatch(image_binary.name):
@@ -967,7 +1054,11 @@ def seed_data_dir() -> None:
                 if target_binary.exists() and artifact_matches_metadata(target_binary, target_metadata_path)
                 else None
             )
-            if target_latest and (not image_latest or parse_timestamp(target_latest) >= parse_timestamp(image_latest)):
+            if (
+                not reseed_all
+                and target_latest
+                and (not image_latest or parse_timestamp(target_latest) >= parse_timestamp(image_latest))
+            ):
                 logger.info("Keeping %s from %s (through %s)", image_binary.name, root, target_latest)
                 continue
 
@@ -982,6 +1073,11 @@ def seed_data_dir() -> None:
                 image_latest,
                 target_latest or "nothing",
             )
+
+        if reseed_all:
+            # Only once every artifact has been copied: a failure above retries on the next start.
+            atomic_write_text(revision_path, f"{image_revision}\n")
+            logger.warning("History revision %s applied to %s", image_revision, root)
     except (OSError, ValueError, OverflowError) as exc:
         logger.error("DATA_DIR=%s is not usable (%s); serving the image copies without persistence", root, exc)
         # Subprocesses inherit the environment, so this also points the refresh
@@ -1024,7 +1120,7 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
         if self._public_slots.acquire(blocking=False):
             return self._public_slots
         host = client_address[0] if isinstance(client_address, tuple) and client_address else ""
-        if host in {"127.0.0.1", "::1", "::ffff:127.0.0.1"} and self._loopback_slots.acquire(blocking=False):
+        if is_loopback_address(host) and self._loopback_slots.acquire(blocking=False):
             return self._loopback_slots
         return None
 

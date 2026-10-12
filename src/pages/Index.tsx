@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
 import DateRangePicker from '@/components/DateRangePicker';
@@ -8,7 +8,6 @@ import EnergyChart from '@/components/EnergyChart';
 import ControlMenu from '@/components/ControlMenu';
 import FileUpload from '@/components/FileUpload';
 import ContractOptions from '@/components/ContractOptions';
-import InfoModal from '@/components/InfoModal';
 import HelpModal from '@/components/HelpModal';
 import { AveragingOption, ContractOption, DataResolution, EnergyPrice, FilterOptions as FilterOptionsType, SmartMeterData } from '@/types/energy-data';
 import {
@@ -54,6 +53,9 @@ import { getActiveQuickRangePreset, getQuickRangeDates } from '@/utils/date-rang
 import { formatLocalDateForQuery, parseLocalDateFromQuery } from '@/utils/local-date';
 import { safeStorageSetItem } from '@/lib/safe-storage';
 import { getMarketCalendarDay } from '@/utils/market-time';
+
+// Austria-only market explainer; loaded on its own chunk.
+const InfoModal = lazy(() => import('@/components/InfoModal'));
 
 interface IndexProps {
   region: RegionConfig;
@@ -511,6 +513,13 @@ const Index = ({ region }: IndexProps) => {
     }
   };
   
+  const marketInfoTrigger = (
+    <Button variant="outline" size="sm" className="h-9 gap-2 px-3">
+      <Info className="h-4 w-4" />
+      <span>Der Strommarkt</span>
+    </Button>
+  );
+
   return (
     <div className="flex flex-col min-h-screen bg-background">
       <AppHeader title={region.title} region={region} />
@@ -529,12 +538,9 @@ const Index = ({ region }: IndexProps) => {
                   }
                 />
                 {region.code === 'at' && (
-                  <InfoModal trigger={
-                    <Button variant="outline" size="sm" className="h-9 gap-2 px-3">
-                      <Info className="h-4 w-4" />
-                      <span>Der Strommarkt</span>
-                    </Button>
-                  } />
+                  <Suspense fallback={marketInfoTrigger}>
+                    <InfoModal trigger={marketInfoTrigger} />
+                  </Suspense>
                 )}
               </div>
             </CardHeader>

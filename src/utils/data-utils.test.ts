@@ -254,4 +254,23 @@ describe('data utils', () => {
     expect(applyFilters(prices, { ...ALL_FILTERS, hours: [3] }, TZ, 'daily-cycle')).toHaveLength(24);
     expect(applyFilters(prices, { ...ALL_FILTERS, hours: [3] }, TZ, 'daily')).toHaveLength(1);
   });
+
+  it('spreads hourly consumption evenly over 15-minute price rows', () => {
+    const start = Date.parse('2026-04-30T22:00:00Z');
+    const prices = Array.from({ length: 8 }, (_, index) => ({
+      timestamp: new Date(start + index * 15 * 60_000).toISOString(),
+      price: 10,
+      unit: 'EUR_MWh' as const,
+    }));
+    const readings = [
+      { timestamp: '2026-04-30T22:00:00.000Z', consumption: 1 },
+      { timestamp: '2026-04-30T23:00:00.000Z', consumption: 2 },
+    ];
+
+    const rows = aggregateConsumptionByPriceRow(prices, readings, 'none', 'interval', TZ);
+    expect(rows.get('2026-04-30T22:00:00.000Z')).toBeCloseTo(0.25, 9);
+    expect(rows.get('2026-04-30T22:45:00.000Z')).toBeCloseTo(0.25, 9);
+    expect(rows.get('2026-04-30T23:15:00.000Z')).toBeCloseTo(0.5, 9);
+    expect([...rows.values()].reduce((sum, value) => sum + value, 0)).toBeCloseTo(3, 9);
+  });
 });

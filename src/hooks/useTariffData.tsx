@@ -11,6 +11,8 @@ export interface ChartContractOption extends ContractOption {
   pricing?: 'fixed' | 'spot';
   spotMarkupCentKwh?: number;
   energyLevyRate?: number;
+  /** Shown next to the contract name in the chart, e.g. "1. Lieferjahr" for first-year bonuses. */
+  priceNote?: string;
 }
 
 type RabattDetailConfig = NonNullable<TariffRabatte['details']>[number] & {
@@ -176,6 +178,16 @@ export const fixedFeeEurPerYear = (tariff: Tariff) => {
   const baseFee = (tariff.type === 'spot' ? tariff.grundgebuehr : tariff.grundpauschale) ?? 0;
   return baseFee + fixedDiscounts;
 };
+
+/** True if the tariff has per-kWh discounts, which are first-year (new-customer) bonuses. */
+export const hasFirstYearBonus = (tariff: Tariff) =>
+  ((tariff.rabatte?.details ?? []) as RabattDetailConfig[]).some((detail) => typeof detail.cent_kwh === 'number');
+
+/** The tariff without its discounts, i.e. the regular price from the second supply year on. */
+export const withoutDiscounts = (tariff: Tariff): Tariff => ({
+  ...tariff,
+  rabatte: tariff.rabatte ? { ...tariff.rabatte, total: 0, details: [] } : tariff.rabatte,
+});
 
 /** Effective net energy price per kWh after per-kWh discounts (e.g. a first-year bonus). */
 export const effectiveEnergyCentPerKwh = (tariff: Tariff) => {

@@ -345,6 +345,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   const pendingWheelRef = useRef<{ clientX: number; deltaY: number } | null>(null);
   const wheelFrameRef = useRef<number | null>(null);
   const showSpotPriceWithTax = controlledShowSpotPriceWithTax ?? false;
+  const contractLabel = selectedContract
+    ? `${selectedContract.provider} ${selectedContract.name}${selectedContract.priceNote ? ` (${selectedContract.priceNote})` : ''}`
+    : '';
   const priceUnitLabel = referenceEnergyPrices[0]?.unit === 'EUR_MWh' ? '€/MWh' : 'c/kWh';
 
   // Full-resolution chart rows. Zoom indices refer to this array; only drawing is downsampled.
@@ -420,8 +423,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
       });
     }
 
-    if (selectedContract) {
-      const consumption = annualConsumption > 0 ? annualConsumption : DEFAULT_ANNUAL_CONSUMPTION;
+    // Contract lines spread yearly fees per kWh; undefined for a zero consumption.
+    if (selectedContract && annualConsumption > 0) {
+      const consumption = annualConsumption;
 
       internalChartData.forEach(item => {
         const unitFactor = item.unit === 'EUR_MWh' ? 10 : 1; // cent/kWh -> chart unit
@@ -1153,13 +1157,13 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
               name = 'Kosten';
             } else if (entry.dataKey === 'contractEnergyPrice') {
               unit = priceUnitLabel;
-              name = `${selectedContract?.provider} ${selectedContract?.name}: Nettostromkosten`;
+              name = `${contractLabel}: Nettostromkosten`;
             } else if (entry.dataKey === 'contractNetworkCosts') {
               unit = priceUnitLabel;
-              name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Netzkosten`;
+              name = `${contractLabel}: inkl. Netzkosten`;
             } else if (entry.dataKey === 'contractTotalPriceTaxed') {
               unit = priceUnitLabel;
-              name = `${selectedContract?.provider} ${selectedContract?.name}: inkl. Abgaben & USt.`;
+              name = `${contractLabel}: inkl. Abgaben & USt.`;
             }
 
             return (
@@ -1725,7 +1729,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 key="contractEnergyPrice-line"
                 type="monotone"
                 dataKey="contractEnergyPrice"
-                name={`${selectedContract.provider} ${selectedContract.name} - Nettostromkosten`}
+                name={`${contractLabel} - Nettostromkosten`}
                 yAxisId="price"
                 stroke="#4F5A45"
                 strokeWidth={3}
@@ -1740,7 +1744,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 key="contractNetworkCosts-line"
                 type="monotone"
                 dataKey="contractNetworkCosts"
-                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Netzkosten`}
+                name={`${contractLabel} - inkl. Netzkosten`}
                 yAxisId="price"
                 stroke="#B8733A"
                 strokeWidth={3}
@@ -1755,7 +1759,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
                 key="contractTotalPriceTaxed-line"
                 type="monotone"
                 dataKey="contractTotalPriceTaxed"
-                name={`${selectedContract.provider} ${selectedContract.name} - inkl. Abgaben & USt.`}
+                name={`${contractLabel} - inkl. Abgaben & USt.`}
                 yAxisId="price"
                 stroke="#6F6252"
                 strokeWidth={3}
@@ -1929,7 +1933,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
 
       {!isComparisonChart && selectedContract && (
         <div className="flex flex-wrap items-center gap-4 p-2 border rounded-md bg-accent/10">
-          <div className="text-sm font-medium">{selectedContract.provider} - {selectedContract.name}: </div>
+          <div className="text-sm font-medium">{contractLabel}: </div>
           <div className="flex items-center space-x-2">
             <Checkbox
               id="show-base-price"

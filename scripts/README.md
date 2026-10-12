@@ -13,6 +13,10 @@ Per country `{cc}` (`at`, `de-lu`, `fr`):
 | `public/{cc}_electricity_prices_15min.bin` | 15-minute prices from 2025-10-01 (start of the 15-minute day-ahead MTU) |
 | `scripts/data/{cc}_electricity_prices[_15min]_metadata.json` | backend metadata: record count, first/last timestamp, covered dates |
 
+The hourly history starts 2018-10-01 00:00 UTC for AT (the AT bidding zone began at
+2018-09-30 22:00 UTC, and the format needs a UTC-midnight start) and 2025-07-01 for DE-LU
+and FR.
+
 The metadata is not served to browsers. The worker reads `last_timestamp` from it to
 decide whether data is stale. In production both live under `$DATA_DIR` instead (see
 `README_DAILY_UPDATE.md`). Coverage and record counts change daily; read them from the

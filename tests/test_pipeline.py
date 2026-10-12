@@ -479,5 +479,46 @@ class DataDirTest(unittest.TestCase):
                 downloader.close()
 
 
+class CommittedArtifactsTest(unittest.TestCase):
+    """The artifacts in the repository decode cleanly and agree with their metadata."""
+
+    REPO = Path(__file__).resolve().parents[1]
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+
+    def load(self, name, step):
+        data = (self.REPO / "public" / f"{name}.bin").read_bytes()
+        decoder = sbd.OptimizedPriceDecoder if step == timedelta(hours=1) else build_interval_dataset.IntervalPriceDecoder
+        records = decoder(data).decode_all()
+        metadata = json.loads((self.REPO / "scripts" / "data" / f"{name}_metadata.json").read_text(encoding="utf-8"))
+        return data, records, metadata
+
+    def test_series_are_contiguous_and_match_their_metadata(self):
+        for country in ("at", "de-lu", "fr"):
+            series = {}
+            for suffix, step in (("", timedelta(hours=1)), ("_15min", timedelta(minutes=15))):
+                name = f"{country}_electricity_prices{suffix}"
+                with self.subTest(artifact=name):
+                    data, records, metadata = self.load(name, step)
+                    coverage = metadata["data_coverage"]
+                    self.assertEqual(build_interval_dataset.find_gaps(records, step), [])
+                    self.assertEqual(records[0][0].time(), datetime.min.time())
+                    self.assertEqual(coverage["total_records"], len(records))
+                    self.assertEqual(coverage["first_timestamp"], records[0][0].isoformat())
+                    self.assertEqual(coverage["last_timestamp"], records[-1][0].isoformat())
+                    self.assertEqual(coverage["covered_dates"], sorted({ts.date().isoformat() for ts, _ in records}))
+                    self.assertEqual(metadata["file_info"]["file_size"], len(data))
+                    series[suffix] = records
+            with self.subTest(country=country, check="hourly is the quarter-hour mean"):
+                self.assertEqual(build_interval_dataset.hourly_interval_mismatches(series[""], series["_15min"]), [])
+
+    def test_at_hourly_starts_with_the_at_bidding_zone(self):
+        # The AT zone starts 2018-09-30 22:00Z; the first UTC midnight after it is 2018-10-01.
+        _, records, _ = self.load("at_electricity_prices", timedelta(hours=1))
+        self.assertEqual(records[0][0], utc(2018, 10, 1))
+
+
 if __name__ == "__main__":
     unittest.main()

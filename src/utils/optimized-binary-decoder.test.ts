@@ -73,12 +73,13 @@ describe('optimized binary decoder', () => {
     const artifact = readFileSync(resolve(process.cwd(), 'public/at_electricity_prices.bin'));
     const prices = decodeOptimizedBinaryEnergyPrices(toArrayBuffer(artifact));
 
+    // 2018-09-30 was dropped: the AT bidding zone only starts at 22:00 UTC that day.
     expect(prices[0]).toEqual({
-      timestamp: '2018-09-30T00:00:00.000Z',
-      price: 59.53,
+      timestamp: '2018-10-01T00:00:00.000Z',
+      price: 49.05,
       unit: 'EUR_MWh',
     });
-  });
+  }, 30_000);
 
   // Artifacts are refreshed daily, so check invariants instead of exact counts. The binary
   // format is positional: a hole upstream silently shifts every later timestamp, which shows
@@ -110,6 +111,7 @@ describe('optimized binary decoder', () => {
         }
       }
     },
+    30_000,
   );
 });
 

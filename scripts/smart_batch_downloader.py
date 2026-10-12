@@ -584,7 +584,7 @@ Examples:
   python smart_batch_downloader.py
   python smart_batch_downloader.py 2025-07-01 2025-10-31
   python smart_batch_downloader.py AT 2025-07-01 2025-10-31
-  python smart_batch_downloader.py AT 2018-09-30 2026-05-07 --rebuild
+  python smart_batch_downloader.py AT 2018-10-01 2026-05-07 --rebuild
 If no arguments provided, downloads Austria data from July 1, 2025 to today"""
 
 

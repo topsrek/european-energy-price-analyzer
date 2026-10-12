@@ -12,6 +12,9 @@ refresh itself; no cron job is needed.
   (tomorrow once `UPDATE_HOUR_LOCAL:UPDATE_MINUTE_LOCAL` in `UPDATE_TIMEZONE` has passed,
   default 13:07 Europe/Vienna). If so it runs `smart_batch_downloader.py` and
   `build_interval_dataset.py` for each country in `COUNTRIES`.
+- A day only counts as present when both artifacts cover all of it: last timestamp plus
+  the interval (60 or 15 min) must reach 00:00 market time (CET/CEST) of the following
+  day, so a partially published day stays stale, including on 23- and 25-hour DST days.
 - The window starts one day before the older of the two artifacts ends, so the usually
   partial last day is completed, upstream corrections land, and a missed run catches up.
 - If upstream has not published yet, the run ends as `pending` and is retried with
@@ -21,7 +24,11 @@ refresh itself; no cron job is needed.
   a cent.
 
 Monitor `/api/health`: it always returns HTTP 200 while the process is serving, with
-`"ok": false` and `stale_countries` when data is behind, plus the last update state.
+`"ok": false` when data is behind. Public requests get only `ok`, `service` and `time`.
+Requests from loopback (the container health check, or `docker exec <container> curl -s
+http://127.0.0.1:49173/health`) also get `stale_countries` and the last update `state`.
+The check uses the socket peer address, not `X-Forwarded-For`; the reverse proxy
+connects from a LAN address and therefore always gets the short form.
 
 ### Persistent storage (Coolify)
 
@@ -53,6 +60,20 @@ instead, `chown -R 10001:10001` it on the host first.
 
 To discard the volume data and start again from the image, stop the app, delete the
 volume (or its contents) and redeploy.
+
+### Correcting past data: `HISTORY_REVISION`
+
+Because newer volume data wins, a commit that changes data the volume already has (a
+removed or corrected day in the past) would never reach production on its own.
+`scripts/data/HISTORY_REVISION` holds an integer for this. **Bump it in every commit that
+changes past data.** On startup the worker compares it with `$DATA_DIR/history-revision`
+(missing counts as 1); if the image's revision is greater it reseeds all artifacts from
+the image regardless of timestamps, logs `History revision ... reseeding ALL artifacts`,
+and then records the new revision. The scheduler re-fetches the days since the commit as
+usual. Appending new days (the daily refresh committed back) needs no bump.
+
+Revision 2: AT hourly starts 2018-10-01 instead of 2018-09-30 (the first 22 hours
+predated the AT bidding zone and could not be traced upstream).
 
 ## Manual runs
 

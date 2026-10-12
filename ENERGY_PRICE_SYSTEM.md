@@ -32,7 +32,8 @@ docs/optimized-binary-format.md                 # format specification
 The worker serves the artifacts at `/api/{cc}_electricity_prices[_15min].bin` from the
 live data directory (never from the copies Vite places in `dist/`), plus:
 
-- `/api/health` - liveness and data staleness (always HTTP 200 while serving)
+- `/api/health` - liveness and data staleness (always HTTP 200 while serving; per-country
+  details and update state only for loopback clients)
 - `/api/data-freshness` (POST) - whether a client's cached data is current
 - `/api/geoip` - country from edge headers or an optional provider
 - `/api/data-manifest` - `data/manifest.json`

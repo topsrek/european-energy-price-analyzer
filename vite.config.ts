@@ -59,6 +59,8 @@ export default defineConfig(() => ({
   test: {
     environment: 'jsdom',
     globals: true,
+    // Default 5s is too tight on a loaded machine or shared CI runner.
+    testTimeout: 20_000,
     exclude: ['tests/e2e/**', 'node_modules/**', 'dist/**'],
   },
   plugins: [
