@@ -41,6 +41,7 @@ const ConsumptionSlider: React.FC<ConsumptionSliderProps> = ({ value, onChange }
       <div className="flex items-center gap-4">
         <Slider
           id="consumption-slider"
+          thumbLabel="Jahresverbrauch"
           min={MIN_ANNUAL_CONSUMPTION}
           max={MAX_ANNUAL_CONSUMPTION}
           step={100}

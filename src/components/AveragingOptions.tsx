@@ -44,7 +44,7 @@ const AveragingOptions: React.FC<AveragingOptionsProps> = ({
           onValueChange={(value) => onChange(value as AveragingOption)}
           disabled={!isAveragingEnabled}
         >
-          <SelectTrigger id="averaging" className="w-full min-w-[220px] sm:w-[220px]">
+          <SelectTrigger aria-label="Durchschnitt" id="averaging" className="w-full min-w-[220px] sm:w-[220px]">
             <SelectValue placeholder="Durchschnitt auswählen" />
           </SelectTrigger>
           <SelectContent>

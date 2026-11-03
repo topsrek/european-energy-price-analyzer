@@ -15,7 +15,7 @@ const VersionInfo = () => {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button className="inline-flex items-center">
+            <button aria-label="Build-Informationen" className="inline-flex items-center">
               <Info className="h-4 w-4" />
             </button>
           </TooltipTrigger>

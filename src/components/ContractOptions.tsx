@@ -39,8 +39,8 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
   const customDefaults = data.tariffs.find((tariff) => tariff.id === 'custom');
   const [editableValues, setEditableValues] = useState({
     provider: customDefaults?.provider ?? 'Eigene Eingabe',
-    arbeitspreis_cent_kwh: customDefaults?.arbeitspreis_cent_kwh ?? 12,
-    grundpauschale: customDefaults?.grundpauschale ?? 50
+    arbeitspreis_cent_kwh: String(customDefaults?.arbeitspreis_cent_kwh ?? 12),
+    grundpauschale: String(customDefaults?.grundpauschale ?? 50)
   });
 
   const networkCosts = calculateNetworkCostsForConsumption(annualConsumption);
@@ -48,8 +48,8 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
   const withEditableValues = (tariff: Tariff, values: typeof editableValues): Tariff => ({
     ...tariff,
     provider: values.provider,
-    arbeitspreis_cent_kwh: Number.isFinite(values.arbeitspreis_cent_kwh) ? values.arbeitspreis_cent_kwh : 0,
-    grundpauschale: Number.isFinite(values.grundpauschale) ? values.grundpauschale : 0,
+    arbeitspreis_cent_kwh: Number.isFinite(Number(values.arbeitspreis_cent_kwh)) ? Number(values.arbeitspreis_cent_kwh) : 0,
+    grundpauschale: Number.isFinite(Number(values.grundpauschale)) ? Number(values.grundpauschale) : 0,
   });
 
   const buildContractOption = (tariff: Tariff): ChartContractOption => {
@@ -69,10 +69,10 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
     };
   };
 
-  const handleEditableChange = (field: keyof typeof editableValues, value: string | number) => {
+  const handleEditableChange = (field: keyof typeof editableValues, value: string) => {
     const nextValues = {
       ...editableValues,
-      [field]: typeof value === 'string' ? value : Number(value)
+      [field]: value
     };
     setEditableValues(nextValues);
 
@@ -183,8 +183,9 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                         <Input 
                           type="number"
                           step="0.01"
+                          aria-label="Arbeitspreis in Cent/kWh"
                           value={editableValues.arbeitspreis_cent_kwh}
-                          onChange={(e) => handleEditableChange('arbeitspreis_cent_kwh', parseFloat(e.target.value))}
+                          onChange={(e) => handleEditableChange('arbeitspreis_cent_kwh', e.target.value)}
                           className="w-20 py-1 text-xs text-right"
                         />
                         <span className="text-xs">cent/kWh</span>
@@ -204,8 +205,9 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                         <Input 
                           type="number"
                           step="0.01"
+                          aria-label="Grundpauschale in ?"
                           value={editableValues.grundpauschale}
-                          onChange={(e) => handleEditableChange('grundpauschale', parseFloat(e.target.value))}
+                          onChange={(e) => handleEditableChange('grundpauschale', e.target.value)}
                           className="w-16 py-1 text-xs text-right"
                         />
                         <span className="text-xs">€</span>
