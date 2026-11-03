@@ -56,7 +56,7 @@ export const convertPriceValue = (
  * market wall-clock time in `timeZone`, independent of the viewer's time zone.
  */
 export const parseSmartMeterData = (data: ArrayBuffer, timeZone: string = MARKET_TIMEZONE): SmartMeterData[] => {
-  const text = new TextDecoder().decode(data).trim();
+  const text = new TextDecoder().decode(data).replace(/^\uFEFF/, "").trim();
 
   if (!text) {
     throw new Error("Die Datei ist leer.");
@@ -163,17 +163,38 @@ const normalizeSmartMeterRecord = (record: unknown, timeZone: string): SmartMete
 };
 
 const parseSmartMeterCsv = (text: string, timeZone: string): SmartMeterData[] => {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (lines.length < 2) {
+  const delimiter = text.split(/\r?\n/, 1)[0].includes(";") ? ";" : ",";
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === '"') {
+      if (quoted && text[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (!quoted && (char === delimiter || char === '\n')) {
+      row.push(field.trim());
+      field = "";
+      if (char === '\n') {
+        if (row.some(Boolean)) rows.push(row);
+        row = [];
+      }
+    } else {
+      field += char;
+    }
+  }
+  if (quoted) throw new Error("CSV-Datei enthält ein nicht geschlossenes Anführungszeichen.");
+  row.push(field.trim());
+  if (row.some(Boolean)) rows.push(row);
+  if (rows.length < 2) {
     throw new Error("CSV-Dateien benötigen eine Kopfzeile und mindestens eine Datenzeile.");
   }
-
-  const delimiter = lines[0].includes(";") ? ";" : ",";
-  const headers = lines[0].split(delimiter).map((header) => header.trim().toLowerCase());
+  const headers = rows[0].map(header => header.toLowerCase());
   const timestampIndex = findHeaderIndex(headers, ["timestamp", "datetime", "date", "time", "zeitpunkt", "datum"]);
   const consumptionIndex = findHeaderIndex(headers, ["consumption", "kwh", "value", "energy", "verbrauch"]);
 
@@ -181,8 +202,7 @@ const parseSmartMeterCsv = (text: string, timeZone: string): SmartMeterData[] =>
     throw new Error("CSV-Dateien benötigen Zeitstempel- und Verbrauchsspalten.");
   }
 
-  return lines.slice(1).map((line) => {
-    const columns = line.split(delimiter).map((column) => column.trim());
+  return rows.slice(1).map((columns) => {
     return normalizeSmartMeterRecord({
       timestamp: columns[timestampIndex],
       consumption: columns[consumptionIndex],

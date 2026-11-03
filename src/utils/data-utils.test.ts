@@ -286,3 +286,11 @@ it.each(['hourly', 'daily', 'weekly', 'monthly'] as const)('aligns partial count
     weekly: '2025-12-28T23:00:00.000Z', monthly: '2025-12-31T23:00:00.000Z' };
   expect(left[0].timestamp).toBe(expected[mode]);
 });
+
+it.each([';', ','])('decodes BOM-prefixed quoted CSV fields with %s delimiters and escaped quotes', (delimiter) => {
+  const text = '\uFEFF"timestamp"' + delimiter + '"note"' + delimiter + '"consumption"\r\n'
+    + '"01.01.2026 00:00"' + delimiter + '"meter ""kitchen""' + delimiter + ' detail"' + delimiter + '"1,25"';
+  expect(parseSmartMeterData(new TextEncoder().encode(text).buffer, TZ)).toEqual([
+    { timestamp: '2025-12-31T23:00:00.000Z', consumption: 1.25 },
+  ]);
+});
