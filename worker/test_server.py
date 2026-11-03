@@ -632,6 +632,22 @@ class SeedDataDirTest(unittest.TestCase):
     def volume_binary(self):
         return (self.volume / "public" / "at_electricity_prices.bin").read_bytes()
 
+    def test_reseed_clears_persisted_retry_at_startup(self):
+        self.write("volume", "at_electricity_prices", b"volume", "2026-06-10T21:00:00+00:00")
+        self.set_image_revision(2)
+        state_file = self.volume / "worker-state.json"
+        state_file.write_text(json.dumps({"next_retry_not_before": "2099-01-01T00:00:00Z"}))
+        with mock.patch.object(server, "STATE", server.WorkerState()), mock.patch.object(server, "BoundedThreadingHTTPServer"), mock.patch.object(server, "install_shutdown_handler"), mock.patch.dict(os.environ, {"RUN_SCHEDULER": "false"}):
+            server.main()
+            self.assertTrue(server.next_retry_due(datetime.now(timezone.utc)))
+        reloaded = server.WorkerState()
+        reloaded.load()
+        self.assertIsNone(reloaded.snapshot()["next_retry_not_before"])
+
+    def test_seed_reports_replacements(self):
+        self.assertTrue(server.seed_data_dir())
+        self.assertFalse(server.seed_data_dir())
+
     def test_empty_volume_is_seeded(self):
         server.seed_data_dir()
         self.assertEqual(self.volume_binary(), b"image")

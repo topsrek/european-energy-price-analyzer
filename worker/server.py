@@ -170,6 +170,11 @@ class WorkerState:
                 self.next_retry_not_before = iso_after_seconds(retry_delay)
             self._persist_locked()
 
+    def clear_retry_backoff(self) -> None:
+        with self.lock:
+            self.next_retry_not_before = None
+            self._persist_locked()
+
     def is_running(self) -> bool:
         with self.lock:
             return self.last_update_status == "running"
@@ -1023,7 +1028,7 @@ def read_history_revision(path: Path) -> int:
     return value if value >= 1 else 1
 
 
-def seed_data_dir() -> None:
+def seed_data_dir() -> bool:
     """Fill DATA_DIR (a persistent volume) from the artifacts baked into the image.
 
     An artifact is copied when the volume lacks it or holds older data than the
@@ -1037,9 +1042,10 @@ def seed_data_dir() -> None:
     recorded in the volume, every artifact is reseeded from the image regardless
     of timestamps; the scheduler then catches up the days since the commit.
     """
+    replaced = False
     root = data_dir()
     if root is None:
-        return
+        return False
 
     try:
         target_artifacts = artifact_dir()
@@ -1084,6 +1090,7 @@ def seed_data_dir() -> None:
 
             # Binary first, then metadata, as in the pipeline.
             copy_file_atomic(image_binary, target_binary)
+            replaced = True
             if image_metadata.exists():
                 copy_file_atomic(image_metadata, target_metadata_path)
             logger.info(
@@ -1103,6 +1110,8 @@ def seed_data_dir() -> None:
         # Subprocesses inherit the environment, so this also points the refresh
         # scripts back at the image paths.
         os.environ.pop("DATA_DIR", None)
+
+    return replaced
 
 
 def max_connections() -> int:
@@ -1207,14 +1216,17 @@ def main() -> None:
     port = int(os.getenv("PORT", str(DEFAULT_PORT)))
     # A damaged data volume or state file must never keep the server from starting: after
     # the unclean reboot on 2026-10-01 the worker exited with code 1 on every start for 10 days.
+    reseeded = False
     try:
-        seed_data_dir()
+        reseeded = seed_data_dir()
     except Exception:
         logger.exception("Seeding DATA_DIR failed; serving the image copies")
         os.environ.pop("DATA_DIR", None)
     try:
         # DATA_DIR may have changed (seeded or dropped), so read the state from where it now lives.
         STATE.load()
+        if reseeded:
+            STATE.clear_retry_backoff()
     except Exception:
         logger.exception("Loading the worker state failed; starting with a fresh state")
     logger.info("Serving price data from %s (metadata in %s)", artifact_dir(), metadata_dir())
