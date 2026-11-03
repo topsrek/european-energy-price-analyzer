@@ -802,8 +802,8 @@ const Index = ({ region }: IndexProps) => {
             <CardContent>
               <Tabs defaultValue="contracts">
                 <TabsList>
-                  <TabsTrigger value="contracts">Preisoptionen</TabsTrigger>
-                  <TabsTrigger value="upload">Smart Meter Daten</TabsTrigger>
+                  <TabsTrigger className="text-primary" value="contracts">Preisoptionen</TabsTrigger>
+                  <TabsTrigger className="text-primary" value="upload">Smart Meter Daten</TabsTrigger>
                 </TabsList>
                 <TabsContent value="contracts">
                   <ContractOptions

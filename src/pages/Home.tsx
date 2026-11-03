@@ -113,7 +113,7 @@ const Home = () => {
                     <RegionFlag flagCodes={region.flagCodes} className="h-6 w-9 shadow-sm rounded-sm" />
                     <div>
                       <div className="font-bold group-hover:text-primary transition-colors">{region.localName}</div>
-                      <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">{region.appCode}</div>
+                      <div className="text-[10px] font-mono text-primary uppercase tracking-widest">{region.appCode}</div>
                     </div>
                   </div>
                   <div className="h-8 w-8 rounded-full bg-primary/5 flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-200">
@@ -135,7 +135,7 @@ const Home = () => {
                   </div>
                   <div>
                     <div className="font-bold text-foreground">Regionen vergleichen</div>
-                    <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Cross-Market Analysis</div>
+                    <div className="text-[10px] font-mono text-primary uppercase tracking-widest">Cross-Market Analysis</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
