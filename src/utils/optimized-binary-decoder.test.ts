@@ -81,10 +81,11 @@ describe('optimized binary decoder', () => {
     const artifact = readFileSync(resolve(process.cwd(), 'public/at_electricity_prices.bin'));
     const prices = decodeOptimizedBinaryEnergyPrices(toArrayBuffer(artifact));
 
-    // 2018-09-30 was dropped: the AT bidding zone only starts at 22:00 UTC that day.
+    // The AT bidding zone starts at 2018-09-30 22:00 UTC; the format needs a UTC-midnight start.
+    // 51.41 is upstream's price for this hour (the pre-rebuild artifact had 49.05 here, shifted 22 h).
     expect(prices[0]).toEqual({
       timestamp: '2018-10-01T00:00:00.000Z',
-      price: 49.05,
+      price: 51.41,
       unit: 'EUR_MWh',
     });
   }, 30_000);
