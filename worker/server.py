@@ -328,7 +328,7 @@ class Handler(BaseHTTPRequestHandler):
             self.do_GET()
             return
 
-        if path in {"/geoip"}:
+        if path == "/geoip":
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")

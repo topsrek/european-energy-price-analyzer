@@ -25,6 +25,11 @@ refresh itself; no cron job is needed.
 
 Monitor `/api/health`: it always returns HTTP 200 while the process is serving, with
 `"ok": false` when data is behind. Public requests get only `ok`, `service` and `time`.
+For outage monitoring, use `/api/health?strict=1` (also `/health?strict=1`): it returns
+503 if any configured country lacks a complete current Europe/Vienna market day,
+and 200 otherwise. The public `data_through` field is the last fully covered market
+day shared by every country and resolution, or null when coverage is unknown.
+Keep the container health check on `/health` without strict mode.
 Requests from loopback (the container health check, or `docker exec <container> curl -s
 http://127.0.0.1:49173/health`) also get `stale_countries` and the last update `state`.
 The check uses the socket peer address, not `X-Forwarded-For`; the reverse proxy

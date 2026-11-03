@@ -369,7 +369,12 @@ class StaticAndBinaryRoutesTest(HttpServerTestCase):
             status, _, body = self.request("GET", path + "?strict=1")
             self.assertEqual(status, 200)
             self.assertEqual(json.loads(body)["data_through"], today.isoformat())
-        (self.data_dir / "metadata" / "at_electricity_prices_15min_metadata.json").unlink()
+        partial = self.data_dir / "metadata" / "at_electricity_prices_15min_metadata.json"
+        partial.write_text(json.dumps({"data_coverage": {"last_timestamp": (end - 2 * server.INTERVAL_STEP).isoformat()}}))
+        status, _, body = self.request("GET", "/api/health?strict=1")
+        self.assertEqual(status, 503)
+        self.assertEqual(json.loads(body)["data_through"], (today - timedelta(days=1)).isoformat())
+        partial.unlink()
         self.assertEqual(self.request("GET", "/api/health?strict=1")[0], 503)
         self.assertEqual(self.request("GET", "/api/health")[0], 200)
 
@@ -390,11 +395,12 @@ class StaticAndBinaryRoutesTest(HttpServerTestCase):
 
     def test_unknown_api_and_wrong_method_are_json_404(self):
         for method, path in (("GET", "/api/foo"), ("GET", "/api/health/"), ("GET", "/api/data-freshness"), ("GET", "/api/data-manifest"), ("HEAD", "/api/foo"), ("POST", "/api/health")):
-            status, headers, body = self.request(method, path)
-            self.assertEqual(status, 404, (method, path))
-            self.assertIn("application/json", headers["content-type"])
-            if method != "HEAD":
-                self.assertEqual(json.loads(body), {"error": "not_found"})
+            with self.subTest(method=method, path=path):
+                status, headers, body = self.request(method, path)
+                self.assertEqual(status, 404, (method, path))
+                self.assertIn("application/json", headers["content-type"])
+                if method != "HEAD":
+                    self.assertEqual(json.loads(body), {"error": "not_found"})
 
     def test_only_successful_loopback_health_is_quiet(self):
         with mock.patch.object(server.logger, "info") as log:
@@ -633,16 +639,21 @@ class SeedDataDirTest(unittest.TestCase):
         return (self.volume / "public" / "at_electricity_prices.bin").read_bytes()
 
     def test_reseed_clears_persisted_retry_at_startup(self):
-        self.write("volume", "at_electricity_prices", b"volume", "2026-06-10T21:00:00+00:00")
-        self.set_image_revision(2)
-        state_file = self.volume / "worker-state.json"
-        state_file.write_text(json.dumps({"next_retry_not_before": "2099-01-01T00:00:00Z"}))
-        with mock.patch.object(server, "STATE", server.WorkerState()), mock.patch.object(server, "BoundedThreadingHTTPServer"), mock.patch.object(server, "install_shutdown_handler"), mock.patch.dict(os.environ, {"RUN_SCHEDULER": "false"}):
-            server.main()
-            self.assertTrue(server.next_retry_due(datetime.now(timezone.utc)))
-        reloaded = server.WorkerState()
-        reloaded.load()
-        self.assertIsNone(reloaded.snapshot()["next_retry_not_before"])
+        for reason in ("revision", "damaged", "unchanged"):
+            with self.subTest(reason=reason):
+                self.write("volume", "at_electricity_prices", b"volume", "2026-06-10T21:00:00+00:00")
+                self.set_image_revision(2)
+                (self.volume / "history-revision").write_text("1" if reason == "revision" else "2")
+                if reason == "damaged":
+                    (self.volume / "public" / "at_electricity_prices.bin").write_bytes(b"bad")
+                state_file = self.volume / "worker-state.json"
+                state_file.write_text(json.dumps({"next_retry_not_before": "2099-01-01T00:00:00Z"}))
+                with mock.patch.object(server, "STATE", server.WorkerState()), mock.patch.object(server, "BoundedThreadingHTTPServer"), mock.patch.object(server, "install_shutdown_handler"), mock.patch.dict(os.environ, {"RUN_SCHEDULER": "false"}):
+                    server.main()
+                    self.assertEqual(server.next_retry_due(datetime.now(timezone.utc)), reason != "unchanged")
+                reloaded = server.WorkerState()
+                reloaded.load()
+                self.assertEqual(reloaded.snapshot()["next_retry_not_before"], "2099-01-01T00:00:00Z" if reason == "unchanged" else None)
 
     def test_seed_reports_replacements(self):
         self.assertTrue(server.seed_data_dir())
