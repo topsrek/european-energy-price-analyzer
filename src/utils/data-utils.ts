@@ -316,7 +316,17 @@ export const calculateAverage = (
     const key = getAveragingBucketKey(averaging, Date.parse(item.timestamp), timeZone);
     
     if (!averages.has(key)) {
-      averages.set(key, { sum: 0, count: 0, timestamp: item.timestamp });
+      let start: number;
+      if (averaging === 'hourly') {
+        start = Number(key) * MS_PER_HOUR;
+      } else {
+        const parts = getMarketDateParts(item.timestamp, timeZone);
+        const day = averaging === 'weekly'
+          ? new Date(`${key}T00:00:00Z`)
+          : new Date(Date.UTC(parts.year, parts.month, averaging === 'monthly' ? 1 : parts.day));
+        start = getMarketTime(timeZone, day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate());
+      }
+      averages.set(key, { sum: 0, count: 0, timestamp: new Date(start).toISOString() });
     }
     
     const current = averages.get(key)!;

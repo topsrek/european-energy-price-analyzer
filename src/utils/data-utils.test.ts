@@ -55,8 +55,8 @@ describe('data utils', () => {
     ];
 
     expect(calculateAverage(prices, 'weekly', TZ)).toEqual([
-      { timestamp: '2026-05-04T00:00:00.000Z', price: 15, unit: 'EUR_MWh' },
-      { timestamp: '2026-05-11T00:00:00.000Z', price: 40, unit: 'EUR_MWh' },
+      { timestamp: '2026-05-03T22:00:00.000Z', price: 15, unit: 'EUR_MWh' },
+      { timestamp: '2026-05-10T22:00:00.000Z', price: 40, unit: 'EUR_MWh' },
     ]);
   });
 
@@ -146,13 +146,13 @@ describe('data utils', () => {
       { timestamp: '2026-06-01T21:00:00.000Z', price: 40, unit: 'EUR_MWh' }, // Mon 01.06. 23:00
     ];
     const expected = [
-      { timestamp: '2026-05-31T21:00:00.000Z', price: 10, unit: 'EUR_MWh' },
+      { timestamp: '2026-05-30T22:00:00.000Z', price: 10, unit: 'EUR_MWh' },
       { timestamp: '2026-05-31T22:00:00.000Z', price: 30, unit: 'EUR_MWh' },
     ];
 
     expect(calculateAverage(prices, 'daily', TZ)).toEqual(expected);
-    expect(calculateAverage(prices, 'weekly', TZ)).toEqual(expected);
-    expect(calculateAverage(prices, 'monthly', TZ)).toEqual(expected);
+    expect(calculateAverage(prices, 'weekly', TZ)).toEqual([{ ...expected[0], timestamp: '2026-05-24T22:00:00.000Z' }, expected[1]]);
+    expect(calculateAverage(prices, 'monthly', TZ)).toEqual([{ ...expected[0], timestamp: '2026-04-30T22:00:00.000Z' }, expected[1]]);
   });
 
   it('handles the 25-hour DST fall-back market day (2026-10-25)', () => {
@@ -273,4 +273,16 @@ describe('data utils', () => {
     expect(rows.get('2026-04-30T23:15:00.000Z')).toBeCloseTo(0.5, 9);
     expect([...rows.values()].reduce((sum, value) => sum + value, 0)).toBeCloseTo(3, 9);
   });
+});
+
+it.each(['hourly', 'daily', 'weekly', 'monthly'] as const)('aligns partial country coverage to canonical %s bucket starts', (mode) => {
+  const a: EnergyPrice[] = [{ timestamp: '2026-01-02T00:15:00.000Z', price: 10, unit: 'EUR_MWh' }];
+  const b: EnergyPrice[] = [{ timestamp: '2026-01-02T00:30:00.000Z', price: 30, unit: 'EUR_MWh' }];
+  const left = calculateAverage(a, mode, TZ);
+  const right = calculateAverage(b, mode, TZ);
+  const joined = right.filter(p => p.timestamp === left[0].timestamp).map(p => p.price - left[0].price);
+  expect(joined).toEqual([20]);
+  const expected = { hourly: '2026-01-02T00:00:00.000Z', daily: '2026-01-01T23:00:00.000Z',
+    weekly: '2025-12-28T23:00:00.000Z', monthly: '2025-12-31T23:00:00.000Z' };
+  expect(left[0].timestamp).toBe(expected[mode]);
 });
