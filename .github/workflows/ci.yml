@@ -97,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           base=http://127.0.0.1:49173
-          curl --retry 20 --retry-connrefused --retry-delay 1 --fail "$base/api/health"
+          curl --retry 30 --retry-all-errors --retry-delay 1 --fail "$base/api/health"
           for path in / /at; do
             test "$(curl -sS -D headers -o body -w '%{http_code}' "$base$path")" = 200
             grep -qi '^Content-Type: text/html' headers
