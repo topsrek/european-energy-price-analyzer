@@ -157,7 +157,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 {tariff.source_url && (
                   <>
                     {' · '}
-                    <a href={tariff.source_url} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
+                    <a href={tariff.source_url} target="_blank" rel="noopener noreferrer" className="text-foreground underline hover:text-primary">
                       Quelle
                     </a>
                   </>
@@ -291,7 +291,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 )}
               </div>
               
-              <div className="text-xs text-secondary mt-2 p-2 bg-secondary/15 dark:bg-secondary/20 rounded">
+              <div className="text-xs text-secondary dark:text-foreground mt-2 p-2 bg-secondary/15 dark:bg-secondary/20 rounded">
                 + stündlicher Spotpreis (inkl. Gebrauchsabgabe) + Netzkosten + Steuern
               </div>
             </div>

@@ -53,7 +53,7 @@ const Home = () => {
             </p>
           </div>
 
-          <p className="text-sm md:text-base text-muted-foreground/80 max-w-xl mx-auto pt-4 leading-relaxed">
+          <p className="text-sm md:text-base text-muted-foreground max-w-xl mx-auto pt-4 leading-relaxed">
             Mit EEPA findest du Antworten auf komplexe Fragen zum Strommarkt.
             Analysiere historische Daten, erkenne Preismuster und optimiere deine Energienutzung.
           </p>
@@ -149,7 +149,7 @@ const Home = () => {
         </div>
       </main>
 
-      <footer className="p-12 text-center text-xs text-muted-foreground/60 space-y-4 border-t border-border/40 bg-muted/20">
+      <footer className="p-12 text-center text-xs text-muted-foreground space-y-4 border-t border-border/40 bg-muted/20">
         <p>© {new Date().getFullYear()} European Energy Price Analyzer</p>
         <p>
           Entwickelt von <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="text-primary/70 hover:text-primary transition-colors font-medium">@topsrek</a> in Österreich

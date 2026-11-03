@@ -8,7 +8,7 @@ const ContactModal = () => {
   };
 
   return (
-    <Button variant="link" className="text-gray-500 text-sm p-0 h-auto" onClick={openMail}>
+    <Button variant="link" className="text-muted-foreground text-sm p-0 h-auto" onClick={openMail}>
       Kontakt
     </Button>
   );

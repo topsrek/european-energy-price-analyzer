@@ -25,7 +25,7 @@ const FaqPage = () => {
   const region = getRegionByCode(regionCode);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const faqs = useMemo<FAQEntry[]>(() => [
+  const faqs = useMemo(() => ([
     {
       id: 'what-is-spot',
       category: 'Markt',
@@ -111,7 +111,7 @@ const FaqPage = () => {
         </p>
       ),
     },
-  ].filter((faq) => faq.id !== 'grid-costs' || regionCode === 'at'), [regionCode]);
+  ] satisfies FAQEntry[]).filter((faq) => faq.id !== 'grid-costs' || regionCode === 'at'), [regionCode]);
 
   const normalizedSearchQuery = searchQuery.toLowerCase();
   const filteredFaqs = faqs.filter(
@@ -160,7 +160,7 @@ const FaqPage = () => {
               <AccordionItem key={faq.id} value={faq.id} className="border rounded-lg bg-card px-4">
                 <AccordionTrigger className="hover:no-underline py-4">
                   <div className="flex items-center text-left">
-                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground mr-3">
+                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-primary text-primary-foreground mr-3">
                       {faq.category}
                     </span>
                     <span className="font-medium">{faq.question}</span>

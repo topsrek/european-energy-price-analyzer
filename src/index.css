@@ -20,7 +20,7 @@
     --secondary-foreground: 33 36% 96%;
 
     --muted: 75 19% 88%;
-    --muted-foreground: 82 8% 43%;
+    --muted-foreground: 82 8% 40%;
 
     --accent: 29 64% 83%;
     --accent-foreground: 104 10% 21%;
@@ -43,6 +43,9 @@
     --sidebar-border: 30 25% 80%;
     --sidebar-ring: 89 13% 31%;
 
+    --price-line: #8e512c;
+    --contract-energy-line: #4f5a45;
+    --contract-taxed-line: #6f6252;
     --month-band-fill-color: #b8844f;
     --week-marker-color: rgba(142, 81, 44, 0.88);
     --day-band-fill-color: #9a693b;
@@ -88,6 +91,9 @@
     --sidebar-border: 70 8% 28%;
     --sidebar-ring: 78 14% 77%;
 
+    --price-line: #b16c40;
+    --contract-energy-line: #7a8869;
+    --contract-taxed-line: #95836e;
     --month-band-fill-color: #8d673f;
     --week-marker-color: rgba(204, 150, 92, 0.9);
     --day-band-fill-color: #77502d;
