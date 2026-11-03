@@ -294,3 +294,17 @@ it.each([';', ','])('decodes BOM-prefixed quoted CSV fields with %s delimiters a
     { timestamp: '2025-12-31T23:00:00.000Z', consumption: 1.25 },
   ]);
 });
+
+it.each(['csv', 'json'])('assigns repeated DST wall times in file order while preserving ordinary duplicates (%s)', (format) => {
+  const times = ['25.10.2026 02:00', '25.10.2026 02:15', '25.10.2026 02:00', '25.10.2026 02:15',
+    '26.10.2026 02:00', '26.10.2026 02:00', '2026-10-25T01:00:00Z', '2026-10-25T01:00:00Z'];
+  const text = format === 'csv' ? 'timestamp;consumption\n' + times.map(t => `${t};1`).join('\n')
+    : JSON.stringify(times.map(timestamp => ({ timestamp, consumption: 1 })));
+  const readings = parseSmartMeterData(new TextEncoder().encode(text).buffer, TZ);
+  expect(readings.map(r => r.timestamp)).toEqual([
+    '2026-10-25T00:00:00.000Z', '2026-10-25T00:15:00.000Z',
+    '2026-10-25T01:00:00.000Z', '2026-10-25T01:15:00.000Z',
+    '2026-10-26T01:00:00.000Z', '2026-10-26T01:00:00.000Z',
+    '2026-10-25T01:00:00.000Z', '2026-10-25T01:00:00.000Z',
+  ]);
+});

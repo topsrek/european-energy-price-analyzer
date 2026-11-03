@@ -3,6 +3,7 @@ import { AveragingOption, EnergyPrice, FilterOptions, SmartMeterData } from "@/t
 import {
   MARKET_TIMEZONE,
   getMarketDateParts,
+  getMarketOffsetMinutes,
   getMarketDayEnd,
   getMarketDayKey,
   getMarketDayStart,
@@ -74,7 +75,8 @@ export const parseSmartMeterData = (data: ArrayBuffer, timeZone: string = MARKET
       throw new Error("JSON-Dateien müssen ein Array oder ein Objekt mit records enthalten.");
     }
 
-    return records.map((record) => normalizeSmartMeterRecord(record, timeZone));
+    const occurrences = new Map<number, number>();
+    return records.map((record) => normalizeSmartMeterRecord(record, timeZone, occurrences));
   }
 
   return parseSmartMeterCsv(text, timeZone);
@@ -126,7 +128,7 @@ export const parseSmartMeterTimestamp = (value: string | number, timeZone: strin
   return Number.NaN;
 };
 
-const normalizeSmartMeterRecord = (record: unknown, timeZone: string): SmartMeterData => {
+const normalizeSmartMeterRecord = (record: unknown, timeZone: string, occurrences: Map<number, number>): SmartMeterData => {
   if (typeof record !== "object" || record === null) {
     throw new Error("Ungültiger Smart-Meter-Datensatz.");
   }
@@ -139,7 +141,21 @@ const normalizeSmartMeterRecord = (record: unknown, timeZone: string): SmartMete
     throw new Error("Smart-Meter-Datensätze benötigen einen Zeitstempel.");
   }
 
-  const time = parseSmartMeterTimestamp(timestampValue, timeZone);
+  let time = parseSmartMeterTimestamp(timestampValue, timeZone);
+  if (Number.isFinite(time) && typeof timestampValue === 'string' && !EXPLICIT_OFFSET_RE.test(timestampValue.trim())) {
+    // Resolve both offsets around a fall-back transition, then use file order for repeated wall times.
+    const offset = getMarketOffsetMinutes(time, timeZone);
+    const wall = time + offset * 60_000;
+    const candidates = [...new Set([-86400000, 0, 86400000].map(delta =>
+      wall - getMarketOffsetMinutes(time + delta, timeZone) * 60_000
+    ))].filter(candidate => candidate + getMarketOffsetMinutes(candidate, timeZone) * 60_000 === wall)
+      .sort((a, b) => a - b);
+    if (candidates.length > 1) {
+      const count = occurrences.get(wall) ?? 0;
+      occurrences.set(wall, count + 1);
+      time = candidates[Math.min(count, candidates.length - 1)];
+    }
+  }
   const consumption = Number(
     typeof consumptionValue === "string"
       ? consumptionValue.replace(",", ".")
@@ -202,11 +218,12 @@ const parseSmartMeterCsv = (text: string, timeZone: string): SmartMeterData[] =>
     throw new Error("CSV-Dateien benötigen Zeitstempel- und Verbrauchsspalten.");
   }
 
+  const occurrences = new Map<number, number>();
   return rows.slice(1).map((columns) => {
     return normalizeSmartMeterRecord({
       timestamp: columns[timestampIndex],
       consumption: columns[consumptionIndex],
-    }, timeZone);
+    }, timeZone, occurrences);
   });
 };
 
