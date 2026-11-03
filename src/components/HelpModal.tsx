@@ -1,3 +1,4 @@
+import type { RegionConfig } from '@/config/regions';
 
 import React from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -7,9 +8,10 @@ import { HelpCircle } from 'lucide-react';
 
 interface HelpModalProps {
   trigger?: React.ReactNode;
+  region: RegionConfig;
 }
 
-const HelpModal: React.FC<HelpModalProps> = ({ trigger }) => {
+const HelpModal: React.FC<HelpModalProps> = ({ trigger, region }) => {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -41,17 +43,10 @@ const HelpModal: React.FC<HelpModalProps> = ({ trigger }) => {
               </ul>
             </section>
 
+            {region.code === 'at' && <>
             <section>
-              <h3 className="text-lg font-semibold">Smart Meter Daten</h3>
-              <p>
-                Sie können Ihre eigenen Smart Meter Daten hochladen, um Ihren persönlichen Verbrauch mit den Strompreisen zu vergleichen:
-              </p>
-              <ul className="list-disc pl-6 space-y-1 mt-2">
-                <li>Klicken Sie auf den "Smart Meter Daten" Tab</li>
-                <li>Laden Sie Ihre Daten über das Uploadfeld hoch oder klicken Sie darauf, um eine Datei auszuwählen</li>
-                <li>Die Daten werden automatisch in den Graphen integriert</li>
-                <li>Sie können den Verbrauch und die Kosten im Hauptgraphen ein- oder ausblenden</li>
-              </ul>
+              <h3 className="text-lg font-semibold">Smart Meter Daten (in Vorbereitung)</h3>
+              <p>Der Upload eigener Verbrauchsdaten ist noch nicht verf?gbar.</p>
             </section>
 
             <section>
@@ -61,20 +56,20 @@ const HelpModal: React.FC<HelpModalProps> = ({ trigger }) => {
               </p>
               <ul className="list-disc pl-6 space-y-1 mt-2">
                 <li>Geben Sie Ihren jährlichen Stromverbrauch in kWh ein</li>
-                <li>Die Karten und das Balkendiagramm zeigen die Jahreskosten für verschiedene Tarife</li>
-                <li>Schalten Sie die Anzeige der Fixkosten ein oder aus</li>
+                <li>Die Karten zeigen die Jahreskosten für verschiedene Tarife</li>
                 <li>Sehen Sie sich die detaillierte Aufschlüsselung der Fixkosten für jeden Tarif an</li>
                 <li>Wählen Sie einen Tarif aus, um ihn im Hauptgraphen anzuzeigen</li>
               </ul>
             </section>
 
+            </>}
             <section>
               <h3 className="text-lg font-semibold">Hinweise</h3>
               <p>
                 Wichtige Informationen zur Nutzung:
               </p>
               <ul className="list-disc pl-6 space-y-1 mt-2">
-                <li>Die Netzkosten beziehen sich nur auf das Gebiet der Wiener Netze</li>
+                {region.code === 'at' && <li>Die Netzkosten beziehen sich nur auf das Gebiet der Wiener Netze</li>}
                 <li>Alle Berechnungen basieren auf den angegebenen Tarifen und können von tatsächlichen Rechnungen abweichen</li>
                 <li>Die dargestellten Strompreise werden aus den verfügbaren Landessätzen geladen</li>
                 <li>Für mehr Informationen zum österreichischen Strommarkt nutzen Sie die Info-Funktion</li>

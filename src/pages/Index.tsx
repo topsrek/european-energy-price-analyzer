@@ -521,7 +521,7 @@ const Index = ({ region }: IndexProps) => {
             <CardHeader className="px-6 pb-1 pt-3 md:pt-4">
               <div className="flex items-center justify-end gap-2">
                 {isLoadingPriceData && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                <HelpModal
+                <HelpModal region={region}
                   trigger={
                     <Button variant="outline" size="sm" className="h-9 gap-2 px-3">
                       <CircleHelp className="h-4 w-4" />
@@ -828,7 +828,7 @@ const Index = ({ region }: IndexProps) => {
                       </Button>
                       */}
                     </div>
-                    <div className="opacity-50 pointer-events-none">
+                    <div inert className="opacity-50 pointer-events-none">
                       <h3 className="text-lg font-medium mb-4">Smart Meter Daten hochladen</h3>
                       <p className="text-sm text-muted-foreground mb-6">
                         Laden Sie Ihre Smart Meter Daten hoch, um Ihren tatsächlichen Verbrauch zu 
