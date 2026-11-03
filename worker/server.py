@@ -383,6 +383,11 @@ class Handler(BaseHTTPRequestHandler):
             return path[4:]
         return path
 
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        if self.normalized_path() == "/health" and str(code).startswith("2") and is_loopback_address(self.client_address[0]):
+            return
+        super().log_request(code, size)
+
     def log_message(self, fmt: str, *args: Any) -> None:
         logger.info("%s - %s", self.address_string(), fmt % args)
 
