@@ -228,6 +228,7 @@ const ComparisonPage = () => {
           shortLabel: region.appCode.replace('EEPA-', ''),
           color: region.chartColor,
           energyPrices: processed,
+          averageEnergyPrices: filteredData,
         };
         return series;
       })
@@ -254,10 +255,17 @@ const ComparisonPage = () => {
             }
           });
 
+          const rawA = new Map((seriesA.averageEnergyPrices ?? []).map(p => [p.timestamp, p.price]));
+          const rawDeltas = (seriesB.averageEnergyPrices ?? []).flatMap(p => {
+            const priceA = rawA.get(p.timestamp);
+            return priceA === undefined ? [] : [{ ...p, price: p.price - priceA }];
+          });
+
           return {
             ...seriesB,
             label: `${seriesB.label} - ${seriesA.shortLabel}`,
             energyPrices: deltaPrices,
+            averageEnergyPrices: rawDeltas,
           };
         })
       ];

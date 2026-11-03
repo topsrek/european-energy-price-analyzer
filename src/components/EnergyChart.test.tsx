@@ -49,3 +49,13 @@ it('excludes readings outside the selected range from daily-cycle consumption', 
   });
   expect(captured.rows[0].consumption).toBe(9);
 });
+
+it('weights comparison period averages by raw intervals rather than displayed days', () => {
+  const raw: EnergyPrice[] = Array.from({ length: 36 }, (_, i) => ({
+    timestamp: new Date(Date.parse('2026-01-01T23:00Z') + i * 3600000).toISOString(),
+    price: i < 24 ? 0 : 100, unit: 'cent_kWh',
+  }));
+  const series = { id: 'at', label: 'AT', color: 'red', energyPrices: calculateAverage(raw, 'daily', zone),
+    averageEnergyPrices: raw };
+  expect(chart([], [], { comparisonSeries: [series] })).toContain('33.33');
+});

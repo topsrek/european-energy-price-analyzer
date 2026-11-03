@@ -13,6 +13,7 @@ export interface ComparisonSeries {
   shortLabel?: string;
   color: string;
   energyPrices: EnergyPrice[];
+  averageEnergyPrices?: EnergyPrice[];
 }
 
 export interface SmartMeterData {

@@ -785,7 +785,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
   // instead of parsing every timestamp on each pan/zoom frame.
   const averageSources = useMemo(
     () => (isComparisonChart
-      ? plotSeries.map((series) => buildAverageSource(series.energyPrices, averaging, timeZone))
+      ? plotSeries.map((series) => buildAverageSource(series.averageEnergyPrices ?? series.energyPrices, averaging, timeZone))
       : [buildAverageSource(averageEnergyPrices, averaging, timeZone)]),
     [averageEnergyPrices, averaging, isComparisonChart, plotSeries, timeZone]
   );
