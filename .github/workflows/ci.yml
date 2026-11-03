@@ -81,3 +81,37 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  container:
+    name: Worker container smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -f worker/Dockerfile -t eepa-smoke .
+      - name: Start worker without scheduler
+        run: docker run -d --name eepa-smoke -e RUN_SCHEDULER=false -p 49173:49173 eepa-smoke
+      - name: Exercise production HTTP routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=http://127.0.0.1:49173
+          curl --retry 20 --retry-connrefused --retry-delay 1 --fail "$base/api/health"
+          for path in / /at; do
+            test "$(curl -sS -D headers -o body -w '%{http_code}' "$base$path")" = 200
+            grep -qi '^Content-Type: text/html' headers
+            grep -qi '^Content-Security-Policy:.*script-src' headers
+            grep -qi '<html' body
+          done
+          test "$(curl -sS -D headers -o body -w '%{http_code}' "$base/api/at_electricity_prices.bin")" = 200
+          grep -qi '^Content-Type: application/octet-stream' headers
+          for path in /assets/missing.js /api/nope; do
+            test "$(curl -sS -o body -w '%{http_code}' "$base$path")" = 404
+          done
+      - name: Container logs
+        if: always()
+        run: docker logs eepa-smoke
+      - name: Remove container
+        if: always()
+        run: docker rm -f eepa-smoke
