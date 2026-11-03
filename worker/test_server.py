@@ -358,6 +358,57 @@ class HttpServerTestCase(unittest.TestCase):
 
 
 class StaticAndBinaryRoutesTest(HttpServerTestCase):
+    def test_strict_health_current_and_stale(self):
+        today = datetime.now(server.market_timezone()).date()
+        end = server.market_day_start_utc(today + timedelta(days=1))
+        for country in server.countries_to_update():
+            for suffix, step in (("", server.HOURLY_STEP), ("_15min", server.INTERVAL_STEP)):
+                path = self.data_dir / "metadata" / f"{country.lower()}_electricity_prices{suffix}_metadata.json"
+                path.write_text(json.dumps({"data_coverage": {"last_timestamp": (end - step).isoformat()}}))
+        for path in ("/health", "/api/health"):
+            status, _, body = self.request("GET", path + "?strict=1")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["data_through"], today.isoformat())
+        (self.data_dir / "metadata" / "at_electricity_prices_15min_metadata.json").unlink()
+        self.assertEqual(self.request("GET", "/api/health?strict=1")[0], 503)
+        self.assertEqual(self.request("GET", "/api/health")[0], 200)
+
+    def test_strict_health_stale_directory(self):
+        for path in ("/health?strict=1", "/api/health?strict=1"):
+            self.assertEqual(self.request("GET", path)[0], 503)
+
+    def test_binary_revalidation(self):
+        status, headers, body = self.request("GET", "/api/at_electricity_prices.bin")
+        self.assertEqual(headers["cache-control"], "no-cache")
+        for name, value in (("If-None-Match", headers["etag"]), ("If-Modified-Since", headers["last-modified"])):
+            status, _, body = self.request("GET", "/api/at_electricity_prices.bin", headers={name: value})
+            self.assertEqual((status, body), (304, b""))
+        (self.data_dir / "public" / "at_electricity_prices.bin").write_bytes(b"updated")
+        status, updated, body = self.request("GET", "/api/at_electricity_prices.bin", headers={"If-None-Match": headers["etag"], "If-Modified-Since": headers["last-modified"]})
+        self.assertEqual((status, body), (200, b"updated"))
+        self.assertNotEqual(updated["etag"], headers["etag"])
+
+    def test_unknown_api_and_wrong_method_are_json_404(self):
+        for method, path in (("GET", "/api/foo"), ("GET", "/api/health/"), ("GET", "/api/data-freshness"), ("GET", "/api/data-manifest"), ("HEAD", "/api/foo"), ("POST", "/api/health")):
+            status, headers, body = self.request(method, path)
+            self.assertEqual(status, 404, (method, path))
+            self.assertIn("application/json", headers["content-type"])
+            if method != "HEAD":
+                self.assertEqual(json.loads(body), {"error": "not_found"})
+
+    def test_only_successful_loopback_health_is_quiet(self):
+        with mock.patch.object(server.logger, "info") as log:
+            self.request("GET", "/health")
+            self.request("GET", "/api/health")
+            self.assertEqual(log.call_count, 0)
+            self.request("GET", "/at")
+            self.assertEqual(log.call_count, 1)
+            self.request("GET", "/health?strict=1")
+            self.assertEqual(log.call_count, 2)
+            with mock.patch.object(server, "is_loopback_address", return_value=False):
+                self.request("GET", "/health")
+            self.assertEqual(log.call_count, 3)
+
     def test_binary_path_regex(self):
         self.assertTrue(server.PUBLIC_BINARY_PATH_RE.fullmatch("/at_electricity_prices.bin"))
         self.assertTrue(server.PUBLIC_BINARY_PATH_RE.fullmatch("/de-lu_electricity_prices_15min.bin"))
