@@ -449,7 +449,7 @@ class StaticAndBinaryRoutesTest(HttpServerTestCase):
             for path in ("/health", "/api/health"):
                 status, _, body = self.request("GET", path, headers={"X-Forwarded-For": "127.0.0.1"})
                 self.assertEqual(status, 200, path)
-                self.assertEqual(set(json.loads(body)), {"ok", "service", "time"}, path)
+                self.assertEqual(set(json.loads(body)), {"ok", "service", "time", "data_through"}, path)
         is_loopback.assert_called_with("127.0.0.1")
 
     def test_loopback_address_detection(self):

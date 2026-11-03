@@ -26,6 +26,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import parse_qs, urlsplit
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -317,7 +318,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_file(public_binary, "application/octet-stream", head_only=True)
             return
 
-        if path in {"/health", "/geoip", "/data-manifest"}:
+        if path == "/health":
+            self.do_GET()
+            return
+
+        if path in {"/geoip", "/data-manifest"}:
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -329,11 +334,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = self.normalized_path()
         if path == "/health":
-            # Deliberately still HTTP 200 when data is stale: the process is serving
-            # fine, and a non-200 would make the orchestrator restart-loop the
-            # container over a data problem it cannot fix by restarting. Monitoring
-            # should alert on "ok": false / "stale_countries" instead.
-            self.send_json(health_payload(detailed=is_loopback_address(self.client_address[0])))
+            payload = health_payload(detailed=is_loopback_address(self.client_address[0]))
+            strict = parse_qs(urlsplit(self.path).query).get("strict") == ["1"]
+            today = datetime.now(market_timezone()).date().isoformat()
+            status = HTTPStatus.SERVICE_UNAVAILABLE if strict and (
+                payload["data_through"] is None or payload["data_through"] < today
+            ) else HTTPStatus.OK
+            self.send_json(payload, status=status)
             return
 
         if path == "/geoip":
@@ -384,7 +391,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", os.getenv("CORS_ORIGIN", "*"))
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def read_json_body(self) -> dict[str, Any]:
         try:
@@ -620,11 +628,29 @@ def is_loopback_address(host: Any) -> bool:
 def health_payload(detailed: bool) -> dict[str, Any]:
     """Health summary; the stale countries and update state only for loopback clients."""
     stale = stale_country_details(datetime.now(update_timezone()))
-    payload: dict[str, Any] = {"ok": not stale, "service": "eepa-worker", "time": now_iso()}
+    payload: dict[str, Any] = {"ok": not stale, "service": "eepa-worker", "time": now_iso(), "data_through": data_through()}
     if detailed:
         payload["stale_countries"] = stale
         payload["state"] = STATE.snapshot()
     return payload
+
+
+def data_through() -> str | None:
+    days = []
+    for country in countries_to_update():
+        for resolution, step in (("hourly", HOURLY_STEP), ("interval", INTERVAL_STEP)):
+            latest = get_latest_data_timestamp(country, resolution)
+            if not latest:
+                return None
+            try:
+                timestamp = parse_timestamp(latest)
+                day = timestamp.astimezone(market_timezone()).date()
+                if not covers_market_day(timestamp, step, day):
+                    day -= timedelta(days=1)
+                days.append(day)
+            except (ValueError, OverflowError):
+                return None
+    return min(days).isoformat() if days else None
 
 
 def now_iso() -> str:
