@@ -1,3 +1,4 @@
+import { priceLoadErrorMessage } from '@/utils/price-load-error';
 import React, { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
@@ -140,6 +141,7 @@ const Index = ({ region }: IndexProps) => {
   const [selectedContract, setSelectedContract] = useState<ContractOption | undefined>(undefined);
   const [isLoadingPriceData, setIsLoadingPriceData] = useState<boolean>(true);
   const [dataSource, setDataSource] = useState<string>('Lädt...');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [dataError, setDataError] = useState<string | null>(null);
   const [dataResolution, setDataResolution] = useState<DataResolution>(readInitialDataResolution);
   const [priceUnit, setPriceUnit] = useState<PriceUnit>(readInitialPriceUnit);
@@ -326,17 +328,7 @@ const Index = ({ region }: IndexProps) => {
             setDataSource('Keine Datendatei verfügbar');
           }
         }
-        setDataError(
-          dataResolution === 'interval'
-            ? `Für ${region.countryName} wurde noch keine 15-Minuten-Preisdatei gefunden.`
-            : `Für ${region.countryName} wurde keine aktuelle Preisdatei gefunden.`
-        );
-
-        toast({
-          title: 'Keine Preisdaten verfügbar',
-          description: `Für ${region.countryName} wurde keine Binärdatei gefunden.`,
-          variant: 'destructive'
-        });
+        setDataError(priceLoadErrorMessage(error, region, dataResolution === 'interval'));
       } finally {
         if (isMounted) {
           setIsLoadingPriceData(false);
@@ -361,7 +353,7 @@ const Index = ({ region }: IndexProps) => {
     return () => {
       isMounted = false;
     };
-  }, [region, dataResolution]);
+  }, [region, dataResolution, loadAttempt]);
 
   useEffect(() => {
     safeStorageSetItem(DATA_RESOLUTION_STORAGE_KEY, dataResolution);
@@ -734,8 +726,12 @@ const Index = ({ region }: IndexProps) => {
                       <p className="text-muted-foreground">Lädt Energiepreisdaten...</p>
                     </div>
                   ) : dataError ? (
-                    <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg px-4 text-center">
-                      <p className="text-muted-foreground">{dataError}</p>
+                    <div className="h-[400px] flex flex-col gap-4 items-center justify-center bg-muted rounded-lg px-4 text-center">
+                      <p role="alert" className="text-muted-foreground">{dataError}</p>
+                      <Button variant="outline" onClick={() => {
+                        delete dataCacheRef.current[`${region.code}:${dataResolution}`];
+                        setLoadAttempt((attempt) => attempt + 1);
+                      }}>Erneut laden</Button>
                     </div>
                   ) : displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 

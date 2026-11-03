@@ -1,3 +1,4 @@
+import { priceLoadErrorMessage } from '@/utils/price-load-error';
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -185,6 +186,7 @@ const ComparisonPage = () => {
     return new URLSearchParams(window.location.search).get('delta') === '1';
   });
   const [seriesByRegion, setSeriesByRegion] = useState<Partial<Record<RegionCode, EnergyPrice[]>>>({});
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [seriesErrors, setSeriesErrors] = useState<Partial<Record<RegionCode, string>>>({});
   const [earliestAvailableDate, setEarliestAvailableDate] = useState<Date | null>(null);
   const [latestAvailableDate, setLatestAvailableDate] = useState<Date | null>(null);
@@ -415,10 +417,7 @@ const ComparisonPage = () => {
             };
           } catch (error) {
             console.warn(`Failed to load ${region.code} comparison data`, error);
-            nextErrors[region.code] =
-              dataResolution === 'interval'
-                ? `Für ${region.localName} wurde noch keine 15-Minuten-Datei gefunden.`
-                : `Für ${region.localName} wurde keine aktuelle Preisdatei gefunden.`;
+            nextErrors[region.code] = priceLoadErrorMessage(error, region, dataResolution === 'interval');
           }
         }));
 
@@ -497,7 +496,7 @@ const ComparisonPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [dataResolution, selectedRegions]);
+  }, [dataResolution, selectedRegions, loadAttempt]);
 
   useEffect(() => {
     if (cutoffValue !== null || displayedSeries.length === 0) {
@@ -785,8 +784,9 @@ const ComparisonPage = () => {
               {Object.keys(seriesErrors).length > 0 && (
                 <div className="px-2 pb-2 text-sm text-muted-foreground">
                   {Object.entries(seriesErrors).map(([code, message]) => (
-                    <div key={code}>{message}</div>
+                    <div role="alert" key={code}>{message}</div>
                   ))}
+                  <Button variant="outline" className="mt-2" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Erneut laden</Button>
                 </div>
               )}
             </div>
