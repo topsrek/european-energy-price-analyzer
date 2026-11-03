@@ -61,6 +61,9 @@ export default defineConfig(() => ({
     globals: true,
     // Default 5s is too tight on a loaded machine or shared CI runner.
     testTimeout: 20_000,
+    // Node 25+ defines its own global localStorage (undefined without --localstorage-file),
+    // which hides jsdom's.
+    execArgv: ['--no-experimental-webstorage'],
     exclude: ['tests/e2e/**', 'node_modules/**', 'dist/**'],
   },
   plugins: [

@@ -704,6 +704,7 @@ class StartupRobustnessTest(unittest.TestCase):
 
 
 class GracefulShutdownTest(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "SIGTERM is POSIX-only; production runs on Linux")
     def test_restart_with_state_file_starts_and_sigterm_stops_promptly(self):
         import signal
         import subprocess

@@ -292,8 +292,13 @@ class AtomicWriteTest(unittest.TestCase):
         metadata_manager.atomic_write_bytes(self.path, b"new")
         self.assertEqual(self.path.read_bytes(), b"new")
         self.assertEqual(os.listdir(self.dir), ["artifact.bin"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX file modes")
+    def test_new_file_gets_the_default_mode(self):
+        metadata_manager.atomic_write_bytes(self.path, b"new")
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), metadata_manager.DEFAULT_FILE_MODE)
 
+    @unittest.skipIf(os.name == "nt", "POSIX file modes")
     def test_existing_permissions_are_preserved(self):
         self.path.write_bytes(b"old")
         os.chmod(self.path, 0o640)
