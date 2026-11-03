@@ -190,6 +190,32 @@ class GapRefusalTest(PipelineTestCase):
         self.assertFalse(self.web_file.exists())
 
 
+class MetadataReconciliationTest(IntervalCorruptArtifactTest):
+    def test_unchanged_series_repairs_missing_or_stale_metadata(self):
+        for interval in (False, True):
+            records = [(utc(2025, 10, 1) + timedelta(minutes=(15 if interval else 60)*i), 10.0) for i in range(24)]
+            binary = self.interval_file if interval else self.web_file
+            path = self.metadata_dir / ("at_electricity_prices_15min_metadata.json" if interval else "at_electricity_prices_metadata.json")
+            binary.write_bytes(encode(records))
+            for stale in (None, {"data_coverage": {"total_records": 1, "last_timestamp": "wrong"}, "file_info": {"file_size": 1}}):
+                with self.subTest(interval=interval, stale=stale):
+                    path.unlink(missing_ok=True)
+                    if stale is not None:
+                        path.write_text(json.dumps(stale))
+                    if interval:
+                        with mock.patch.object(build_interval_dataset, "fetch_interval_records", return_value=records):
+                            self.assertEqual(build_interval_dataset.main(["AT", "2025-10-01", "2025-10-01"]), 0)
+                    else:
+                        with mock.patch.object(sbd.EnergyPriceDownloader, "download_date_range_data", return_value=as_payload([(t + timedelta(minutes=m), v) for t,v in records for m in (0,15,30,45)])):
+                            self.assertEqual(sbd.main(["AT", "2025-10-01", "2025-10-01"]), 0)
+                    metadata = json.loads(path.read_text())
+                    self.assertEqual(metadata["data_coverage"]["total_records"], len(records))
+                    self.assertEqual(metadata["data_coverage"]["first_timestamp"], records[0][0].isoformat())
+                    self.assertEqual(metadata["data_coverage"]["last_timestamp"], records[-1][0].isoformat())
+                    self.assertEqual(metadata["file_info"]["file_size"], binary.stat().st_size)
+                    self.assertEqual(binary.read_bytes(), encode(records))
+
+
 class QuarterHourAggregationTest(unittest.TestCase):
     """H3: the hourly price is the mean of the four quarter-hours."""
 
@@ -317,7 +343,7 @@ class EmptyAndFailedDownloadTest(PipelineTestCase):
         self.mock_download(([], []))
         self.assertEqual(sbd.main(["AT", "2025-06-02", "2025-06-02"]), 0)
         self.assertEqual(self.web_file.read_bytes(), self.original)
-        self.assertFalse(self.metadata_file.exists())
+        self.assertEqual(json.loads(self.metadata_file.read_text())["data_coverage"]["total_records"], 24)
 
     def test_download_failure_exits_nonzero(self):
         self.mock_download(None)

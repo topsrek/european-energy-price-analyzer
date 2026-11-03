@@ -191,6 +191,25 @@ def metadata_record_count(metadata_path: Path) -> int:
         return 0
 
 
+def metadata_matches(path: Path, binary_file: Path, records) -> bool:
+    if not records:
+        return True
+    try:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        coverage = metadata["data_coverage"]
+        return (
+            coverage["total_records"] == len(records)
+            and coverage["first_timestamp"] == records[0][0].isoformat()
+            and coverage["last_timestamp"] == records[-1][0].isoformat()
+            and coverage["covered_dates"] == sorted({ts.date().isoformat() for ts, _ in records})
+            and coverage["missing_dates"] == []
+            and metadata["file_info"]["binary_file"] == binary_file.name
+            and metadata["file_info"]["file_size"] == binary_file.stat().st_size
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def aggregate_to_hourly(records: List[Tuple[datetime, float]]) -> Tuple[List[Tuple[datetime, float]], List[datetime]]:
     """Turn upstream records into one price per UTC hour.
 
@@ -651,6 +670,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         # artifact. Same as the interval builder: exit 0 and let the worker's
         # staleness check report the country as pending.
         if not new_records or series_equal(merge_records(existing_records, new_records), existing_records):
+            if existing_records and not metadata_matches(
+                smart_downloader.metadata.metadata_file, smart_downloader.web_file, existing_records
+            ):
+                smart_downloader.metadata.update_from_binary_analysis({
+                    "total_records": len(existing_records),
+                    "first_timestamp": existing_records[0][0],
+                    "last_timestamp": existing_records[-1][0],
+                }, list({ts.date() for ts, _ in existing_records}))
+                smart_downloader.metadata.metadata["data_coverage"]["missing_dates"] = []
+                smart_downloader.metadata.save()
             logger.info(f"No new data yet for {country_code}; artifact unchanged")
             return 0
 

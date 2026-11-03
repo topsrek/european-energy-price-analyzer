@@ -28,6 +28,7 @@ from smart_batch_downloader import (
     OptimizedEnergyPriceEncoder,
     OptimizedPriceDecoder,
     metadata_record_count,
+    metadata_matches,
     parse_rebuild_flag,
     series_equal,
     trim_to_utc_midnight_start,
@@ -432,6 +433,8 @@ def main(argv: list[str] | None = None) -> int:
     merged_records = trim_to_utc_midnight_start(merged_records)
 
     if series_equal(merged_records, existing_records):
+        if not metadata_matches(interval_metadata_path(country_code), binary_file, existing_records):
+            write_metadata(country_code, binary_file, existing_records)
         logger.info("No new interval data yet for %s; artifact unchanged", country_code)
         check_hourly_consistency(country_code, existing_records)
         return 0
