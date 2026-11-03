@@ -16,7 +16,7 @@ import {
   ReferenceLine,
   ReferenceArea
 } from 'recharts';
-import { aggregateConsumptionByPriceRow, getAveragingBucketKey } from '@/utils/data-utils';
+import { aggregateMeterByPriceRow, getAveragingBucketKey } from '@/utils/data-utils';
 import { formatMarketDate, getMarketDateParts, getMarketDayKey, type MarketDateParts } from '@/utils/market-time';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -402,22 +402,21 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     }));
 
     if (showSmartMeterData && smartMeterData && smartMeterData.length > 0) {
-      const consumptionMap = aggregateConsumptionByPriceRow(
+      const consumptionMap = aggregateMeterByPriceRow(
         energyPrices,
         smartMeterData,
         averaging,
         dataResolution,
-        timeZone
+        timeZone,
+        averageEnergyPrices
       );
 
       internalChartData.forEach(item => {
-        const consumption = consumptionMap.get(item.timestamp);
-        if (consumption !== undefined) {
-          item.consumption = consumption;
+        const total = consumptionMap.get(item.timestamp);
+        if (total !== undefined) {
+          item.consumption = total.consumption;
           if (showTotalCost) {
-            const price = item.price;
-            const pricePerKWh = item.unit === 'EUR_MWh' ? price / 1000 : price / 100;
-            item.cost = consumption * pricePerKWh;
+            item.cost = total.cost * (showSpotPriceWithTax ? vatFactor : 1);
           }
         }
       });
@@ -440,6 +439,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
     return internalChartData;
   }, [
     annualConsumption,
+    averageEnergyPrices,
     averaging,
     baseRows,
     dataResolution,

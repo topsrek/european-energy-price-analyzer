@@ -242,7 +242,7 @@ describe('data utils', () => {
     expect(hourly.get('2026-04-30T22:00:00.000Z')).toBeCloseTo(1, 9);
     expect(hourly.get('2026-04-30T23:00:00.000Z')).toBeCloseTo(1, 9);
 
-    const daily = aggregateConsumptionByPriceRow(calculateAverage(prices, 'daily', TZ), readings, 'daily', 'hourly', TZ);
+    const daily = aggregateConsumptionByPriceRow(calculateAverage(prices, 'daily', TZ), readings, 'daily', 'hourly', TZ, prices);
     expect(daily.get('2026-04-30T22:00:00.000Z')).toBeCloseTo(2, 9);
   });
 

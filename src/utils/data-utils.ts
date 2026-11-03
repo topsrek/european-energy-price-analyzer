@@ -336,13 +336,14 @@ export const calculateAverage = (
  * Readings are bucketed like the prices (averaging bucket, or the price interval for raw data),
  * so 15-minute meter data adds up correctly against hourly prices and averaged buckets.
  */
-export const aggregateConsumptionByPriceRow = (
+export const aggregateMeterByPriceRow = (
   prices: EnergyPrice[],
   readings: SmartMeterData[],
   averaging: string | undefined,
   resolution: 'hourly' | 'interval',
-  timeZone: string
-): Map<string, number> => {
+  timeZone: string,
+  rawPrices: EnergyPrice[] = prices
+): Map<string, { consumption: number; cost: number }> => {
   const stepMs = resolution === 'interval' ? MS_PER_HOUR / 4 : MS_PER_HOUR;
   const keyOf = (time: number): string | number => {
     if (averaging === 'daily-cycle') return getMarketDateParts(time, timeZone).hour;
@@ -363,17 +364,34 @@ export const aggregateConsumptionByPriceRow = (
   const readingTimes = readings.map((reading) => Date.parse(reading.timestamp));
   const parts = Math.max(1, Math.round(smallestStep(readingTimes) / stepMs));
 
-  const totals = new Map<string, number>();
+  const intervalPrices = new Map(rawPrices.map(price => [
+    Math.floor(Date.parse(price.timestamp) / stepMs) * stepMs, price,
+  ]));
+  const totals = new Map<string, { consumption: number; cost: number }>();
   readings.forEach((reading, index) => {
     const share = reading.consumption / parts;
     for (let part = 0; part < parts; part += 1) {
-      const row = rowByKey.get(keyOf(readingTimes[index] + part * stepMs));
+      const time = readingTimes[index] + part * stepMs;
+      const price = intervalPrices.get(Math.floor(time / stepMs) * stepMs);
+      if (!price) continue;
+      const row = rowByKey.get(keyOf(time));
       if (row === undefined) continue;
-      totals.set(row, (totals.get(row) ?? 0) + share);
+      const total = totals.get(row) ?? { consumption: 0, cost: 0 };
+      total.consumption += share;
+      total.cost += share * price.price / (price.unit === 'EUR_MWh' ? 1000 : 100);
+      totals.set(row, total);
     }
   });
   return totals;
 };
+
+export const aggregateConsumptionByPriceRow = (
+  prices: EnergyPrice[], readings: SmartMeterData[], averaging: string | undefined,
+  resolution: 'hourly' | 'interval', timeZone: string, rawPrices: EnergyPrice[] = prices
+): Map<string, number> => new Map(
+  Array.from(aggregateMeterByPriceRow(prices, readings, averaging, resolution, timeZone, rawPrices),
+    ([timestamp, total]) => [timestamp, total.consumption])
+);
 
 /** Smallest positive gap between the (unsorted) times, or 0 for fewer than two distinct times. */
 const smallestStep = (times: number[]): number => {
