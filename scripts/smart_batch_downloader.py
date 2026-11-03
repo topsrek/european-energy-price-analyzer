@@ -200,9 +200,7 @@ def aggregate_to_hourly(records: List[Tuple[datetime, float]]) -> Tuple[List[Tup
     an hour with fewer quarters is reported as incomplete and left out, so it is
     re-fetched later instead of being written with a wrong value.
 
-    A lone :00 record is a genuine hourly price before the switch, and after it
-    only if the response contains no sub-hourly data at all (a zone still served
-    hourly).
+    A lone :00 record is a genuine hourly price only before the switch.
 
     Returns (hourly_records, incomplete_hours).
     """
@@ -216,15 +214,13 @@ def aggregate_to_hourly(records: List[Tuple[datetime, float]]) -> Tuple[List[Tup
         hour = timestamp.replace(minute=0)
         buckets.setdefault(hour, {})[timestamp.minute] = price
 
-    has_subhourly = any(set(quarters) != {0} for quarters in buckets.values())
-
     hourly: List[Tuple[datetime, float]] = []
     incomplete: List[datetime] = []
     for hour in sorted(buckets):
         quarters = buckets[hour]
         if len(quarters) == len(QUARTER_MINUTES):
             hourly.append((hour, sum(quarters[minute] for minute in QUARTER_MINUTES) / len(QUARTER_MINUTES)))
-        elif set(quarters) == {0} and (hour < MTU_SWITCH_UTC or not has_subhourly):
+        elif set(quarters) == {0} and hour < MTU_SWITCH_UTC:
             hourly.append((hour, quarters[0]))
         else:
             incomplete.append(hour)

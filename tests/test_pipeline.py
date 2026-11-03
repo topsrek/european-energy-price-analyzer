@@ -194,6 +194,10 @@ class QuarterHourAggregationTest(unittest.TestCase):
         self.assertEqual(hourly, [(full, 2.5)])
         self.assertEqual(incomplete, [lone])
 
+    def test_all_first_quarters_after_switch_are_incomplete(self):
+        records = self.quarters(utc(2025, 10, 1), [10.0, None, None, None])
+        self.assertEqual(sbd.aggregate_to_hourly(records), ([], [utc(2025, 10, 1)]))
+
     def test_pre_switch_hourly_data_is_unchanged(self):
         records = hourly_series(utc(2025, 9, 29, 0), 48)
         hourly, incomplete = sbd.aggregate_to_hourly(records)
@@ -266,6 +270,16 @@ class OverlapRefetchTest(PipelineTestCase):
         ts = utc(2025, 6, 1)
         merged = sbd.merge_records([(ts, 1.0)], [(ts, 2.0), (ts + timedelta(hours=1), 3.0)])
         self.assertEqual(merged, [(ts, 2.0), (ts + timedelta(hours=1), 3.0)])
+
+
+class FirstQuarterOverwriteTest(PipelineTestCase):
+    def test_null_quarters_do_not_overwrite_hourly_means(self):
+        start = utc(2025, 10, 1)
+        original = encode(hourly_series(start, 24, price=lambda i: 25.0))
+        self.web_file.write_bytes(original)
+        self.mock_download(as_payload([(start + timedelta(minutes=15*i), 10.0 if i % 4 == 0 else None) for i in range(96)]))
+        self.assertEqual(sbd.main(["AT", "2025-10-01", "2025-10-01"]), 0)
+        self.assertEqual(self.web_file.read_bytes(), original)
 
 
 class EmptyAndFailedDownloadTest(PipelineTestCase):
