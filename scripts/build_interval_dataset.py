@@ -112,12 +112,14 @@ class IntervalPriceDecoder:
         while True:
             remaining_bits = (len(self.data) * 8) - self.bit_position
             if remaining_bits < 15:
+                if remaining_bits > 7:
+                    raise ValueError("Truncated price record")
                 break
 
             try:
                 price = self.read_price()
-            except ValueError:
-                break
+            except ValueError as exc:
+                raise ValueError(f"Truncated price record at index {len(records)}") from exc
 
             if current.date() > end_date:
                 break
@@ -415,6 +417,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         # The metadata count catches a truncated artifact that still decodes.
         existing_count = max(len(existing_records), metadata_record_count(interval_metadata_path(country_code)))
+        if existing_records and len(existing_records) < existing_count:
+            logger.error("Decoded record count is smaller than metadata; use --rebuild")
+            return 2
 
     new_records = fetch_interval_records(country_code, start_date, end_date)
     merged_records = merge_records(existing_records, new_records)

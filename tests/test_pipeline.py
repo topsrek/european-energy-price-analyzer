@@ -89,6 +89,14 @@ class PipelineTestCase(unittest.TestCase):
         return sbd.OptimizedPriceDecoder(self.web_file.read_bytes()).decode_all()
 
 
+class TruncatedLongRecordTest(unittest.TestCase):
+    def test_both_decoders_raise_on_truncated_long_record(self):
+        data = encode(hourly_series(utc(2025, 6, 1), 24, price=lambda i: -10.0))[:-1]
+        for decoder in (sbd.OptimizedPriceDecoder, build_interval_dataset.IntervalPriceDecoder):
+            with self.subTest(decoder=decoder.__name__), self.assertRaises(ValueError):
+                decoder(data).decode_all()
+
+
 class HourlyCorruptArtifactTest(PipelineTestCase):
     """H1: a damaged artifact must never be replaced by just the fetch window."""
 
@@ -117,6 +125,13 @@ class HourlyCorruptArtifactTest(PipelineTestCase):
         self.assertNotEqual(sbd.main(["AT", "2025-06-02", "2025-06-02"]), 0)
         self.assertEqual(self.web_file.read_bytes(), original)
 
+    def test_unchanged_truncated_series_is_refused(self):
+        records = hourly_series(utc(2025, 6, 1), 23)
+        self.web_file.write_bytes(encode(records))
+        self.metadata_file.write_text(json.dumps({"data_coverage": {"total_records": 24}}))
+        self.mock_download(as_payload(records))
+        self.assertNotEqual(sbd.main(["AT", "2025-06-01", "2025-06-01"]), 0)
+
     def test_rebuild_flag_allows_replacing_a_damaged_file(self):
         self.web_file.write_bytes(b"\x01\x02")
         self.mock_download(as_payload(hourly_series(utc(2025, 6, 1), 24)))
@@ -143,6 +158,14 @@ class IntervalCorruptArtifactTest(PipelineTestCase):
             fetch.assert_not_called()
         self.assertEqual(self.interval_file.read_bytes(), b"\x00")
         self.assertFalse((self.metadata_dir / "at_electricity_prices_15min_metadata.json").exists())
+
+    def test_unchanged_truncated_interval_series_is_refused(self):
+        records = [(utc(2025, 10, 1) + timedelta(minutes=15*i), 10.0) for i in range(95)]
+        self.interval_file.write_bytes(encode(records))
+        path = self.metadata_dir / "at_electricity_prices_15min_metadata.json"
+        path.write_text(json.dumps({"data_coverage": {"total_records": 96}}))
+        with mock.patch.object(build_interval_dataset, "fetch_interval_records", return_value=records):
+            self.assertNotEqual(build_interval_dataset.main(["AT", "2025-10-01", "2025-10-01"]), 0)
 
     def test_new_quarter_hours_win_over_stored_ones(self):
         start = utc(2026, 5, 6)

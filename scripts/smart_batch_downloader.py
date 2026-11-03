@@ -340,7 +340,9 @@ class OptimizedPriceDecoder:
             try:
                 # Check if we have enough bits remaining
                 remaining_bits = (len(self.data) * 8) - self.bit_position
-                if remaining_bits < 15:  # Minimum record size
+                if remaining_bits < 15:  # At most seven zero padding bits are valid.
+                    if remaining_bits > 7:
+                        raise ValueError("Truncated price record")
                     break
                 
                 # Try to read next price record
@@ -361,8 +363,7 @@ class OptimizedPriceDecoder:
                     break
                 
             except Exception as e:
-                logger.info(f"Decode completed at record {record_count}: {e}")
-                break
+                raise ValueError(f"Truncated price record at index {record_count}: {e}") from e
         
         logger.info(f"Successfully decoded {len(records)} actual records (UTC timestamps)")
         
@@ -634,6 +635,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 return 2
             # The metadata count catches a truncated artifact that still decodes.
             existing_count = max(len(existing_records), metadata_record_count(smart_downloader.metadata.metadata_file))
+            if existing_records and len(existing_records) < existing_count:
+                raise CorruptArtifactError("Decoded record count is smaller than metadata; use --rebuild")
 
         before_analysis = smart_downloader.analyze_records(existing_records)
 
