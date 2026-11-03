@@ -190,7 +190,15 @@ class GapRefusalTest(PipelineTestCase):
         self.assertFalse(self.web_file.exists())
 
 
-class MetadataReconciliationTest(IntervalCorruptArtifactTest):
+class MetadataReconciliationTest(PipelineTestCase):
+    def setUp(self):
+        super().setUp()
+        for name, value in (("PUBLIC_DIR", self.public_dir), ("METADATA_DIR", self.metadata_dir)):
+            patcher = mock.patch.object(build_interval_dataset, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.interval_file = self.public_dir / "at_electricity_prices_15min.bin"
+
     def test_unchanged_series_repairs_missing_or_stale_metadata(self):
         for interval in (False, True):
             records = [(utc(2025, 10, 1) + timedelta(minutes=(15 if interval else 60)*i), 10.0) for i in range(24)]
