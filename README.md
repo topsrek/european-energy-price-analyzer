@@ -104,6 +104,8 @@ Trigger a redeploy:
 scripts/coolify-redeploy.sh
 ```
 
+It waits until Coolify reports the deployment `finished` (exit 0) or `failed` (exit 1), then prints the deployed commit and warns if it differs from the local `HEAD`. `COOLIFY_WAIT=false` returns right after queuing; `COOLIFY_WAIT_TIMEOUT` (seconds, default 900) bounds the wait.
+
 The script defaults to the `eepa-app` Coolify UUID. If the default is removed, it discovers this application's Coolify UUID by calling:
 
 ```text
