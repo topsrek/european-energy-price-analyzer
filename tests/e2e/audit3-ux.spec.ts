@@ -62,13 +62,25 @@ test('tariff controls have names and accept empty editing', async ({ page }) => 
     const input = page.getByRole('spinbutton', { name, exact: true });
     await input.fill('');
     await expect(input).toHaveValue('');
+    await expect(input).toHaveAttribute('value', '');
     await input.fill('12.5');
     await expect(input).toHaveValue('12.5');
   }
   await page.getByRole('tab', { name: 'Smart Meter Daten' }).click();
-  const file = page.locator('input[type=file]');
-  await file.evaluate((el: HTMLElement) => el.focus());
-  await expect(file).not.toBeFocused();
+  const upload = page.locator('button').filter({ hasText: 'Datei auswählen' });
+  await upload.evaluate((el: HTMLElement) => el.focus());
+  await expect(upload).not.toBeFocused();
+  await page.getByRole('tab', { name: 'Smart Meter Daten' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(upload).not.toBeFocused();
+});
+
+for (const status of [404, 500]) test(`HTTP ${status} shows the appropriate data error`, async ({ page }) => {
+  await page.route('**/api/*.bin', route => route.fulfill({ status }));
+  await page.goto('/at');
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText(status === 404 ? 'Für Österreich wurde keine aktuelle Preisdatei gefunden.' : 'Verbindung fehlgeschlagen');
+  await expect(page.getByRole('button', { name: 'Erneut laden' })).toBeVisible();
 });
 
 test('FAQ answers reflect regional features and quarter-hour prices', async ({ page }) => {

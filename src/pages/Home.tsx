@@ -91,7 +91,7 @@ const Home = () => {
                   <RegionFlag flagCodes={suggestedRegion.flagCodes} className="h-8 w-12 shadow-md rounded-sm" />
                   <div>
                     <div className="text-xl font-black group-hover:text-primary transition-colors">{suggestedRegion.localName}</div>
-                    <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">{suggestedRegion.appCode}</div>
+                    <div className="text-[10px] font-mono text-primary uppercase tracking-widest">{suggestedRegion.appCode}</div>
                   </div>
                 </div>
                 <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground transition-all duration-200 group-hover:scale-110">
@@ -152,7 +152,7 @@ const Home = () => {
       <footer className="p-12 text-center text-xs text-muted-foreground space-y-4 border-t border-border/40 bg-muted/20">
         <p>© {new Date().getFullYear()} European Energy Price Analyzer</p>
         <p>
-          Entwickelt von <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="text-primary/70 hover:text-primary transition-colors font-medium">@topsrek</a> in Österreich
+          Entwickelt von <a href="https://topsrek.top" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary transition-colors font-medium">@topsrek</a> in Österreich
         </p>
         <div className="flex justify-center gap-6 pt-2">
           <Link to="/impressum" className="hover:text-primary transition-colors font-medium">Impressum</Link>

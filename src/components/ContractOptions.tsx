@@ -271,7 +271,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
             </>
           ) : (
             <div className="bg-secondary/10 dark:bg-secondary/15 p-4 rounded-lg space-y-3">
-              <h4 className="font-semibold text-secondary text-sm">Spot Tarif</h4>
+              <h4 className="font-semibold text-foreground text-sm">Spot Tarif</h4>
               
               <div className="grid grid-cols-2 gap-y-2 text-sm">
                 <span className="text-muted-foreground">Grundgebühr:</span>
@@ -291,7 +291,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                 )}
               </div>
               
-              <div className="text-xs text-secondary dark:text-foreground mt-2 p-2 bg-secondary/15 dark:bg-secondary/20 rounded">
+              <div className="text-xs text-foreground mt-2 p-2 bg-secondary/15 dark:bg-secondary/20 rounded">
                 + stündlicher Spotpreis (inkl. Gebrauchsabgabe) + Netzkosten + Steuern
               </div>
             </div>
