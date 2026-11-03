@@ -77,8 +77,11 @@ the image regardless of timestamps, logs `History revision ... reseeding ALL art
 and then records the new revision. The scheduler re-fetches the days since the commit as
 usual. Appending new days (the daily refresh committed back) needs no bump.
 
-Revision 2: AT hourly starts 2018-10-01 instead of 2018-09-30 (the first 22 hours
-predated the AT bidding zone and could not be traced upstream).
+Revision 3: AT hourly was rebuilt from upstream starting 2018-10-01 00:00 UTC,
+the first UTC midnight inside the AT bidding zone (which began 2018-09-30 22:00 UTC).
+The revision 2 explanation was incorrect: the old prices were shifted by missing
+records and a non-midnight start, not untraceable pre-zone prices. All six image
+artifacts were refreshed together so reseeding does not roll other countries back.
 
 ## Manual runs
 

@@ -65,7 +65,9 @@ the scripts:
 - write the binary first and the metadata second, each atomically (temp file, fsync, rename).
 
 Fresh values always win over stored ones, so re-running a window applies upstream
-corrections. A run that finds nothing new exits 0 without touching the files.
+corrections. A run that finds nothing new exits 0, reconciling missing or stale
+metadata atomically against the decoded artifact. A decoded count below the metadata
+count is treated as damage and requires `--rebuild`.
 
 ## API
 

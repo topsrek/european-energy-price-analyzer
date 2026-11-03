@@ -69,7 +69,7 @@ Consequences the writers enforce, because the format cannot express them:
   presentation is done in the frontend.
 
 There is no record count or checksum in the file. Truncation is detected by the readers
-(a record cut off mid-way is an error in the TypeScript decoder) and by the pipeline
+(a record cut off mid-way is an error in the Python and TypeScript decoders) and by the pipeline
 comparing against `total_records` in the backend metadata (`scripts/data/*_metadata.json`,
 or `$DATA_DIR/metadata/` in production).
 

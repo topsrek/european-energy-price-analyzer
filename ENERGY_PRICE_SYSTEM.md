@@ -8,6 +8,8 @@ stored in a compact positional binary format and loaded lazily per country.
 - Countries: Austria (AT), Germany-Luxembourg (DE-LU), France (FR).
 - Per country an hourly artifact and a 15-minute artifact (15-minute data starts
   2025-10-01, when day-ahead markets switched to a 15-minute MTU).
+- AT hourly history starts at 2018-10-01 00:00 UTC, the first UTC midnight inside
+  the AT bidding zone (which began 2018-09-30 22:00 UTC).
 - Since that switch the hourly price is the mean of the four quarter-hours; the pipeline
   warns if the two artifacts ever disagree.
 - Missing country files produce a no-data state; the app never generates mock prices.
