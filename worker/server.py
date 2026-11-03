@@ -24,8 +24,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 from urllib.parse import parse_qs, urlsplit
 from datetime import date, datetime, timedelta, timezone
 from email.utils import formatdate, parsedate_to_datetime
