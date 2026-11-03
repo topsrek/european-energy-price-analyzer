@@ -57,6 +57,14 @@ describe('optimized binary decoder', () => {
     expect(() => decodeOptimizedBinaryEnergyPrices(writer.toArrayBuffer())).toThrow(/Invalid date/);
   });
 
+  it.each([0, 1, 24])('rejects a payload with %i records ending before the header end day', (count) => {
+    const writer = new BitWriter();
+    writeDate(writer, new Date('2026-01-01T00:00:00Z'));
+    writeDate(writer, new Date('2026-01-03T00:00:00Z'));
+    for (let i = 0; i < count; i += 1) writePrice(writer, 1);
+    expect(() => decodeOptimizedBinaryEnergyPrices(writer.toArrayBuffer())).toThrow(/end date|empty/);
+  });
+
   it('decodes every committed price artifact without errors', () => {
     const files = readdirSync(resolve(process.cwd(), 'public')).filter((name) => name.endsWith('.bin'));
     expect(files.length).toBeGreaterThan(0);

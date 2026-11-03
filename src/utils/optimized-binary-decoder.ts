@@ -166,6 +166,12 @@ export class OptimizedBinaryPriceDecoder {
       recordOffset++;
     }
 
+    const last = records[records.length - 1];
+    const expectedEnd = this.getTimestampForRecord(endDate, 0).toISOString().slice(0, 10);
+    if (!last || last.timestamp.slice(0, 10) !== expectedEnd) {
+      throw new Error("Corrupt or truncated price file: empty payload or header end date not reached");
+    }
+
     if (import.meta.env.DEV) console.debug(`Successfully decoded ${records.length} actual records (UTC timestamps, no placeholders)`);
     
     return records;
