@@ -1,3 +1,4 @@
+import { usePageMetadata } from '@/hooks/use-page-metadata';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, BarChartHorizontal, Globe, MessageSquare } from 'lucide-react';
@@ -12,6 +13,7 @@ import {
 } from '@/config/regions';
 
 const Home = () => {
+  usePageMetadata('European Energy Price Analyzer - EEPA');
   const initialRegion = useMemo(() => guessRegionFromBrowser(), []);
   const [suggestedRegion, setSuggestedRegion] = useState(initialRegion);
   const availableRegions = useMemo(

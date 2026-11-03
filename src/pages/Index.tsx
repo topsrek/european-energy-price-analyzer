@@ -224,7 +224,7 @@ const Index = ({ region }: IndexProps) => {
   // Load initial data
   useEffect(() => {
     saveSelectedRegion(region.code);
-    document.documentElement.lang = region.language;
+    document.documentElement.lang = 'de-AT';
     document.title = `${region.title} - ${region.appCode}`;
   }, [region]);
 

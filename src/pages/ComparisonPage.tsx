@@ -292,7 +292,7 @@ const ComparisonPage = () => {
     : 'Keine Region ausgewählt';
 
   useEffect(() => {
-    document.documentElement.lang = 'de';
+    document.documentElement.lang = 'de-AT';
     document.title = 'Strompreisvergleich Europa - EEPA';
   }, []);
 

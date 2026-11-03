@@ -1,3 +1,4 @@
+import { usePageMetadata } from '@/hooks/use-page-metadata';
 import React, { useMemo, useState } from 'react';
 import { useParams, Link, Navigate } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
@@ -19,6 +20,7 @@ interface FAQEntry {
 }
 
 const FaqPage = () => {
+  usePageMetadata('FAQs & Wissen - EEPA');
   const { regionCode } = useParams();
   const region = getRegionByCode(regionCode);
   const [searchQuery, setSearchQuery] = useState('');

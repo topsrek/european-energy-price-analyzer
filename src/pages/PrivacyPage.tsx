@@ -1,3 +1,4 @@
+import { usePageMetadata } from '@/hooks/use-page-metadata';
 import React, { useEffect } from 'react';
 import AppHeader from '@/components/AppHeader';
 import { getRegionByCode, defaultRegion } from '@/config/regions';
@@ -7,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 
 const PrivacyPage = () => {
+  usePageMetadata('Datenschutz - EEPA');
   const { regionCode } = useParams();
   const { pathname } = useLocation();
   const region = getRegionByCode(regionCode) || defaultRegion;
