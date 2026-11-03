@@ -5,16 +5,18 @@ import '@fontsource/bungee-inline/latin-400.css';
 import './index.css';
 import { ThemeProvider } from './components/ThemeProvider';
 
+const IMPORT_RELOAD_KEY = 'eepa-import-reload';
+
 const reloadAfterImportFailure = (event: Event) => {
-  event.preventDefault();
   try {
-    // Keep this across reloads: a broken deployment must not trap the tab in a loop.
-    if (sessionStorage.getItem('eepa-import-reload')) return;
-    sessionStorage.setItem('eepa-import-reload', '1');
+    // A reload less than a minute ago that did not help means the deployment itself is broken;
+    // reloading again would loop. Leave the error to the route error boundary instead.
+    if (Date.now() - Number(sessionStorage.getItem(IMPORT_RELOAD_KEY)) < 60_000) return;
+    sessionStorage.setItem(IMPORT_RELOAD_KEY, String(Date.now()));
   } catch {
-    // Without persistent storage we cannot safely guard an automatic reload.
     return;
   }
+  event.preventDefault();
   window.location.reload();
 };
 

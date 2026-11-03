@@ -65,7 +65,7 @@ class LazyRouteBoundary extends Component<{ children: ReactNode }, { failed: boo
 
   render() {
     if (this.state.failed) {
-      return <p role="alert">This page could not be loaded. <a href={window.location.href}>Reload the page</a> to try again.</p>;
+      return <p role="alert" className="p-6">Diese Seite konnte nicht geladen werden. <a className="underline" href={window.location.href}>Seite neu laden</a></p>;
     }
     return this.props.children;
   }
