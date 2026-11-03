@@ -83,7 +83,7 @@ export const regions: RegionConfig[] = [
     path: '/fr',
     appCode: 'EEPA-FR',
     countryName: 'France',
-    localName: 'France',
+    localName: 'Frankreich',
     title: 'Strompreisrechner Frankreich',
     description: 'Historische Day-ahead-Strompreise in Frankreich analysieren und mit anderen europäischen Regionen vergleichen.',
     language: 'fr-FR',
@@ -138,8 +138,10 @@ const countryFromTimezone = () => {
 };
 
 export const guessRegionFromBrowser = (): RegionConfig => {
-  const countryCode = countryFromLocale() ?? countryFromTimezone();
-  return (countryCode && regionByCountryCode.get(countryCode)) || defaultRegion;
+  const localeCountry = countryFromLocale();
+  const localeRegion = localeCountry && regionByCountryCode.get(localeCountry);
+  const timezoneCountry = countryFromTimezone();
+  return localeRegion || (timezoneCountry && regionByCountryCode.get(timezoneCountry)) || defaultRegion;
 };
 
 export const detectRegionFromGeoIp = async (

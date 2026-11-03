@@ -78,7 +78,7 @@ const Home = () => {
           <div className="grid gap-4">
             {/* Suggested Region - Integrated but Highlighted */}
             <div className="space-y-2">
-              <span className="text-[10px] font-bold text-primary uppercase tracking-[0.2em] ml-2">Empfohlen basierend auf Standort</span>
+              <span className="text-[10px] font-bold text-primary uppercase tracking-[0.2em] ml-2">Vorschlag</span>
               <Link 
                 to={suggestedRegion.path} 
                 onClick={() => handleRegionClick(suggestedRegion.code)}
