@@ -158,6 +158,15 @@ class IntervalCorruptArtifactTest(PipelineTestCase):
         self.assertTrue(all(price == 20.0 for _, price in records))
 
 
+class GapRefusalTest(PipelineTestCase):
+    def test_gapped_upstream_exits_nonzero_without_artifact(self):
+        records = hourly_series(utc(2020, 1, 1), 48)
+        del records[12]
+        self.mock_download(as_payload(records))
+        self.assertNotEqual(sbd.main(["AT", "2020-01-01", "2020-01-02", "--rebuild"]), 0)
+        self.assertFalse(self.web_file.exists())
+
+
 class QuarterHourAggregationTest(unittest.TestCase):
     """H3: the hourly price is the mean of the four quarter-hours."""
 
