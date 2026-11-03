@@ -48,6 +48,10 @@ const PrivacyPage = () => {
             </p>
           </section>
 
+          <p className="text-muted-foreground">
+            Verantwortlich für die Datenverarbeitung ist der im <Link className="underline" to="/impressum">Impressum</Link> genannte Betreiber.
+          </p>
+
           <div className="grid gap-8">
             <section className="p-6 rounded-2xl border bg-card/50 space-y-4">
               <div className="flex items-center gap-3">
@@ -74,6 +78,11 @@ const PrivacyPage = () => {
                 <strong>ausschließlich lokal in deinem Browser</strong> verarbeitet. Diese Daten werden niemals auf unsere 
                 Server hochgeladen oder dort gespeichert.
               </p>
+              <p className="text-sm text-muted-foreground">
+                Im localStorage deines Browsers speichert die Website ausschließlich Einstellungen:
+                eepa-theme, eepa.selectedRegion, eepa.hasSeenTour, eepa.dataResolution und eepa.priceUnit.
+                Diese Einstellungen werden niemals an den Server gesendet.
+              </p>
             </section>
 
             <section className="p-6 rounded-2xl border bg-card/50 space-y-4">
@@ -87,7 +96,8 @@ const PrivacyPage = () => {
                 Der Provider der Seiten erhebt und speichert automatisch Informationen in sogenannten 
                 Server-Log-Files, die dein Browser automatisch an uns übermittelt. Dies sind: 
                 Browsertyp/ Browserversion, verwendetes Betriebssystem, Referrer URL, Hostname des zugreifenden 
-                Rechners, Uhrzeit der Serveranfrage, IP-Adresse. Diese Daten sind nicht bestimmten Personen zuordenbar.
+                Rechners, Uhrzeit der Serveranfrage, IP-Adresse. Die Verarbeitung erfolgt auf Grundlage von Art. 6 Abs. 1 lit. f DSGVO.
+                Unser berechtigtes Interesse ist der sichere Betrieb dieser Website.
               </p>
             </section>
           </div>
@@ -99,6 +109,9 @@ const PrivacyPage = () => {
               deren Herkunft und Empfänger und den Zweck der Datenverarbeitung sowie ein Recht auf Berichtigung, 
               Sperrung oder Löschung dieser Daten. Hierzu sowie zu weiteren Fragen zum Thema personenbezogene Daten 
               kannst du dich jederzeit unter der im Impressum angegebenen Adresse an uns wenden.
+            </p>
+            <p className="text-muted-foreground text-sm">
+              Du hast das Recht, dich bei der österreichischen Datenschutzbehörde zu beschweren.
             </p>
           </section>
         </div>
