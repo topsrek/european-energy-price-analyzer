@@ -379,9 +379,10 @@ export const calculateAverage = (
 };
 
 /**
- * Sum smart-meter consumption into the rows of the displayed price series, keyed by row timestamp.
- * Readings are bucketed like the prices (averaging bucket, or the price interval for raw data),
- * so 15-minute meter data adds up correctly against hourly prices and averaged buckets.
+ * Sum smart-meter consumption and its cost (EUR, net) into the rows of the displayed price series,
+ * keyed by row timestamp. Each reading is priced against its own interval in `rawPrices` (the
+ * filtered, unaveraged series), so readings outside the selected range or filters are dropped and
+ * an averaged row's cost is the sum of interval costs, not total consumption times the mean price.
  */
 export const aggregateMeterByPriceRow = (
   prices: EnergyPrice[],
@@ -431,14 +432,6 @@ export const aggregateMeterByPriceRow = (
   });
   return totals;
 };
-
-export const aggregateConsumptionByPriceRow = (
-  prices: EnergyPrice[], readings: SmartMeterData[], averaging: string | undefined,
-  resolution: 'hourly' | 'interval', timeZone: string, rawPrices: EnergyPrice[] = prices
-): Map<string, number> => new Map(
-  Array.from(aggregateMeterByPriceRow(prices, readings, averaging, resolution, timeZone, rawPrices),
-    ([timestamp, total]) => [timestamp, total.consumption])
-);
 
 /** Smallest positive gap between the (unsorted) times, or 0 for fewer than two distinct times. */
 const smallestStep = (times: number[]): number => {

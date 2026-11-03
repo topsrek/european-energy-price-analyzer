@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EnergyPrice, FilterOptions } from '@/types/energy-data';
 import {
-  aggregateConsumptionByPriceRow,
+  aggregateMeterByPriceRow,
   applyFilters,
   calculateAverage,
   convertEnergyPriceUnit,
@@ -238,12 +238,12 @@ describe('data utils', () => {
       consumption: 0.25,
     }));
 
-    const hourly = aggregateConsumptionByPriceRow(prices, readings, 'none', 'hourly', TZ);
-    expect(hourly.get('2026-04-30T22:00:00.000Z')).toBeCloseTo(1, 9);
-    expect(hourly.get('2026-04-30T23:00:00.000Z')).toBeCloseTo(1, 9);
+    const hourly = aggregateMeterByPriceRow(prices, readings, 'none', 'hourly', TZ);
+    expect(hourly.get('2026-04-30T22:00:00.000Z')?.consumption).toBeCloseTo(1, 9);
+    expect(hourly.get('2026-04-30T23:00:00.000Z')?.consumption).toBeCloseTo(1, 9);
 
-    const daily = aggregateConsumptionByPriceRow(calculateAverage(prices, 'daily', TZ), readings, 'daily', 'hourly', TZ, prices);
-    expect(daily.get('2026-04-30T22:00:00.000Z')).toBeCloseTo(2, 9);
+    const daily = aggregateMeterByPriceRow(calculateAverage(prices, 'daily', TZ), readings, 'daily', 'hourly', TZ, prices);
+    expect(daily.get('2026-04-30T22:00:00.000Z')?.consumption).toBeCloseTo(2, 9);
   });
 
   it('treats every cleared filter as "match nothing" and ignores filters disabled by averaging', () => {
@@ -267,11 +267,11 @@ describe('data utils', () => {
       { timestamp: '2026-04-30T23:00:00.000Z', consumption: 2 },
     ];
 
-    const rows = aggregateConsumptionByPriceRow(prices, readings, 'none', 'interval', TZ);
-    expect(rows.get('2026-04-30T22:00:00.000Z')).toBeCloseTo(0.25, 9);
-    expect(rows.get('2026-04-30T22:45:00.000Z')).toBeCloseTo(0.25, 9);
-    expect(rows.get('2026-04-30T23:15:00.000Z')).toBeCloseTo(0.5, 9);
-    expect([...rows.values()].reduce((sum, value) => sum + value, 0)).toBeCloseTo(3, 9);
+    const rows = aggregateMeterByPriceRow(prices, readings, 'none', 'interval', TZ);
+    expect(rows.get('2026-04-30T22:00:00.000Z')?.consumption).toBeCloseTo(0.25, 9);
+    expect(rows.get('2026-04-30T22:45:00.000Z')?.consumption).toBeCloseTo(0.25, 9);
+    expect(rows.get('2026-04-30T23:15:00.000Z')?.consumption).toBeCloseTo(0.5, 9);
+    expect([...rows.values()].reduce((sum, value) => sum + value.consumption, 0)).toBeCloseTo(3, 9);
   });
 });
 
