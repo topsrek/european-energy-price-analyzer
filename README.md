@@ -69,7 +69,7 @@ For the current LXC layout:
 - Coolify service URL for Nginx Proxy Manager: `http://192.168.1.21:49173`
 - Coolify/NPM LXC: `192.168.1.20`
 
-Leave `VITE_DATA_BASE_URL` unset for this deployment so the browser uses same-origin `/api/...` requests through the public domain. Only set it if the API is intentionally hosted on a different public origin.
+Leave `VITE_DATA_BASE_URL` unset for this deployment so the browser uses same-origin `/api/...` requests through the public domain. Only set it if the API is intentionally hosted on a different public origin. Also add that origin to the worker?s `CSP_CONNECT_SRC` so its `connect-src` policy permits those browser requests.
 
 ### Private Coolify Redeploy
 

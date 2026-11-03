@@ -486,8 +486,7 @@ class StaticAndBinaryRoutesTest(HttpServerTestCase):
     def test_geoip_header_is_validated(self):
         _, _, body = self.request("GET", "/geoip", headers={"CF-IPCountry": "at"})
         self.assertEqual(json.loads(body)["country_code"], "AT")
-        with mock.patch.dict(os.environ, {"GEOIP_PROVIDER_URL": ""}):
-            _, _, body = self.request("GET", "/geoip", headers={"CF-IPCountry": "<script>alert(1)</script>"})
+        _, _, body = self.request("GET", "/geoip", headers={"CF-IPCountry": "<script>alert(1)</script>"})
         self.assertIsNone(json.loads(body)["country_code"])
 
 

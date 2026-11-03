@@ -35,7 +35,7 @@ live data directory (never from the copies Vite places in `dist/`), plus:
 - `/api/health` - liveness and data staleness (always HTTP 200 while serving; per-country
   details and update state only for loopback clients)
 - `/api/data-freshness` (POST) - whether a client's cached data is current
-- `/api/geoip` - country from edge headers or an optional provider
+- `/api/geoip` - country from edge headers (unavailable when no country header is supplied)
 
 ## Binary format (summary)
 

@@ -701,26 +701,6 @@ def resolve_geoip(headers: Any) -> dict[str, Any]:
     if country:
         return {"country_code": country, "source": "edge-header"}
 
-    provider_url = os.getenv("GEOIP_PROVIDER_URL", "").strip()
-    if provider_url:
-        try:
-            request = urllib.request.Request(
-                provider_url,
-                headers={"User-Agent": "European-Energy-Price-Analyzer/0.1"},
-            )
-            with urllib.request.urlopen(request, timeout=3) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-            country = first_nonempty(
-                payload.get("country_code"),
-                payload.get("countryCode"),
-                payload.get("country"),
-            )
-            country = valid_country_code(country)
-            if country:
-                return {"country_code": country, "source": "provider"}
-        except (OSError, urllib.error.URLError, json.JSONDecodeError, AttributeError) as exc:
-            logger.warning("GeoIP provider failed: %s", exc)
-
     return {"country_code": None, "source": "unavailable"}
 
 
