@@ -519,6 +519,19 @@ class CommittedArtifactsTest(unittest.TestCase):
             with self.subTest(country=country, check="hourly is the quarter-hour mean"):
                 self.assertEqual(build_interval_dataset.hourly_interval_mismatches(series[""], series["_15min"]), [])
 
+    def test_committed_prices_match_upstream_literals(self):
+        # Energy Charts /price, fetched 2026-11-03; timestamps are UTC.
+        samples = [('at', ' ', '2019-06-04T00:00:00+00:00', 31.86), ('at', ' ', '2020-06-04T00:00:00+00:00', 19.61), ('at', ' ', '2021-06-04T00:00:00+00:00', 60.04), ('at', ' ', '2022-06-04T00:00:00+00:00', 166.92), ('at', ' ', '2023-06-04T00:00:00+00:00', 72.51), ('at', ' ', '2024-06-04T00:00:00+00:00', 96.17), ('at', ' ', '2025-06-04T00:00:00+00:00', 71.36), ('at', ' ', '2018-10-04T00:00:00+00:00', 60.68), ('at', ' ', '2025-10-26T00:00:00+00:00', 87.1), ('at', '_15min', '2025-10-26T00:00:00+00:00', 98.06), ('at', '_15min', '2025-10-26T00:15:00+00:00', 90.9), ('at', ' ', '2026-03-29T00:00:00+00:00', 110.36), ('at', '_15min', '2026-03-29T00:00:00+00:00', 113.47), ('at', '_15min', '2026-03-29T00:15:00+00:00', 109.23), ('de-lu', ' ', '2025-07-04T00:00:00+00:00', 101.31), ('de-lu', ' ', '2025-09-23T00:00:00+00:00', 89.73), ('de-lu', ' ', '2025-10-26T00:00:00+00:00', 3.19), ('de-lu', '_15min', '2025-10-26T00:00:00+00:00', 3.99), ('de-lu', '_15min', '2025-10-26T00:15:00+00:00', 3.33), ('de-lu', ' ', '2026-03-29T00:00:00+00:00', 107.7), ('de-lu', '_15min', '2026-03-29T00:00:00+00:00', 112.05), ('de-lu', '_15min', '2026-03-29T00:15:00+00:00', 107.51), ('fr', ' ', '2025-07-04T00:00:00+00:00', 85.37), ('fr', ' ', '2025-09-23T00:00:00+00:00', 1.5), ('fr', ' ', '2025-10-26T00:00:00+00:00', 16.0), ('fr', '_15min', '2025-10-26T00:00:00+00:00', 43.68), ('fr', '_15min', '2025-10-26T00:15:00+00:00', 10.88), ('fr', ' ', '2026-03-29T00:00:00+00:00', 89.84), ('fr', '_15min', '2026-03-29T00:00:00+00:00', 102.51), ('fr', '_15min', '2026-03-29T00:15:00+00:00', 96.0)]
+        decoded = {}
+        for cc, suffix, timestamp, expected in samples:
+            suffix = suffix.strip()
+            name = f"{cc}_electricity_prices{suffix}"
+            if name not in decoded:
+                _, records, _ = self.load(name, timedelta(minutes=15 if suffix else 60))
+                decoded[name] = dict(records)
+            with self.subTest(artifact=name, timestamp=timestamp):
+                self.assertAlmostEqual(decoded[name][datetime.fromisoformat(timestamp)], expected, places=2)
+
     def test_at_hourly_starts_with_the_at_bidding_zone(self):
         # The AT zone starts 2018-09-30 22:00Z; the first UTC midnight after it is 2018-10-01.
         _, records, _ = self.load("at_electricity_prices", timedelta(hours=1))
