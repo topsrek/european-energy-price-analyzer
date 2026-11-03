@@ -34,7 +34,6 @@ COPY scripts/requirements.txt ./scripts/requirements.txt
 RUN pip install --no-cache-dir -r scripts/requirements.txt
 
 COPY scripts ./scripts
-COPY data ./data
 COPY worker ./worker
 COPY public ./public
 COPY --from=frontend-build /app/dist ./dist
@@ -42,7 +41,7 @@ COPY --from=frontend-build /app/dist ./dist
 # The app user owns only the directories it writes to. /app/storage is DATA_DIR
 # (mount a persistent volume there); it is seeded from public/ and scripts/data/
 # on startup. The other three are the fallback if DATA_DIR is not writable.
-RUN mkdir -p /app/storage \
+RUN mkdir -p /app/storage /app/data \
   && chown eepa:eepa /app/storage /app/public /app/scripts/data /app/data
 
 ENV PORT=49173

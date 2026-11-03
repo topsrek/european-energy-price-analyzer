@@ -36,7 +36,6 @@ live data directory (never from the copies Vite places in `dist/`), plus:
   details and update state only for loopback clients)
 - `/api/data-freshness` (POST) - whether a client's cached data is current
 - `/api/geoip` - country from edge headers or an optional provider
-- `/api/data-manifest` - `data/manifest.json`
 
 ## Binary format (summary)
 

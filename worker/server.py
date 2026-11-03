@@ -323,13 +323,16 @@ class Handler(BaseHTTPRequestHandler):
             self.do_GET()
             return
 
-        if path in {"/geoip", "/data-manifest"}:
+        if path in {"/geoip"}:
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             return
 
+        if self.path.startswith("/api/"):
+            self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+            return
         self.send_static(head_only=True)
 
     def do_GET(self) -> None:
@@ -348,15 +351,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(resolve_geoip(self.headers))
             return
 
-        if path == "/data-manifest":
-            self.send_json(load_data_manifest())
-            return
-
         public_binary = resolve_public_binary_path(path)
         if public_binary:
             self.send_file(public_binary, "application/octet-stream")
             return
 
+        if self.path.startswith("/api/"):
+            self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+            return
         self.send_static()
 
     def do_POST(self) -> None:
@@ -741,17 +743,6 @@ def resolve_public_binary_path(path: str) -> Path | None:
         return None
 
     return candidate
-
-
-def load_data_manifest() -> dict[str, Any]:
-    manifest_path = ROOT / "data" / "manifest.json"
-    if not manifest_path.exists():
-        return {"countries": [], "updated_at": None}
-    try:
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        logger.warning("Failed to parse data manifest: %s", manifest_path)
-        return {"countries": [], "updated_at": None}
 
 
 def get_latest_data_timestamp(country_code: str, resolution: str) -> str | None:
