@@ -52,3 +52,17 @@ test('unknown routes show the not-found page', async ({ page }) => {
   await page.goto('/xyz');
   await expect(page).toHaveTitle(/Seite nicht gefunden/);
 });
+
+for (const path of ['/at', '/compare', '/at/faqs', '/privacy', '/impressum']) {
+  test(`header title on ${path} links back to the start page`, async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('eepa.hasSeenTour', 'true');
+    });
+    await page.goto(path);
+
+    await page.getByRole('banner').getByRole('link', { name: /Startseite/ }).click();
+
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole('heading', { name: 'EEPA', level: 1 })).toBeVisible();
+  });
+}
