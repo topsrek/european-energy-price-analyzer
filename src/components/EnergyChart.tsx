@@ -593,6 +593,14 @@ const EnergyChart: React.FC<EnergyChartProps> = ({
         return;
       }
 
+      const range = zoomRangeRef.current;
+      const visibleCount = range ? range.end - range.start + 1 : chartData.length;
+      if (event.deltaY === 0
+        || (event.deltaY > 0 && visibleCount >= chartData.length)
+        || (event.deltaY < 0 && visibleCount <= minVisiblePoints)) {
+        return;
+      }
+
       event.preventDefault();
       // ponytail: only the latest wheel input matters before the next paint.
       pendingWheelRef.current = { clientX: event.clientX, deltaY: event.deltaY };
