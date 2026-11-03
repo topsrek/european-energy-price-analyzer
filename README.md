@@ -13,7 +13,7 @@ Routes:
 
 This repo contains the React frontend, the Python download/encoding pipeline (`scripts/`) and the worker that serves both (`worker/`). The frontend loads country-specific binary price files such as `/api/at_electricity_prices.bin` and `/api/at_electricity_prices_15min.bin`; it does not generate fallback price data when a country artifact is missing.
 
-Smart-meter upload is live: CSV or JSON files with timestamps as `yyyy-MM-dd HH:mm` or `dd.MM.yyyy HH:mm` (interpreted in the market's local time) or ISO 8601 with an offset. Files are parsed in the browser and never uploaded.
+Smart-meter upload is built but switched off in the UI (the tab says it is implemented on request): CSV or JSON files with timestamps as `yyyy-MM-dd HH:mm` or `dd.MM.yyyy HH:mm` (interpreted in the market's local time) or ISO 8601 with an offset. Files are parsed in the browser and never uploaded.
 
 ## Local Development
 
