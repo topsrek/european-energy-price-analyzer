@@ -33,7 +33,7 @@ const FaqPage = () => {
       answer: (
         <p>
           Der Spotmarkt-Preis (EPEX Spot) ist der Preis, zu dem Strom für die Lieferung am nächsten Tag (Day-Ahead) 
-          gehandelt wird. Er ändert sich stündlich und basiert auf Angebot (Wind, Sonne, Kraftwerke) und Nachfrage.
+          gehandelt wird. Er ändert sich je nach Marktzeitraum stündlich oder alle 15 Minuten und basiert auf Angebot (Wind, Sonne, Kraftwerke) und Nachfrage.
         </p>
       ),
     },
@@ -93,7 +93,7 @@ const FaqPage = () => {
       question: 'Lohnt sich der Analyzer für PV-Besitzer (Einspeiser)?',
       answer: (
         <p>
-          Absolut. Viele Einspeisetarife (z.B. OeMAG Marktpreis) orientieren sich an genau diesen Spotpreisen. 
+          Viele Einspeisetarife orientieren sich an diesen Spotpreisen. 
           Wenn du weißt, in welchen Stunden der Preis hoch ist, kannst du deinen Eigenverbrauch optimieren 
           oder Speicher gezielt steuern.
         </p>
@@ -105,13 +105,13 @@ const FaqPage = () => {
       question: 'Wie hoch sind die Netzkosten?',
       answer: (
         <p>
-          Netzkosten sind regional unterschiedlich und werden von der E-Control festgelegt. Sie machen oft ca. 
-          ein Drittel der Gesamtrechnung aus. Im Analyzer kannst du unter "Netzkosten" die Details für 
-          deine Region einsehen.
+          Netzkosten sind in Österreich regional unterschiedlich und werden von der E-Control reguliert.
+          Der Analyzer zeigt unter den Preisoptionen die Netzkosten der Wiener Netze.
+          Diese gelten nur für deren Netzgebiet.
         </p>
       ),
     },
-  ], [regionCode]);
+  ].filter((faq) => faq.id !== 'grid-costs' || regionCode === 'at'), [regionCode]);
 
   const normalizedSearchQuery = searchQuery.toLowerCase();
   const filteredFaqs = faqs.filter(
@@ -200,9 +200,9 @@ const FaqPage = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm space-y-2">
-              <a href="https://www.e-control.at" target="_blank" rel="noopener" className="block text-primary hover:underline">
+              {regionCode === 'at' && <a href="https://www.e-control.at" target="_blank" rel="noopener" className="block text-primary hover:underline">
                 E-Control (Regulierungsbehörde AT)
-              </a>
+              </a>}
               <a href="https://www.epexspot.com" target="_blank" rel="noopener" className="block text-primary hover:underline">
                 EPEX Spot Börse
               </a>
