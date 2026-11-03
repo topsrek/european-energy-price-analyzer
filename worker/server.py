@@ -28,6 +28,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import parse_qs, urlsplit
 from datetime import date, datetime, timedelta, timezone
+from email.utils import formatdate, parsedate_to_datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -465,15 +466,32 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
             return
 
-        body = path.read_bytes()
-        self.send_response(HTTPStatus.OK)
+        with path.open("rb") as source:
+            body = source.read()
+            modified = os.fstat(source.fileno()).st_mtime
+        etag = '"' + hashlib.sha256(body).hexdigest() + '"'
+        not_modified = False
+        if self.headers.get("If-None-Match") is not None:
+            tags = self.headers["If-None-Match"].split(",")
+            not_modified = any(tag.strip().removeprefix("W/") in {etag, "*"} for tag in tags)
+        elif self.headers.get("If-Modified-Since"):
+            try:
+                since = parsedate_to_datetime(self.headers["If-Modified-Since"])
+                not_modified = int(modified) <= since.timestamp()
+            except (ValueError, TypeError, OverflowError):
+                pass
+        self.send_response(HTTPStatus.NOT_MODIFIED if not_modified else HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
-        self.send_header("Cache-Control", "public, max-age=300")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("ETag", etag)
+        self.send_header("Last-Modified", formatdate(modified, usegmt=True))
         self.send_header("Access-Control-Allow-Origin", os.getenv("CORS_ORIGIN", "*"))
-        self.send_header("Content-Length", str(len(body)))
+        if not not_modified:
+            self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        if not head_only:
+        if not head_only and not not_modified:
             self.wfile.write(body)
+
 
     def send_static(self, head_only: bool = False) -> None:
         request_path = self.path.split("?", 1)[0]
