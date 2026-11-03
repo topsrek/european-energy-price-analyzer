@@ -5,7 +5,8 @@ const NotFound = () => {
   const location = useLocation();
 
   useEffect(() => {
-    document.title = "Seite nicht gefunden – Strompreisrechner Österreich";
+    document.title = "Seite nicht gefunden - EEPA";
+    document.documentElement.lang = 'de-AT';
     const metaRobots = document.querySelector('meta[name="robots"]');
     const previousRobots = metaRobots?.getAttribute('content');
     if (metaRobots) {

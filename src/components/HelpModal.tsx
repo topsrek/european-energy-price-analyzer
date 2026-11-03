@@ -34,7 +34,7 @@ const HelpModal: React.FC<HelpModalProps> = ({ trigger, region }) => {
             <section>
               <h3 className="text-lg font-semibold">Strompreise visualisieren</h3>
               <p>
-                Der Hauptgraph zeigt Ihnen die Strompreise in Österreich im Zeitverlauf an. Sie können:
+                Der Hauptgraph zeigt Ihnen die Strompreise in {region.localName} im Zeitverlauf an. Sie können:
               </p>
               <ul className="list-disc pl-6 space-y-1 mt-2">
                 <li>Den angezeigten Zeitraum über den Datumsfilter einstellen</li>
@@ -46,7 +46,7 @@ const HelpModal: React.FC<HelpModalProps> = ({ trigger, region }) => {
             {region.code === 'at' && <>
             <section>
               <h3 className="text-lg font-semibold">Smart Meter Daten (in Vorbereitung)</h3>
-              <p>Der Upload eigener Verbrauchsdaten ist noch nicht verf?gbar.</p>
+              <p>Der Upload eigener Verbrauchsdaten ist noch nicht verfügbar.</p>
             </section>
 
             <section>
@@ -72,7 +72,6 @@ const HelpModal: React.FC<HelpModalProps> = ({ trigger, region }) => {
                 {region.code === 'at' && <li>Die Netzkosten beziehen sich nur auf das Gebiet der Wiener Netze</li>}
                 <li>Alle Berechnungen basieren auf den angegebenen Tarifen und können von tatsächlichen Rechnungen abweichen</li>
                 <li>Die dargestellten Strompreise werden aus den verfügbaren Landessätzen geladen</li>
-                <li>Für mehr Informationen zum österreichischen Strommarkt nutzen Sie die Info-Funktion</li>
               </ul>
             </section>
           </div>

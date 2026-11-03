@@ -205,7 +205,7 @@ const ContractOptions: React.FC<ContractOptionsProps> = ({
                         <Input 
                           type="number"
                           step="0.01"
-                          aria-label="Grundpauschale in ?"
+                          aria-label="Grundpauschale in €"
                           value={editableValues.grundpauschale}
                           onChange={(e) => handleEditableChange('grundpauschale', e.target.value)}
                           className="w-16 py-1 text-xs text-right"
