@@ -98,5 +98,7 @@ test('privacy explains controller, logs and local preferences accurately', async
   await expect(page.getByRole('main')).toContainText('Art. 6 Abs. 1 lit. f DSGVO');
   await expect(page.getByRole('main')).toContainText('Datenschutzbehörde');
   await expect(page.getByRole('main')).toContainText('eepa.selectedRegion');
+  await expect(page.getByRole('main')).toContainText('nach 30 Tagen automatisch gelöscht');
+  await expect(page.getByRole('main')).toContainText('Besucherstatistik');
   await expect(page.getByRole('link', { name: 'Impressum', exact: true })).toBeVisible();
 });

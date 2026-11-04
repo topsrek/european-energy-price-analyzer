@@ -98,6 +98,9 @@ const PrivacyPage = () => {
                 Browsertyp/ Browserversion, verwendetes Betriebssystem, Referrer URL, Hostname des zugreifenden 
                 Rechners, Uhrzeit der Serveranfrage, IP-Adresse. Die Verarbeitung erfolgt auf Grundlage von Art. 6 Abs. 1 lit. f DSGVO.
                 Unser berechtigtes Interesse ist der sichere Betrieb dieser Website.
+                Aus den Log-Files erstellen wir außerdem eine tägliche Besucherstatistik (Zahl der Zugriffe,
+                Land und Netz der IP-Adresse, ohne externe Dienste), um Reichweite und Missbrauch zu erkennen.
+                Die Server-Log-Files und diese Statistiken werden nach 30 Tagen automatisch gelöscht.
               </p>
             </section>
           </div>
