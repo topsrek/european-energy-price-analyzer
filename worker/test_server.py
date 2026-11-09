@@ -779,6 +779,29 @@ class StartupRobustnessTest(unittest.TestCase):
         self.assertEqual(reloaded.last_update_status, "ok")
         self.assertEqual(reloaded.last_update_message, "done")
 
+    def test_update_lifecycle_transitions(self):
+        state = server.WorkerState()
+        self.assertIsNone(state.snapshot()["last_update_ok"])
+        state.mark_started("test")
+        self.assertEqual(state.snapshot()["last_update_status"], "running")
+        self.assertIsNone(state.snapshot()["last_update_ok"])
+        state.mark_finished("pending", "waiting")
+        snapshot = state.snapshot()
+        self.assertEqual((snapshot["last_update_status"], snapshot["last_update_ok"]), ("pending", False))
+        self.assertIsNotNone(snapshot["next_retry_not_before"])
+        self.assertEqual(snapshot["consecutive_update_failures"], 1)
+        with self.assertRaises(ValueError):
+            state.mark_finished("running", "not a finished status")  # type: ignore[arg-type]
+
+    def test_running_on_disk_is_interrupted_and_unknown_status_is_idle(self):
+        for stored, expected_status, expected_ok in (("running", "error", False), ("bogus", "idle", None)):
+            with self.subTest(stored=stored):
+                self.state.write_text(json.dumps({"last_update_status": stored, "last_update_ok": True}))
+                state = server.WorkerState()
+                state.load()
+                self.assertEqual(state.last_update_status, expected_status)
+                self.assertEqual(state.snapshot()["last_update_ok"], expected_ok)
+
 
 class GracefulShutdownTest(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "SIGTERM is POSIX-only; production runs on Linux")

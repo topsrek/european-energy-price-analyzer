@@ -1,4 +1,3 @@
-import { priceLoadErrorMessage } from '@/utils/price-load-error';
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -17,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { toast } from '@/hooks/use-toast';
+import { usePriceData } from '@/hooks/use-price-data';
 import { ArrowUpDown, LineChart, SlidersHorizontal } from 'lucide-react';
 import { ComparisonSeries, DataResolution, EnergyPrice, FilterOptions as FilterOptionsType, AveragingOption } from '@/types/energy-data';
 import { RegionCode, regions } from '@/config/regions';
@@ -27,10 +26,8 @@ import {
   convertEnergyPriceUnit,
   convertPriceValue,
   filterByDateRange,
-  getLatestTimestamp,
   getTimestampBounds,
 } from '@/utils/data-utils';
-import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
 import { getActiveQuickRangePreset, getQuickRangeDates } from '@/utils/date-range-presets';
 import { formatLocalDateForQuery, parseLocalDateFromQuery } from '@/utils/local-date';
 import {
@@ -52,42 +49,10 @@ import {
 import { CheckedState } from '@radix-ui/react-checkbox';
 import { safeStorageSetItem } from '@/lib/safe-storage';
 import { getMarketCalendarDay, MARKET_TIMEZONE } from '@/utils/market-time';
-
-interface CachedPriceData {
-  data: EnergyPrice[];
-  latestTimestamp: string;
-}
+import { isPriceDataBusy, priceDataErrors, shownPriceResolution, shownPriceSeries } from '@/utils/price-data-state';
 
 const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
-
-const getDataBaseUrl = () => import.meta.env.VITE_DATA_BASE_URL ?? '';
-
-const isCachedDataFresh = async (
-  marketCode: string,
-  resolution: DataResolution,
-  latestTimestamp: string
-) => {
-  try {
-    const dataBaseUrl = getDataBaseUrl().replace(/\/$/, '');
-    const response = await fetch(`${dataBaseUrl}/api/data-freshness`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        countryCode: marketCode,
-        resolution,
-        latestTimestamp,
-      }),
-    });
-
-    if (!response.ok) return true;
-
-    const payload = await response.json();
-    return payload.fresh !== false;
-  } catch {
-    return true;
-  }
-};
 
 const availableRegions = regions.filter((region) => region.dataStatus === 'available');
 
@@ -136,7 +101,6 @@ const ComparisonPage = () => {
     return readFiltersFromQuery(new URLSearchParams(window.location.search));
   });
 
-  const [isLoadingPriceData, setIsLoadingPriceData] = useState(true);
   const [dataResolution, setDataResolution] = useState<DataResolution>(readInitialDataResolution);
   const [priceUnit, setPriceUnit] = useState<PriceUnit>(readInitialPriceUnit);
   const [showZeroLine, setShowZeroLine] = useState(() => {
@@ -185,12 +149,6 @@ const ComparisonPage = () => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).get('delta') === '1';
   });
-  const [seriesByRegion, setSeriesByRegion] = useState<Partial<Record<RegionCode, EnergyPrice[]>>>({});
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  const [seriesErrors, setSeriesErrors] = useState<Partial<Record<RegionCode, string>>>({});
-  const [earliestAvailableDate, setEarliestAvailableDate] = useState<Date | null>(null);
-  const [latestAvailableDate, setLatestAvailableDate] = useState<Date | null>(null);
-  const cacheRef = useRef<Partial<Record<DataResolution, Partial<Record<RegionCode, CachedPriceData>>>>>({});
   const startDateRef = useRef<Date | null>(startDate);
   const endDateRef = useRef<Date | null>(endDate);
 
@@ -207,6 +165,29 @@ const ComparisonPage = () => {
   const selectedRegions = useMemo(
     () => availableRegions.filter((region) => selectedRegionCodes.includes(region.code)),
     [selectedRegionCodes]
+  );
+  const { state: priceData, retry: retryPriceData } = usePriceData(selectedRegions, dataResolution);
+  const seriesByRegion = shownPriceSeries(priceData);
+  const seriesErrors = priceDataErrors(priceData);
+  const shownResolution = shownPriceResolution(priceData, dataResolution);
+  const priceBounds = useMemo(() => {
+    let earliest = Infinity;
+    let latest = -Infinity;
+    selectedRegions.forEach((region) => {
+      const bounds = getTimestampBounds(seriesByRegion[region.code] ?? []);
+      if (!bounds) return;
+      earliest = Math.min(earliest, bounds.earliest);
+      latest = Math.max(latest, bounds.latest);
+    });
+    return latest === -Infinity ? null : { earliest, latest };
+  }, [selectedRegions, seriesByRegion]);
+  const earliestAvailableDate = useMemo(
+    () => (priceBounds ? getMarketCalendarDay(priceBounds.earliest, MARKET_TIMEZONE) : null),
+    [priceBounds]
+  );
+  const latestAvailableDate = useMemo(
+    () => (priceBounds ? getMarketCalendarDay(priceBounds.latest, MARKET_TIMEZONE) : null),
+    [priceBounds]
   );
 
   const displayedSeries = useMemo<ComparisonSeries[]>(() => {
@@ -355,148 +336,19 @@ const ComparisonPage = () => {
     window.history.replaceState(window.history.state, '', nextUrl);
   }, [isAveragingEnabled, averaging, filters, startDate, endDate]);
 
+  // Without a start date, show the last year up to the latest available day once prices
+  // arrive; with only a start date, extend to the latest day.
   useEffect(() => {
-    let isMounted = true;
+    if (!earliestAvailableDate || !latestAvailableDate) return;
 
-    const getCachedEntry = (regionCode: RegionCode) => cacheRef.current[dataResolution]?.[regionCode];
-
-    const evictCachedEntries = (regionCodes: RegionCode[]) => {
-      const resolutionCache = cacheRef.current[dataResolution];
-      if (!resolutionCache) return;
-      regionCodes.forEach((code) => {
-        delete resolutionCache[code];
-      });
-    };
-
-    /**
-     * Loads all selected regions (from cache where possible). On the initial pass
-     * cached entries are checked for freshness; stale ones are evicted and a single
-     * refresh pass re-fetches only those, without re-checking freshness (no loop).
-     */
-    const loadAllSelectedRegions = async (isRefresh: boolean) => {
-      if (!isRefresh) setIsLoadingPriceData(true);
-      const freshnessChecks: Promise<{ code: RegionCode; fresh: boolean }>[] = [];
-
-      try {
-        const nextSeries: Partial<Record<RegionCode, EnergyPrice[]>> = {};
-        const nextErrors: Partial<Record<RegionCode, string>> = {};
-
-        // Download all missing regions in parallel; one failing region doesn't block the others.
-        await Promise.all(selectedRegions.map(async (region) => {
-          const cachedEntry = getCachedEntry(region.code);
-          if (cachedEntry) {
-            nextSeries[region.code] = cachedEntry.data;
-            if (!isRefresh) {
-              freshnessChecks.push(
-                isCachedDataFresh(region.marketCode, dataResolution, cachedEntry.latestTimestamp)
-                  .then((fresh) => ({ code: region.code, fresh }))
-              );
-            }
-            return;
-          }
-
-          try {
-            const binaryPath = dataResolution === 'interval' ? region.dataFiles.interval : region.dataFiles.hourly;
-            if (!binaryPath) {
-              nextErrors[region.code] = 'Keine Datendatei verfügbar';
-              return;
-            }
-
-            const dataBaseUrl = getDataBaseUrl();
-            const realData = await fetchOptimizedBinaryPriceData(`${dataBaseUrl}${binaryPath}`, {
-              intervalMinutes: dataResolution === 'interval' ? 15 : 60,
-            });
-
-            nextSeries[region.code] = realData;
-            cacheRef.current[dataResolution] = {
-              ...(cacheRef.current[dataResolution] ?? {}),
-              [region.code]: {
-                data: realData,
-                latestTimestamp: getLatestTimestamp(realData),
-              },
-            };
-          } catch (error) {
-            console.warn(`Failed to load ${region.code} comparison data`, error);
-            nextErrors[region.code] = priceLoadErrorMessage(error, region, dataResolution === 'interval');
-          }
-        }));
-
-        if (!isMounted) return;
-
-        // Replace (not merge) so a region that failed to load at this resolution never keeps
-        // showing data of the previous resolution.
-        setSeriesByRegion(nextSeries);
-        setSeriesErrors(nextErrors);
-
-        let earliest = Infinity;
-        let latest = -Infinity;
-        let loadedSeriesCount = 0;
-        for (const region of selectedRegions) {
-          const series = nextSeries[region.code] ?? getCachedEntry(region.code)?.data ?? [];
-          const bounds = getTimestampBounds(series);
-          if (!bounds) continue;
-          loadedSeriesCount += 1;
-          earliest = Math.min(earliest, bounds.earliest);
-          latest = Math.max(latest, bounds.latest);
-        }
-
-        if (loadedSeriesCount > 0) {
-          const earliestDay = getMarketCalendarDay(earliest, MARKET_TIMEZONE);
-          const latestDay = getMarketCalendarDay(latest, MARKET_TIMEZONE);
-          setEarliestAvailableDate(earliestDay);
-          setLatestAvailableDate(latestDay);
-
-          if (!startDateRef.current) {
-            const defaultRange = getQuickRangeDates('1y', latestDay, earliestDay);
-            setStartDate(defaultRange.startDate);
-            setEndDate(defaultRange.endDate);
-          } else if (!endDateRef.current) {
-            setEndDate(latestDay);
-          }
-        }
-
-        if (Object.keys(nextErrors).length > 0 && loadedSeriesCount === 0) {
-          toast({
-            title: 'Keine Vergleichsdaten verfügbar',
-            description: 'Für die ausgewählten Regionen konnten keine Preisdateien geladen werden.',
-            variant: 'destructive',
-          });
-        }
-      } catch (error) {
-        console.error('Failed to prepare comparison data', error);
-        if (isMounted) {
-          toast({
-            title: 'Fehler beim Laden der Vergleichsdaten',
-            description: 'Die Preisdaten konnten nicht verarbeitet werden.',
-            variant: 'destructive',
-          });
-        }
-      } finally {
-        if (isMounted && !isRefresh) setIsLoadingPriceData(false);
-      }
-
-      if (freshnessChecks.length === 0) return;
-
-      const results = await Promise.all(freshnessChecks);
-      const staleCodes = results.filter((result) => !result.fresh).map((result) => result.code);
-      if (!isMounted || staleCodes.length === 0) return;
-
-      evictCachedEntries(staleCodes);
-      await loadAllSelectedRegions(true);
-    };
-
-    if (selectedRegions.length > 0) {
-      void loadAllSelectedRegions(false);
-    } else {
-      setSeriesByRegion({});
-      setSeriesErrors({});
-      setIsLoadingPriceData(false);
+    if (!startDateRef.current) {
+      const defaultRange = getQuickRangeDates('1y', latestAvailableDate, earliestAvailableDate);
+      setStartDate(defaultRange.startDate);
+      setEndDate(defaultRange.endDate);
+    } else if (!endDateRef.current) {
+      setEndDate(latestAvailableDate);
     }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [dataResolution, selectedRegions, loadAttempt]);
+  }, [earliestAvailableDate, latestAvailableDate]);
 
   useEffect(() => {
     if (cutoffValue !== null || displayedSeries.length === 0) {
@@ -554,7 +406,7 @@ const ComparisonPage = () => {
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <CardTitle className="flex items-center gap-2">
                 Regionenvergleich
-                {isLoadingPriceData && <Loader2 className="h-4 w-4 animate-spin" />}
+                {isPriceDataBusy(priceData) && <Loader2 className="h-4 w-4 animate-spin" />}
               </CardTitle>
               <ComparisonInfoModal />
             </div>
@@ -747,7 +599,7 @@ const ComparisonPage = () => {
               </div>
 
               <div className="p-0 md:border md:p-2">
-                {isLoadingPriceData ? (
+                {priceData.status === 'loading' ? (
                   <div className="flex h-[400px] flex-col items-center justify-center rounded-lg bg-muted">
                     <Loader2 className="mb-2 h-8 w-8 animate-spin" />
                     <p className="text-muted-foreground">Lädt Vergleichsdaten...</p>
@@ -760,7 +612,7 @@ const ComparisonPage = () => {
                     averaging={isAveragingEnabled ? averaging : 'none'}
                     showZeroLine={showZeroLine}
                     showAverageLine={showAverageLine}
-                    dataResolution={dataResolution}
+                    dataResolution={shownResolution}
                     yMin={yMin}
                     yMax={yMax}
                     onAutoYDomainChange={handleAutoYDomainChange}
@@ -775,7 +627,9 @@ const ComparisonPage = () => {
                     <p className="text-muted-foreground">
                       {selectedRegionCodes.length === 0
                         ? 'Bitte mindestens eine Region auswählen.'
-                        : 'Keine Daten für den ausgewählten Zeitraum verfügbar.'}
+                        : priceData.status === 'error'
+                          ? 'Für die ausgewählten Regionen konnten keine Preisdateien geladen werden.'
+                          : 'Keine Daten für den ausgewählten Zeitraum verfügbar.'}
                     </p>
                   </div>
                 )}
@@ -786,7 +640,7 @@ const ComparisonPage = () => {
                   {Object.entries(seriesErrors).map(([code, message]) => (
                     <div role="alert" key={code}>{message}</div>
                   ))}
-                  <Button variant="outline" className="mt-2" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Erneut laden</Button>
+                  <Button variant="outline" className="mt-2" onClick={retryPriceData}>Erneut laden</Button>
                 </div>
               )}
             </div>

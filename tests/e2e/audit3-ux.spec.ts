@@ -102,3 +102,16 @@ test('privacy explains controller, logs and local preferences accurately', async
   await expect(page.getByRole('main')).toContainText('Besucherstatistik');
   await expect(page.getByRole('link', { name: 'Impressum', exact: true })).toBeVisible();
 });
+
+test('a failed resolution switch shows a retry and the other resolution still works', async ({ page }) => {
+  await page.route('**/api/*_15min.bin', route => route.abort());
+  await page.goto('/at?resolution=hourly');
+  await expect(page.locator('.recharts-wrapper').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Anzeige', exact: true }).click();
+  await page.getByRole('button', { name: /Viertelstundenmarkt/ }).click();
+  await expect(page.getByRole('alert')).toContainText('Verbindung fehlgeschlagen');
+  await expect(page.getByRole('button', { name: 'Erneut laden' })).toBeVisible();
+  await page.getByRole('button', { name: /Stundenmarkt · 60/ }).click();
+  await expect(page.locator('.recharts-wrapper').first()).toBeVisible();
+  await expect(page.getByText(/Verbindung fehlgeschlagen/)).toHaveCount(0);
+});

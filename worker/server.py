@@ -30,7 +30,7 @@ from email.utils import formatdate, parsedate_to_datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,14 +111,27 @@ def quarantine_file(path: Path) -> None:
         pass
 
 
+# Dataset update lifecycle, persisted in worker-state.json and reported by /health:
+#
+#   idle | ok | pending | error  --mark_started-->   running
+#   running                      --mark_finished-->  ok | pending | error
+#   running (on disk at startup) --load-->           error ("interrupted by restart")
+#
+# "pending" means the update ran but upstream has not published the expected day yet.
+# Every non-ok finish schedules a retry (next_retry_not_before).
+UpdateStatus = Literal["idle", "running", "ok", "pending", "error"]
+FinishedStatus = Literal["ok", "pending", "error"]
+UPDATE_STATUSES: frozenset[str] = frozenset(get_args(UpdateStatus))
+FINISHED_STATUSES: frozenset[str] = frozenset(get_args(FinishedStatus))
+
+
 class WorkerState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.last_update_started_at: str | None = None
         self.last_update_finished_at: str | None = None
-        self.last_update_ok: bool | None = None
         self.last_update_message: str | None = None
-        self.last_update_status: str = "idle"
+        self.last_update_status: UpdateStatus = "idle"
         self.last_update_reason: str | None = None
         self.last_successful_update_finished_at: str | None = None
         self.consecutive_update_failures = 0
@@ -127,36 +140,49 @@ class WorkerState:
         # as_optional_str exist, and a failing import crash-looped the container
         # (2026-10-01..11). main() calls load() once DATA_DIR is settled.
 
+    @property
+    def last_update_ok(self) -> bool | None:
+        """Derived from the status: None while idle or running, else whether it finished ok."""
+        if self.last_update_status in FINISHED_STATUSES:
+            return self.last_update_status == "ok"
+        return None
+
+    def _payload_locked(self) -> dict[str, Any]:
+        return {
+            "last_update_started_at": self.last_update_started_at,
+            "last_update_finished_at": self.last_update_finished_at,
+            "last_update_ok": self.last_update_ok,
+            "last_update_message": self.last_update_message,
+            "last_update_status": self.last_update_status,
+            "last_update_reason": self.last_update_reason,
+            "last_successful_update_finished_at": self.last_successful_update_finished_at,
+            "consecutive_update_failures": self.consecutive_update_failures,
+            "next_retry_not_before": self.next_retry_not_before,
+        }
+
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
-            return {
-                "last_update_started_at": self.last_update_started_at,
-                "last_update_finished_at": self.last_update_finished_at,
-                "last_update_ok": self.last_update_ok,
-                "last_update_message": self.last_update_message,
-                "last_update_status": self.last_update_status,
-                "last_update_reason": self.last_update_reason,
-                "last_successful_update_finished_at": self.last_successful_update_finished_at,
-                "consecutive_update_failures": self.consecutive_update_failures,
-                "next_retry_not_before": self.next_retry_not_before,
-            }
+            return self._payload_locked()
 
     def mark_started(self, reason: str) -> None:
         with self.lock:
+            if self.last_update_status == "running":
+                # Only the scheduler thread starts updates and it checks is_running() first.
+                logger.warning("Update started while another update is marked running")
             self.last_update_started_at = now_iso()
-            self.last_update_ok = None
             self.last_update_message = "running"
             self.last_update_status = "running"
             self.last_update_reason = reason
             self.next_retry_not_before = None
             self._persist_locked()
 
-    def mark_finished(self, status: str, message: str, retry_after_seconds: int | None = None) -> None:
+    def mark_finished(self, status: FinishedStatus, message: str, retry_after_seconds: int | None = None) -> None:
+        if status not in FINISHED_STATUSES:
+            raise ValueError(f"not a finished update status: {status!r}")
         with self.lock:
             finished_at = now_iso()
             self.last_update_finished_at = finished_at
             self.last_update_status = status
-            self.last_update_ok = status == "ok"
             self.last_update_message = message
             if status == "ok":
                 self.last_successful_update_finished_at = finished_at
@@ -200,9 +226,9 @@ class WorkerState:
 
         self.last_update_started_at = as_optional_str(payload.get("last_update_started_at"))
         self.last_update_finished_at = as_optional_str(payload.get("last_update_finished_at"))
-        self.last_update_ok = payload.get("last_update_ok") if isinstance(payload.get("last_update_ok"), bool) else None
         self.last_update_message = as_optional_str(payload.get("last_update_message"))
-        self.last_update_status = as_optional_str(payload.get("last_update_status")) or "idle"
+        status = as_optional_str(payload.get("last_update_status"))
+        self.last_update_status = status if status in UPDATE_STATUSES else "idle"  # type: ignore[assignment]
         self.last_update_reason = as_optional_str(payload.get("last_update_reason"))
         self.last_successful_update_finished_at = as_optional_str(payload.get("last_successful_update_finished_at"))
         consecutive_failures = payload.get("consecutive_update_failures")
@@ -211,24 +237,13 @@ class WorkerState:
         self.next_retry_not_before = as_optional_str(payload.get("next_retry_not_before"))
         if self.last_update_status == "running":
             self.last_update_status = "error"
-            self.last_update_ok = False
             self.last_update_message = "interrupted by restart"
 
     def _persist_locked(self) -> None:
         path = state_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(".tmp")
-        payload = {
-            "last_update_started_at": self.last_update_started_at,
-            "last_update_finished_at": self.last_update_finished_at,
-            "last_update_ok": self.last_update_ok,
-            "last_update_message": self.last_update_message,
-            "last_update_status": self.last_update_status,
-            "last_update_reason": self.last_update_reason,
-            "last_successful_update_finished_at": self.last_successful_update_finished_at,
-            "consecutive_update_failures": self.consecutive_update_failures,
-            "next_retry_not_before": self.next_retry_not_before,
-        }
+        payload = self._payload_locked()
         with tmp_path.open("w", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, indent=2, sort_keys=True))
             handle.flush()

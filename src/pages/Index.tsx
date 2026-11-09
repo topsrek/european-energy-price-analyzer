@@ -1,5 +1,4 @@
-import { priceLoadErrorMessage } from '@/utils/price-load-error';
-import React, { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
 import DateRangePicker from '@/components/DateRangePicker';
@@ -18,10 +17,8 @@ import {
   convertPriceValue,
   filterByDateRange,
   generateDemoSmartMeterData,
-  getLatestTimestamp,
   getTimestampBounds,
 } from '@/utils/data-utils';
-import { fetchOptimizedBinaryPriceData } from '@/utils/optimized-binary-decoder';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
@@ -54,6 +51,8 @@ import { getActiveQuickRangePreset, getQuickRangeDates } from '@/utils/date-rang
 import { formatLocalDateForQuery, parseLocalDateFromQuery } from '@/utils/local-date';
 import { safeStorageSetItem } from '@/lib/safe-storage';
 import { getMarketCalendarDay } from '@/utils/market-time';
+import { usePriceData } from '@/hooks/use-price-data';
+import { isPriceDataBusy, priceDataErrors, shownPriceResolution, shownPriceSeries } from '@/utils/price-data-state';
 
 // Austria-only market explainer; loaded on its own chunk.
 const InfoModal = lazy(() => import('@/components/InfoModal'));
@@ -62,45 +61,13 @@ interface IndexProps {
   region: RegionConfig;
 }
 
-interface CachedPriceData {
-  data: EnergyPrice[];
-  dataSource: string;
-  latestTimestamp: string;
-}
-
 const SELECTED_OPTION_BUTTON_CLASS =
   'border-accent bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground';
 
-const getDataBaseUrl = () => import.meta.env.VITE_DATA_BASE_URL ?? '';
+const NO_PRICES: EnergyPrice[] = [];
 
 const resolutionLabel = (resolution: DataResolution) =>
   resolution === 'interval' ? '15-Minuten' : 'stündliche';
-
-const isCachedDataFresh = async (
-  region: RegionConfig,
-  resolution: DataResolution,
-  latestTimestamp: string
-) => {
-  try {
-    const dataBaseUrl = getDataBaseUrl().replace(/\/$/, '');
-    const response = await fetch(`${dataBaseUrl}/api/data-freshness`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        countryCode: region.marketCode,
-        resolution,
-        latestTimestamp,
-      }),
-    });
-
-    if (!response.ok) return true;
-
-    const payload = await response.json();
-    return payload.fresh !== false;
-  } catch {
-    return true;
-  }
-};
 
 const Index = ({ region }: IndexProps) => {
   
@@ -129,22 +96,35 @@ const Index = ({ region }: IndexProps) => {
     if (typeof window === 'undefined') return createDefaultFilters();
     return readFiltersFromQuery(new URLSearchParams(window.location.search));
   });
-  const [rawEnergyPrices, setRawEnergyPrices] = useState<EnergyPrice[]>([]);
   const [displayedEnergyPrices, setDisplayedEnergyPrices] = useState<EnergyPrice[]>([]);
   const [filteredEnergyPrices, setFilteredEnergyPrices] = useState<EnergyPrice[]>([]);
-  const [earliestAvailableDate, setEarliestAvailableDate] = useState<Date | null>(null);
-  const [latestAvailableDate, setLatestAvailableDate] = useState<Date | null>(null);
   const [smartMeterData, setSmartMeterData] = useState<SmartMeterData[] | undefined>(undefined);
   const [showSmartMeterData, setShowSmartMeterData] = useState<boolean>(true);
   const [showTotalCost, setShowTotalCost] = useState<boolean>(false);
   const [annualConsumption, setAnnualConsumption] = useState<number>(3500); // Default annual consumption
   const [selectedContract, setSelectedContract] = useState<ContractOption | undefined>(undefined);
-  const [isLoadingPriceData, setIsLoadingPriceData] = useState<boolean>(true);
-  const [dataSource, setDataSource] = useState<string>('Lädt...');
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  const [dataError, setDataError] = useState<string | null>(null);
   const [dataResolution, setDataResolution] = useState<DataResolution>(readInitialDataResolution);
   const [priceUnit, setPriceUnit] = useState<PriceUnit>(readInitialPriceUnit);
+
+  const requestedRegions = useMemo(() => [region], [region]);
+  const { state: priceData, retry: retryPriceData } = usePriceData(requestedRegions, dataResolution);
+  const rawEnergyPrices = shownPriceSeries(priceData)[region.code] ?? NO_PRICES;
+  const shownResolution = shownPriceResolution(priceData, dataResolution);
+  const dataError = priceDataErrors(priceData)[region.code] ?? null;
+  const dataSource = priceData.status === 'loading'
+    ? 'Lädt...'
+    : rawEnergyPrices.length > 0
+      ? `${rawEnergyPrices.length.toLocaleString('de-AT')} reale ${resolutionLabel(shownResolution)} Preisdatensätze (${region.countryName})`
+      : 'Keine Datendatei verfügbar';
+  const priceBounds = useMemo(() => getTimestampBounds(rawEnergyPrices), [rawEnergyPrices]);
+  const earliestAvailableDate = useMemo(
+    () => (priceBounds ? getMarketCalendarDay(priceBounds.earliest, region.timezone) : null),
+    [priceBounds, region.timezone]
+  );
+  const latestAvailableDate = useMemo(
+    () => (priceBounds ? getMarketCalendarDay(priceBounds.latest, region.timezone) : null),
+    [priceBounds, region.timezone]
+  );
 
   const [showZeroLine, setShowZeroLine] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -189,11 +169,6 @@ const Index = ({ region }: IndexProps) => {
     cutoffValue === null ? '' : String(cutoffValue)
   );
   const [showSpotPriceWithTax, setShowSpotPriceWithTax] = useState(false);
-  // Keyed by region + resolution so data of one region is never shown for another.
-  const dataCacheRef = useRef<Record<string, CachedPriceData>>({});
-  const hasVisiblePriceDataRef = useRef(false);
-  /** `${region}:${resolution}` of the prices currently on screen. */
-  const visibleDataKeyRef = useRef<string | null>(null);
   const startDateRef = useRef<Date | null>(startDate);
   const endDateRef = useRef<Date | null>(endDate);
 
@@ -234,126 +209,20 @@ const Index = ({ region }: IndexProps) => {
     endDateRef.current = endDate;
   }, [endDate, startDate]);
 
+  // Without explicit dates, show the last year up to the latest available day once prices
+  // arrive; with only a start date, extend to the latest day.
   useEffect(() => {
-    let isMounted = true;
+    if (!priceBounds) return;
+    const latestDay = getMarketCalendarDay(priceBounds.latest, region.timezone);
 
-    const cacheKey = `${region.code}:${dataResolution}`;
-
-    const setDateRangeFromData = (bounds: { earliest: number; latest: number }) => {
-      const latestDay = getMarketCalendarDay(bounds.latest, region.timezone);
-
-      if (!startDateRef.current && !endDateRef.current) {
-        const defaultRange = getQuickRangeDates('1y', latestDay, getMarketCalendarDay(bounds.earliest, region.timezone));
-        setStartDate(defaultRange.startDate);
-        setEndDate(defaultRange.endDate);
-      } else if (startDateRef.current && !endDateRef.current) {
-        setEndDate(latestDay);
-      }
-    };
-
-    const applyPriceData = (cachedData: CachedPriceData, resetDateRange: boolean) => {
-      hasVisiblePriceDataRef.current = true;
-      visibleDataKeyRef.current = cacheKey;
-      setRawEnergyPrices(cachedData.data);
-      setDataSource(cachedData.dataSource);
-      setDataError(null);
-      const bounds = getTimestampBounds(cachedData.data);
-      setEarliestAvailableDate(bounds ? getMarketCalendarDay(bounds.earliest, region.timezone) : null);
-      setLatestAvailableDate(bounds ? getMarketCalendarDay(bounds.latest, region.timezone) : null);
-      if (resetDateRange && bounds) {
-        setDateRangeFromData(bounds);
-      }
-    };
-
-    const loadPriceData = async (preserveVisibleData = false) => {
-      try {
-        if (!preserveVisibleData) {
-          hasVisiblePriceDataRef.current = false;
-          setRawEnergyPrices([]);
-          setDisplayedEnergyPrices([]);
-        }
-
-        setIsLoadingPriceData(true);
-        setDataError(null);
-
-        const binaryPath = dataResolution === 'interval'
-          ? region.dataFiles.interval
-          : region.dataFiles.hourly;
-
-        if (!binaryPath) {
-          throw new Error('No data file configured for selected resolution');
-        }
-
-        const dataBaseUrl = getDataBaseUrl();
-        const binaryFile = `${dataBaseUrl}${binaryPath}`;
-        const realData = await fetchOptimizedBinaryPriceData(binaryFile, {
-          intervalMinutes: dataResolution === 'interval' ? 15 : 60,
-        });
-
-        if (!isMounted) return;
-
-        const cachedData = {
-          data: realData,
-          latestTimestamp: getLatestTimestamp(realData),
-          dataSource: `${realData.length.toLocaleString('de-AT')} reale ${resolutionLabel(dataResolution)} Preisdatensätze (${region.countryName})`,
-        };
-
-        dataCacheRef.current[cacheKey] = cachedData;
-        applyPriceData(cachedData, !preserveVisibleData);
-      } catch (error) {
-        console.warn(`Failed to load ${region.code} binary price data:`, error);
-
-        if (!isMounted) return;
-
-        if (!preserveVisibleData) {
-          hasVisiblePriceDataRef.current = false;
-          setRawEnergyPrices([]);
-          setDisplayedEnergyPrices([]);
-          setStartDate(null);
-          setEndDate(null);
-          setEarliestAvailableDate(null);
-          setLatestAvailableDate(null);
-          setDataSource('Keine Datendatei verfügbar');
-        } else if (visibleDataKeyRef.current && visibleDataKeyRef.current !== cacheKey) {
-          const [visibleRegion, visibleResolution] = visibleDataKeyRef.current.split(':');
-          if (visibleRegion === region.code) {
-            // Still showing the previous resolution; switch back so labels, stats and URL match it.
-            setDataResolution(visibleResolution as DataResolution);
-          } else {
-            // Never leave another region's prices on screen under this region's name.
-            hasVisiblePriceDataRef.current = false;
-            visibleDataKeyRef.current = null;
-            setRawEnergyPrices([]);
-            setDisplayedEnergyPrices([]);
-            setDataSource('Keine Datendatei verfügbar');
-          }
-        }
-        setDataError(priceLoadErrorMessage(error, region, dataResolution === 'interval'));
-      } finally {
-        if (isMounted) {
-          setIsLoadingPriceData(false);
-        }
-      }
-    };
-
-    const cachedData = dataCacheRef.current[cacheKey];
-    if (cachedData) {
-      applyPriceData(cachedData, false);
-      setIsLoadingPriceData(false);
-
-      void isCachedDataFresh(region, dataResolution, cachedData.latestTimestamp).then((fresh) => {
-        if (isMounted && !fresh) {
-          void loadPriceData(true);
-        }
-      });
-    } else {
-      void loadPriceData(hasVisiblePriceDataRef.current);
+    if (!startDateRef.current && !endDateRef.current) {
+      const defaultRange = getQuickRangeDates('1y', latestDay, getMarketCalendarDay(priceBounds.earliest, region.timezone));
+      setStartDate(defaultRange.startDate);
+      setEndDate(defaultRange.endDate);
+    } else if (startDateRef.current && !endDateRef.current) {
+      setEndDate(latestDay);
     }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [region, dataResolution, loadAttempt]);
+  }, [priceBounds, region.timezone]);
 
   useEffect(() => {
     safeStorageSetItem(DATA_RESOLUTION_STORAGE_KEY, dataResolution);
@@ -520,7 +389,7 @@ const Index = ({ region }: IndexProps) => {
           <Card className="animate-fade-in md:rounded-lg rounded-none">
             <CardHeader className="px-6 pb-1 pt-3 md:pt-4">
               <div className="flex items-center justify-end gap-2">
-                {isLoadingPriceData && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                {isPriceDataBusy(priceData) && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                 <HelpModal region={region}
                   trigger={
                     <Button variant="outline" size="sm" className="h-9 gap-2 px-3">
@@ -720,18 +589,15 @@ const Index = ({ region }: IndexProps) => {
                 
                 {/* Visualization */}
                 <div className="p-0 md:p-2 md:border border-none">
-                  {isLoadingPriceData ? (
+                  {priceData.status === 'loading' ? (
                     <div className="h-[400px] flex flex-col items-center justify-center bg-muted rounded-lg">
                       <Loader2 className="h-8 w-8 animate-spin mb-2" />
                       <p className="text-muted-foreground">Lädt Energiepreisdaten...</p>
                     </div>
-                  ) : dataError ? (
+                  ) : priceData.status === 'error' ? (
                     <div className="h-[400px] flex flex-col gap-4 items-center justify-center bg-muted rounded-lg px-4 text-center">
                       <p role="alert" className="text-muted-foreground">{dataError}</p>
-                      <Button variant="outline" onClick={() => {
-                        delete dataCacheRef.current[`${region.code}:${dataResolution}`];
-                        setLoadAttempt((attempt) => attempt + 1);
-                      }}>Erneut laden</Button>
+                      <Button variant="outline" onClick={retryPriceData}>Erneut laden</Button>
                     </div>
                   ) : displayedEnergyPrices.length > 0 ? (
                     <EnergyChart 
@@ -746,7 +612,7 @@ const Index = ({ region }: IndexProps) => {
                       averaging={isAveragingEnabled ? averaging : 'none'}
                       showZeroLine={showZeroLine}
                       showAverageLine={showAverageLine}
-                      dataResolution={dataResolution}
+                      dataResolution={shownResolution}
                       yMin={yMin}
                       yMax={yMax}
                       onAutoYDomainChange={handleAutoYDomainChange}
@@ -760,6 +626,13 @@ const Index = ({ region }: IndexProps) => {
                   ) : (
                     <div className="h-[400px] flex items-center justify-center bg-muted rounded-lg">
                       <p className="text-muted-foreground">Keine Daten für den ausgewählten Zeitraum verfügbar</p>
+                    </div>
+                  )}
+                  {/* A failed background refresh keeps the older prices on screen. */}
+                  {priceData.status === 'ready' && dataError && (
+                    <div className="flex flex-wrap items-center gap-2 px-2 pt-2 text-sm text-muted-foreground">
+                      <p role="alert">{dataError} Angezeigt werden die zuletzt geladenen Preise.</p>
+                      <Button variant="outline" size="sm" onClick={retryPriceData}>Erneut laden</Button>
                     </div>
                   )}
                 </div>
